@@ -358,15 +358,13 @@ If you don't need customer-managed keys, **`sse: B2`** (SSE-B2, B2-managed) is t
 
 ## Other Backblaze B2 Actions on the Marketplace
 
-If this Action doesn't fit your workflow, here are other community-maintained options on the GitHub Marketplace. The "migration step" column shows how to map each one to this Action if you decide to switch.
+If this Action doesn't fit your workflow, here are other community-maintained options on the GitHub Marketplace:
 
-| Action | Scope | Migration step |
-|---|---|---|
-| [`pigri/backblaze-b2-action`](https://github.com/pigri/backblaze-b2-action) | Syncs a directory to a B2 bucket via the `b2 sync` CLI. | `action: sync`, `source: $SOURCE_DIR`, `destination: ''`, `keep-mode: delete`. Rename env vars `B2_APPKEY_ID` to `B2_APPLICATION_KEY_ID` and `B2_APPKEY` to `B2_APPLICATION_KEY`. |
-| [`yamatt/backblaze-b2-upload-action`](https://github.com/yamatt/backblaze-b2-upload-action) | Uploads a single file to a B2 bucket. | `action: upload`. Rename `key_id` to `application-key-id`, `application_key` to `application-key`, `bucket_name` to `bucket`, `file_path` to `source`, `remote_path` to `destination`. |
-| [`sksat/b2-upload-action`](https://github.com/sksat/b2-upload-action) | Uploads a single file to a B2 bucket. | `action: upload`. Rename `key_id` to `application-key-id`, `key` to `application-key`, `src` to `source`, `dest` to `destination`. |
-| [`sylwit/install-b2-cli-action`](https://github.com/sylwit/install-b2-cli-action) | Installs the Backblaze `b2` CLI binary on the runner. | No replacement needed if you only wanted the `b2` CLI installed; keep using it. If you wanted to actually call B2, switch to this Action. |
-| [`andromidasj/install-b2-cli-action`](https://github.com/andromidasj/install-b2-cli-action) | Installs and authorizes the Backblaze `b2` CLI. | Same as above. |
+1. [`pigri/backblaze-b2-action`](https://github.com/pigri/backblaze-b2-action): syncs a directory to a B2 bucket via the `b2 sync` CLI.
+2. [`yamatt/backblaze-b2-upload-action`](https://github.com/yamatt/backblaze-b2-upload-action): uploads a single file to a B2 bucket.
+3. [`sksat/b2-upload-action`](https://github.com/sksat/b2-upload-action): uploads a single file to a B2 bucket.
+4. [`sylwit/install-b2-cli-action`](https://github.com/sylwit/install-b2-cli-action): installs the Backblaze `b2` CLI binary on the runner.
+5. [`andromidasj/install-b2-cli-action`](https://github.com/andromidasj/install-b2-cli-action): installs and authorizes the Backblaze `b2` CLI.
 
 ---
 

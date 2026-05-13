@@ -101,10 +101,17 @@ jobs:
       - run: pnpm install --frozen-lockfile
       - run: pnpm build
       - name: Verify dist/ matches src/
+        # WARNING, not error, while the sibling-SDK scaffold tracks `main`.
+        # Every SDK commit changes the bundled bytes, which would otherwise
+        # fail every PR until the dev manually rebuilds + commits. Once
+        # `@backblaze/b2-sdk` publishes to npm and we pin a version, this
+        # check should be restored to a hard `exit 1`.
         run: |
           if ! git diff --exit-code -- dist/; then
-            echo "::error::dist/ is out of sync with src/. Run 'pnpm build' and commit the result."
-            exit 1
+            echo "::warning::dist/ is out of sync with src/ (likely because SDK main advanced). Run 'pnpm build' locally and commit the result before publishing a release."
+            echo "### dist/ drift" >> "$GITHUB_STEP_SUMMARY"
+            echo "" >> "$GITHUB_STEP_SUMMARY"
+            echo "\`dist/index.js\` doesn't match a fresh \`pnpm build\` against the current SDK \`main\`. Acceptable during SDK development; **must be resolved before tagging a release**." >> "$GITHUB_STEP_SUMMARY"
           fi
       - name: Bundle size budget
         run: |

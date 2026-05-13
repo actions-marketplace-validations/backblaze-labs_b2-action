@@ -110,7 +110,7 @@ Every PR runs:
 | `test` (matrix: ubuntu/macos/windows) | typecheck + vitest unit suite |
 | `lint` | biome `--error-on-warnings` |
 | `coverage` | vitest with v8 coverage, threshold 95 % statements / 85 % branches / 100 % functions / 95 % lines |
-| `build-and-check-dist` | ncc build, then `git diff --exit-code dist/`, plus a 4 MiB bundle-size budget on `dist/index.js` |
+| `build-and-check-dist` | ncc build, then `git diff dist/`. **Drift is a warning, not an error**, while the SDK is on `main`-tracking (see [Sibling-SDK CI scaffold](#sibling-sdk-ci-scaffold-temporary)). Bundle size is gated hard at 4 MiB. |
 | `actionlint` | validates every workflow file under `.github/workflows/` |
 | `self-smoke` | runs `node dist/index.js` with no inputs, expects the missing-input error |
 
@@ -172,6 +172,21 @@ The redundancy is deliberate: the simulator suite is what guarantees a contribut
 Until [`@backblaze/b2-sdk`](https://github.com/backblaze-labs/b2-typescript-sdk) is published to npm, this repo's `package.json` references the SDK via `"@backblaze/b2-sdk": "link:../b2-typescript-sdk"`. That works locally because the SDK lives alongside this repo, but it's empty on a clean GitHub runner.
 
 To unblock CI, a composite action at [`.github/actions/setup-sdk-sibling/`](./.github/actions/setup-sdk-sibling/action.yml) clones the SDK as a sibling and builds it before `pnpm install` runs in this repo. It uses a fine-grained PAT stored as `SDK_REPO_TOKEN`.
+
+### SDK ref tracking + dist drift policy
+
+The composite action's default `ref:` is **`main`** — every CI run rebuilds against the current SDK HEAD. Because the SDK is still in active development, every advance of SDK `main` changes the bundled bytes of `dist/index.js`, even when nothing in *this* repo changed.
+
+To avoid blocking every PR with a "dist out of sync" error, **`ci.yml`'s `build-and-check-dist` job emits a *warning*, not an error**, when a fresh `pnpm build` produces a different `dist/` than what's committed. The warning is surfaced both in the job log and in the run's step summary.
+
+The `release.yml` workflow's equivalent check **stays strict** — releases must ship with `dist/` built against the SDK ref they're tagged at. Before tagging a release:
+
+1. `cd ../b2-typescript-sdk && git pull` (or check out the specific SDK ref you're releasing against).
+2. `cd ../b2-action && pnpm build`.
+3. `git add dist/ && git commit -m "build: regenerate dist/ for vX.Y.Z"`.
+4. Tag and push.
+
+Once the SDK publishes to npm, pin a version range in `package.json`, restore `build-and-check-dist` to hard-failing, and delete this whole scaffold.
 
 ### Wiring
 
