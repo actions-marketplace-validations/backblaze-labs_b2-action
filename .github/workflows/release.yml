@@ -1,0 +1,99 @@
+name: Release
+
+# Tag-driven release flow. Push a `v*` tag and this workflow:
+#   1. Runs the full test + lint + typecheck + build suite as a gate.
+#   2. Verifies the `dist/` committed at the tag matches a fresh `pnpm build`.
+#   3. Cuts a GitHub Release with a generated body.
+#   4. Moves the floating major tag (e.g. `v0`) to the tagged commit so users
+#      pinning `uses: backblaze-labs/b2-action@v0` track the latest minor/patch.
+#
+# Pre-release tags (`v*-alpha`, `v*-beta`, `v*-rc.*`) are published as
+# pre-releases and DO NOT update the floating major tag.
+
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: 'Tag to release (e.g. v0.1.0). Must already exist.'
+        required: true
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    env:
+      REF: ${{ github.event_name == 'workflow_dispatch' && inputs.tag || github.ref_name }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ env.REF }}
+          fetch-depth: 0
+
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 9
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: pnpm
+
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm lint
+      - run: pnpm typecheck
+      - run: pnpm test
+      - run: pnpm build
+
+      - name: Verify dist/ at tag matches a fresh build
+        run: |
+          if ! git diff --exit-code -- dist/; then
+            echo "::error::dist/ at $REF is out of sync with src/ at the same ref. Tag the commit only after `pnpm build` is committed."
+            exit 1
+          fi
+
+      - name: Verify VERSION matches the tag
+        run: |
+          TAG=${REF#v}
+          PKG_VERSION=$(node -p "require('./package.json').version")
+          SRC_VERSION=$(node -p "require('./dist/index.js'); 'baked'")
+          if [ "$TAG" != "$PKG_VERSION" ]; then
+            echo "::error::Tag '$REF' (-> $TAG) does not match package.json version '$PKG_VERSION'. Bump version before tagging."
+            exit 1
+          fi
+          echo "Tag $REF matches package.json version $PKG_VERSION ($SRC_VERSION)."
+
+      - name: Identify pre-release
+        id: prerelease
+        run: |
+          if [[ "$REF" =~ -(alpha|beta|rc)([.-][0-9]+)?$ ]]; then
+            echo "is_prerelease=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "is_prerelease=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Create / update GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ env.REF }}
+          name: ${{ env.REF }}
+          generate_release_notes: true
+          prerelease: ${{ steps.prerelease.outputs.is_prerelease == 'true' }}
+          fail_on_unmatched_files: false
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Move major-version floating tag (e.g. v0)
+        if: steps.prerelease.outputs.is_prerelease == 'false'
+        run: |
+          MAJOR=$(echo "$REF" | sed -nE 's/^(v[0-9]+).*/\1/p')
+          if [ -z "$MAJOR" ]; then
+            echo "::warning::Could not derive major-version tag from '$REF'; skipping float."
+            exit 0
+          fi
+          echo "Moving floating tag $MAJOR → $REF"
+          git tag -f "$MAJOR" "$REF"
+          git push origin "$MAJOR" --force

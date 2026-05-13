@@ -1,0 +1,83 @@
+name: Bug report
+description: A workflow using this action does not behave as expected.
+title: '[bug] '
+labels: ['bug', 'needs-triage']
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for taking the time to file a bug. Before submitting, please:
+
+        - **Redact credentials.** This Action calls `core.setSecret` on your app key, auth token, and any presigned URL, so the workflow live log masks them — but those masks do not survive copy-paste into this form. Replace any sensitive values with `<REDACTED>` before posting.
+        - Confirm you're on a recent version. Try pinning to a specific SHA or the latest `v0.x` tag to rule out an in-flight fix.
+
+  - type: input
+    id: version
+    attributes:
+      label: Action version
+      description: The `uses:` line from your workflow.
+      placeholder: 'backblaze-labs/b2-action@v0.1.0'
+    validations:
+      required: true
+
+  - type: dropdown
+    id: verb
+    attributes:
+      label: Verb
+      description: Which `action:` input was set?
+      options:
+        - upload
+        - download
+        - sync
+        - copy
+        - delete
+        - presign
+        - list
+        - hide
+        - unhide
+        - verify
+        - retention
+        - head
+        - purge
+        - other / unsure
+    validations:
+      required: true
+
+  - type: textarea
+    id: workflow
+    attributes:
+      label: Workflow snippet
+      description: The relevant step(s) from your workflow file.
+      render: yaml
+      placeholder: |
+        - uses: backblaze-labs/b2-action@v0
+          with:
+            action: upload
+            ...
+    validations:
+      required: true
+
+  - type: textarea
+    id: expected
+    attributes:
+      label: Expected behavior
+      placeholder: 'The action should ...'
+    validations:
+      required: true
+
+  - type: textarea
+    id: actual
+    attributes:
+      label: Actual behavior + log output
+      description: Paste the relevant log lines. Make sure to redact app keys, auth tokens, and presigned URLs.
+      render: text
+    validations:
+      required: true
+
+  - type: input
+    id: runner
+    attributes:
+      label: Runner OS
+      placeholder: 'ubuntu-latest / macos-latest / windows-latest / self-hosted'
+    validations:
+      required: false

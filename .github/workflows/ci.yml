@@ -1,0 +1,128 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    name: test (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 9
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm typecheck
+      - run: pnpm test
+
+  coverage:
+    name: coverage (>= 80% statements)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 9
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm test:coverage
+      - name: Upload coverage report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: coverage-lcov
+          path: coverage/lcov.info
+          if-no-files-found: ignore
+
+  lint:
+    name: lint
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 9
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm lint
+
+  build-and-check-dist:
+    name: build + dist freshness
+    runs-on: ubuntu-latest
+    env:
+      # Bundle-size ceiling. Bump deliberately if we add genuinely needed deps;
+      # never bump just to make CI green.
+      MAX_BUNDLE_BYTES: '4194304' # 4 MiB
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 9
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm build
+      - name: Verify dist/ matches src/
+        run: |
+          if ! git diff --exit-code -- dist/; then
+            echo "::error::dist/ is out of sync with src/. Run 'pnpm build' and commit the result."
+            exit 1
+          fi
+      - name: Bundle size budget
+        run: |
+          SIZE=$(wc -c < dist/index.js)
+          echo "dist/index.js is $SIZE bytes (budget: $MAX_BUNDLE_BYTES)"
+          echo "### Bundle size" >> "$GITHUB_STEP_SUMMARY"
+          echo "" >> "$GITHUB_STEP_SUMMARY"
+          echo "\`dist/index.js\` = **$SIZE bytes** (budget: **$MAX_BUNDLE_BYTES**)" >> "$GITHUB_STEP_SUMMARY"
+          if [ "$SIZE" -gt "$MAX_BUNDLE_BYTES" ]; then
+            echo "::error::dist/index.js exceeds budget. Either trim the dependency footprint or raise MAX_BUNDLE_BYTES in ci.yml with justification."
+            exit 1
+          fi
+
+  actionlint:
+    name: actionlint
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Run actionlint
+        uses: raven-actions/actionlint@v2
+
+  self-smoke:
+    name: action smoke test (offline)
+    runs-on: ubuntu-latest
+    needs: build-and-check-dist
+    steps:
+      - uses: actions/checkout@v4
+      - name: Invoke the bundle with missing action input
+        run: |
+          set +e
+          OUTPUT=$(node dist/index.js 2>&1)
+          set -e
+          echo "$OUTPUT"
+          echo "$OUTPUT" | grep -q "Input required and not supplied: action" || {
+            echo "::error::Expected an error about missing 'action' input"
+            exit 1
+          }

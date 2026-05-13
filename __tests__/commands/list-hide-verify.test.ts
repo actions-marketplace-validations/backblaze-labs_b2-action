@@ -1,0 +1,185 @@
+import { mkdtemp, rm, writeFile } from 'node:fs/promises'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
+import { B2Client } from '@backblaze/b2-sdk'
+import { B2Simulator } from '@backblaze/b2-sdk/simulator'
+import { afterEach, beforeEach, describe, expect, it } from 'vitest'
+import { hideCommand } from '../../src/commands/hide.ts'
+import { listCommand } from '../../src/commands/list.ts'
+import { unhideCommand } from '../../src/commands/unhide.ts'
+import { uploadCommand } from '../../src/commands/upload.ts'
+import { verifyCommand } from '../../src/commands/verify.ts'
+import { makeInputs } from '../_helpers.ts'
+
+interface Fixture {
+  workDir: string
+  bucket: Awaited<ReturnType<B2Client['createBucket']>>
+  client: B2Client
+}
+
+async function makeFixture(): Promise<Fixture> {
+  const sim = new B2Simulator()
+  const client = new B2Client({
+    applicationKeyId: 'test-key-id',
+    applicationKey: 'test-key',
+    transport: sim.transport(),
+  })
+  await client.authorize()
+  const bucket = await client.createBucket({
+    bucketName: 'gh-action-listhide',
+    bucketType: 'allPrivate',
+  })
+  const workDir = await mkdtemp(join(tmpdir(), 'b2-listhide-'))
+  return { workDir, bucket, client }
+}
+
+function inputs(action: Parameters<typeof makeInputs>[0], over: Record<string, unknown> = {}) {
+  return makeInputs(action, { bucket: 'gh-action-listhide', ...over })
+}
+
+describe('list command', () => {
+  let fx: Fixture
+  beforeEach(async () => {
+    fx = await makeFixture()
+  })
+  afterEach(async () => {
+    await rm(fx.workDir, { recursive: true, force: true })
+  })
+
+  it('returns visible files under a prefix with metadata', async () => {
+    for (const name of ['logs/a.txt', 'logs/b.txt', 'cache/c.txt']) {
+      const local = join(fx.workDir, name.replace('/', '_'))
+      await writeFile(local, name)
+      await uploadCommand(fx.bucket, inputs('upload', { source: local, destination: name }))
+    }
+
+    const result = await listCommand(fx.bucket, inputs('list', { source: 'logs/' }))
+    expect(result.files.map((f) => f.fileName).sort()).toEqual(['logs/a.txt', 'logs/b.txt'])
+    expect(result.files[0]?.size).toBeGreaterThan(0)
+    expect(result.files[0]?.contentSha1).not.toBeNull()
+    expect(result.truncated).toBe(false)
+  })
+
+  it('reports truncation when results hit max-results', async () => {
+    for (let i = 0; i < 5; i++) {
+      const local = join(fx.workDir, `f${i}.txt`)
+      await writeFile(local, `body-${i}`)
+      await uploadCommand(fx.bucket, inputs('upload', { source: local, destination: `f${i}.txt` }))
+    }
+    const result = await listCommand(fx.bucket, inputs('list', { maxResults: 2 }))
+    expect(result.files).toHaveLength(2)
+    expect(result.truncated).toBe(true)
+  })
+})
+
+describe('hide + unhide commands', () => {
+  let fx: Fixture
+  beforeEach(async () => {
+    fx = await makeFixture()
+  })
+  afterEach(async () => {
+    await rm(fx.workDir, { recursive: true, force: true })
+  })
+
+  it('hides a file (removed from listFileNames) then unhides it', async () => {
+    const local = join(fx.workDir, 'masked.txt')
+    await writeFile(local, 'visible')
+    await uploadCommand(fx.bucket, inputs('upload', { source: local, destination: 'masked.txt' }))
+
+    const hideResult = await hideCommand(fx.bucket, inputs('hide', { source: 'masked.txt' }))
+    expect(hideResult.fileName).toBe('masked.txt')
+    expect(hideResult.fileId).toBeTruthy()
+
+    const afterHide = await fx.bucket.listFileNames({ prefix: 'masked.txt' })
+    expect(afterHide.files.some((f) => f.fileName === 'masked.txt')).toBe(false)
+
+    const unhideResult = await unhideCommand(fx.bucket, inputs('unhide', { source: 'masked.txt' }))
+    expect(unhideResult.removedMarkerFileId).toBeTruthy()
+
+    const afterUnhide = await fx.bucket.listFileNames({ prefix: 'masked.txt' })
+    expect(
+      afterUnhide.files.some((f) => f.fileName === 'masked.txt' && f.action === 'upload'),
+    ).toBe(true)
+  })
+
+  it('unhide is a no-op when nothing is hidden', async () => {
+    const local = join(fx.workDir, 'visible.txt')
+    await writeFile(local, 'unhidden-already')
+    await uploadCommand(fx.bucket, inputs('upload', { source: local, destination: 'visible.txt' }))
+
+    const r = await unhideCommand(fx.bucket, inputs('unhide', { source: 'visible.txt' }))
+    expect(r.removedMarkerFileId).toBeNull()
+  })
+})
+
+describe('verify command', () => {
+  let fx: Fixture
+  beforeEach(async () => {
+    fx = await makeFixture()
+  })
+  afterEach(async () => {
+    await rm(fx.workDir, { recursive: true, force: true })
+  })
+
+  it('returns verified=true when local SHA-1 matches remote', async () => {
+    const local = join(fx.workDir, 'ok.txt')
+    await writeFile(local, 'consistent content')
+    await uploadCommand(fx.bucket, inputs('upload', { source: local, destination: 'ok.txt' }))
+
+    const result = await verifyCommand(
+      fx.bucket,
+      inputs('verify', { source: 'ok.txt', destination: local }),
+    )
+    expect(result.verified).toBe(true)
+    expect(result.remoteSha1).not.toBeNull()
+    expect(result.localSha1).toBe(result.remoteSha1)
+  })
+
+  it('returns verified=false when local content has drifted', async () => {
+    const local = join(fx.workDir, 'drift.txt')
+    await writeFile(local, 'first content')
+    await uploadCommand(fx.bucket, inputs('upload', { source: local, destination: 'drift.txt' }))
+
+    await writeFile(local, 'drifted content')
+    const result = await verifyCommand(
+      fx.bucket,
+      inputs('verify', { source: 'drift.txt', destination: local }),
+    )
+    expect(result.verified).toBe(false)
+    expect(result.reason).toMatch(/SHA-1 mismatch/)
+  })
+
+  it('accepts an expected-sha1 literal without a local file', async () => {
+    const local = join(fx.workDir, 'literal.txt')
+    await writeFile(local, 'literal')
+    await uploadCommand(fx.bucket, inputs('upload', { source: local, destination: 'literal.txt' }))
+
+    // First fetch the real SHA-1 by running with the local file.
+    const baseline = await verifyCommand(
+      fx.bucket,
+      inputs('verify', { source: 'literal.txt', destination: local }),
+    )
+    expect(baseline.verified).toBe(true)
+
+    // Then verify again using only the literal.
+    const literal = await verifyCommand(
+      fx.bucket,
+      inputs('verify', {
+        source: 'literal.txt',
+        expectedSha1: baseline.remoteSha1 ?? 'bogus',
+      }),
+    )
+    expect(literal.verified).toBe(true)
+    expect(literal.localSha1).toBeNull()
+  })
+
+  it('throws when neither destination nor expected-sha1 is given', async () => {
+    const local = join(fx.workDir, 'needy.txt')
+    await writeFile(local, 'needs-input')
+    await uploadCommand(fx.bucket, inputs('upload', { source: local, destination: 'needy.txt' }))
+
+    await expect(
+      verifyCommand(fx.bucket, inputs('verify', { source: 'needy.txt' })),
+    ).rejects.toThrow(/expected-sha1.*destination/)
+  })
+})

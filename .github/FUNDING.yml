@@ -1,0 +1,8 @@
+# Funding configuration for this repo.
+# https://docs.github.com/en/repositories/managing-your-repositorys-settings-and-security/customizing-your-repository/displaying-a-sponsor-button-in-your-repository
+#
+# This Action is maintained by Backblaze. The most direct way to "support"
+# the project is to use Backblaze B2 for your storage needs — the free tier
+# (10 GB, no credit card) covers most CI use cases.
+
+custom: ['https://www.backblaze.com/cloud-storage/pricing']

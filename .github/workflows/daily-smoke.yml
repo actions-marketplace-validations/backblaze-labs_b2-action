@@ -1,0 +1,143 @@
+name: Daily smoke (real B2)
+
+# Runs once a day against a real B2 test bucket to catch API drift or SDK
+# regressions before user-reported issues do. Exercises the most-used
+# verbs (upload, download, sync, list, presign, delete) end-to-end.
+#
+# Differs from the example workflows in two ways:
+#   1. Single concentrated test rather than one workflow per pattern,
+#      so the daily Actions UI doesn't get flooded with 10 entries.
+#   2. Always fails loudly: there's no "skip on fork" gate, because this
+#      workflow only runs on the upstream repo (`schedule` events never
+#      fire on forks).
+
+on:
+  schedule:
+    # 03:13 UTC daily. Off-the-hour to avoid the GH Actions cron stampede.
+    - cron: '13 3 * * *'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: daily-smoke
+  cancel-in-progress: false
+
+jobs:
+  smoke:
+    runs-on: ubuntu-latest
+    env:
+      RUN_PREFIX: smoke/daily/${{ github.run_id }}-${{ github.run_attempt }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 9
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm build
+
+      - name: Build payloads
+        run: |
+          mkdir -p ./fixture/site/sub
+          echo "smoke-$(date -u +%s)-$GITHUB_RUN_ID" > ./fixture/hello.txt
+          dd if=/dev/urandom of=./fixture/big.bin bs=1024 count=512   # 512 KiB
+          echo a > ./fixture/site/a.txt
+          echo b > ./fixture/site/b.txt
+          echo c > ./fixture/site/sub/c.txt
+
+      - name: Upload (single)
+        id: up
+        uses: ./
+        with:
+          action: upload
+          application-key-id: ${{ secrets.B2_APPLICATION_KEY_ID }}
+          application-key: ${{ secrets.B2_APPLICATION_KEY }}
+          bucket: ${{ secrets.B2_TEST_BUCKET }}
+          source: ./fixture/hello.txt
+          destination: ${{ env.RUN_PREFIX }}/hello.txt
+
+      - name: Upload (larger, multipart-friendly)
+        uses: ./
+        with:
+          action: upload
+          application-key-id: ${{ secrets.B2_APPLICATION_KEY_ID }}
+          application-key: ${{ secrets.B2_APPLICATION_KEY }}
+          bucket: ${{ secrets.B2_TEST_BUCKET }}
+          source: ./fixture/big.bin
+          destination: ${{ env.RUN_PREFIX }}/big.bin
+
+      - name: Sync directory
+        uses: ./
+        with:
+          action: sync
+          application-key-id: ${{ secrets.B2_APPLICATION_KEY_ID }}
+          application-key: ${{ secrets.B2_APPLICATION_KEY }}
+          bucket: ${{ secrets.B2_TEST_BUCKET }}
+          source: ./fixture/site
+          destination: ${{ env.RUN_PREFIX }}/site
+          compare-mode: modtime
+
+      - name: List the prefix
+        id: ls
+        uses: ./
+        with:
+          action: list
+          application-key-id: ${{ secrets.B2_APPLICATION_KEY_ID }}
+          application-key: ${{ secrets.B2_APPLICATION_KEY }}
+          bucket: ${{ secrets.B2_TEST_BUCKET }}
+          source: ${{ env.RUN_PREFIX }}/
+
+      - name: Assert at least 5 files
+        run: |
+          COUNT=${{ steps.ls.outputs.files-listed }}
+          test "$COUNT" -ge 5 || { echo "Expected ≥5 files listed, got $COUNT"; exit 1; }
+
+      - name: Verify SHA-1 (HEAD, no body transfer)
+        uses: ./
+        with:
+          action: verify
+          application-key-id: ${{ secrets.B2_APPLICATION_KEY_ID }}
+          application-key: ${{ secrets.B2_APPLICATION_KEY }}
+          bucket: ${{ secrets.B2_TEST_BUCKET }}
+          source: ${{ env.RUN_PREFIX }}/hello.txt
+          destination: ./fixture/hello.txt
+
+      - name: Presign (single)
+        id: link
+        uses: ./
+        with:
+          action: presign
+          application-key-id: ${{ secrets.B2_APPLICATION_KEY_ID }}
+          application-key: ${{ secrets.B2_APPLICATION_KEY }}
+          bucket: ${{ secrets.B2_TEST_BUCKET }}
+          source: ${{ env.RUN_PREFIX }}/hello.txt
+          presign-ttl: 600
+
+      - name: Confirm presigned URL is set
+        run: test -n "${{ steps.link.outputs.presigned-url }}"
+
+      - name: Download and diff
+        uses: ./
+        with:
+          action: download
+          application-key-id: ${{ secrets.B2_APPLICATION_KEY_ID }}
+          application-key: ${{ secrets.B2_APPLICATION_KEY }}
+          bucket: ${{ secrets.B2_TEST_BUCKET }}
+          source: ${{ env.RUN_PREFIX }}/hello.txt
+          destination: ./fixture/hello.roundtripped.txt
+      - run: diff ./fixture/hello.txt ./fixture/hello.roundtripped.txt
+
+      - name: Cleanup
+        if: always()
+        uses: ./
+        with:
+          action: delete
+          application-key-id: ${{ secrets.B2_APPLICATION_KEY_ID }}
+          application-key: ${{ secrets.B2_APPLICATION_KEY }}
+          bucket: ${{ secrets.B2_TEST_BUCKET }}
+          source: ${{ env.RUN_PREFIX }}/

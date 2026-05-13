@@ -1,0 +1,101 @@
+name: 'Example — server-side encryption (SSE-B2 + SSE-C)'
+
+# Exercises both encryption flavors:
+#   - SSE-B2: B2 manages the key. No setup beyond `sse: B2`.
+#   - SSE-C: the workflow supplies a 256-bit key (base64), uploads with it,
+#     then must supply the same key to download.
+
+on:
+  workflow_dispatch:
+  pull_request:
+    paths:
+      - '.github/workflows/example-sse-encryption.yml'
+      - 'src/**'
+      - 'dist/**'
+
+permissions:
+  contents: read
+
+jobs:
+  encryption:
+    if: github.event_name == 'workflow_dispatch' || github.event.pull_request.head.repo.fork == false
+    runs-on: ubuntu-latest
+    env:
+      KEY_B2: examples/sse/${{ github.run_id }}/sse-b2.txt
+      KEY_C: examples/sse/${{ github.run_id }}/sse-c.txt
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Create payloads
+        run: |
+          echo "encrypted by Backblaze keys" > b2.txt
+          echo "encrypted by my own key" > c.txt
+          # Generate a 32-byte (256-bit) base64-encoded key. In a real
+          # workflow, store this in a secret instead of generating it here.
+          openssl rand -base64 32 > sse_c_key.b64
+
+      - name: Upload with SSE-B2
+        uses: ./
+        with:
+          action: upload
+          application-key-id: ${{ secrets.B2_APPLICATION_KEY_ID }}
+          application-key: ${{ secrets.B2_APPLICATION_KEY }}
+          bucket: ${{ secrets.B2_TEST_BUCKET }}
+          source: b2.txt
+          destination: ${{ env.KEY_B2 }}
+          sse: B2
+
+      - name: Download SSE-B2 (no key needed; B2 manages it)
+        uses: ./
+        with:
+          action: download
+          application-key-id: ${{ secrets.B2_APPLICATION_KEY_ID }}
+          application-key: ${{ secrets.B2_APPLICATION_KEY }}
+          bucket: ${{ secrets.B2_TEST_BUCKET }}
+          source: ${{ env.KEY_B2 }}
+          destination: ./b2.roundtripped.txt
+      - run: diff b2.txt b2.roundtripped.txt
+
+      - name: Upload with SSE-C (customer-supplied key)
+        env:
+          SSE_C_KEY: ${{ secrets.B2_SSE_C_KEY_B64 }}
+        run: |
+          # Use the secret if it exists, else fall back to the per-run key
+          # so the example still runs without that secret being configured.
+          if [ -z "$SSE_C_KEY" ]; then
+            SSE_C_KEY=$(cat sse_c_key.b64)
+          fi
+          echo "SSE_C_KEY=$SSE_C_KEY" >> "$GITHUB_ENV"
+
+      - name: Upload SSE-C
+        uses: ./
+        with:
+          action: upload
+          application-key-id: ${{ secrets.B2_APPLICATION_KEY_ID }}
+          application-key: ${{ secrets.B2_APPLICATION_KEY }}
+          bucket: ${{ secrets.B2_TEST_BUCKET }}
+          source: c.txt
+          destination: ${{ env.KEY_C }}
+          sse: 'C:${{ env.SSE_C_KEY }}'
+
+      - name: Download SSE-C with the same key
+        uses: ./
+        with:
+          action: download
+          application-key-id: ${{ secrets.B2_APPLICATION_KEY_ID }}
+          application-key: ${{ secrets.B2_APPLICATION_KEY }}
+          bucket: ${{ secrets.B2_TEST_BUCKET }}
+          source: ${{ env.KEY_C }}
+          destination: ./c.roundtripped.txt
+          sse: 'C:${{ env.SSE_C_KEY }}'
+      - run: diff c.txt c.roundtripped.txt
+
+      - name: Cleanup
+        if: always()
+        uses: ./
+        with:
+          action: delete
+          application-key-id: ${{ secrets.B2_APPLICATION_KEY_ID }}
+          application-key: ${{ secrets.B2_APPLICATION_KEY }}
+          bucket: ${{ secrets.B2_TEST_BUCKET }}
+          source: examples/sse/${{ github.run_id }}/

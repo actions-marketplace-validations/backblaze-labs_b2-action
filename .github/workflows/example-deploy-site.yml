@@ -1,0 +1,62 @@
+name: 'Example — deploy site (sync)'
+
+# Build a static site and sync the output directory to B2. Replaces the
+# `b2 sync` pattern used by older Docker-based actions.
+
+on:
+  workflow_dispatch:
+  pull_request:
+    paths:
+      - '.github/workflows/example-deploy-site.yml'
+      - 'src/**'
+      - 'dist/**'
+
+permissions:
+  contents: read
+
+jobs:
+  deploy:
+    if: github.event_name == 'workflow_dispatch' || github.event.pull_request.head.repo.fork == false
+    runs-on: ubuntu-latest
+    env:
+      DEPLOY_PREFIX: examples/deploy-site/${{ github.run_id }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Build the synthetic site
+        run: |
+          mkdir -p _site/assets _site/blog
+          echo '<h1>hello from CI</h1>' > _site/index.html
+          echo 'body { font-family: system-ui; }' > _site/assets/styles.css
+          echo 'first post' > _site/blog/2026-05-13.md
+
+      - name: Sync to B2
+        uses: ./
+        with:
+          action: sync
+          application-key-id: ${{ secrets.B2_APPLICATION_KEY_ID }}
+          application-key: ${{ secrets.B2_APPLICATION_KEY }}
+          bucket: ${{ secrets.B2_TEST_BUCKET }}
+          source: ./_site
+          destination: ${{ env.DEPLOY_PREFIX }}
+          compare-mode: modtime
+          keep-mode: delete   # remove remote files no longer present locally
+
+      - name: Verify all three files landed
+        uses: ./
+        with:
+          action: list
+          application-key-id: ${{ secrets.B2_APPLICATION_KEY_ID }}
+          application-key: ${{ secrets.B2_APPLICATION_KEY }}
+          bucket: ${{ secrets.B2_TEST_BUCKET }}
+          source: ${{ env.DEPLOY_PREFIX }}/
+
+      - name: Cleanup
+        if: always()
+        uses: ./
+        with:
+          action: delete
+          application-key-id: ${{ secrets.B2_APPLICATION_KEY_ID }}
+          application-key: ${{ secrets.B2_APPLICATION_KEY }}
+          bucket: ${{ secrets.B2_TEST_BUCKET }}
+          source: ${{ env.DEPLOY_PREFIX }}/

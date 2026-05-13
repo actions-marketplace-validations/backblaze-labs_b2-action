@@ -1,0 +1,78 @@
+name: 'Example — cross-bucket replicate (server-side)'
+
+# Copy an artifact from a source bucket to a destination bucket without the
+# bytes traversing the runner. Useful for promote-staging-to-prod patterns
+# where the two environments are separate buckets.
+
+on:
+  workflow_dispatch:
+  pull_request:
+    paths:
+      - '.github/workflows/example-cross-bucket-replicate.yml'
+      - 'src/**'
+      - 'dist/**'
+
+permissions:
+  contents: read
+
+jobs:
+  replicate:
+    if: github.event_name == 'workflow_dispatch' || github.event.pull_request.head.repo.fork == false
+    runs-on: ubuntu-latest
+    env:
+      KEY: examples/cross-bucket/${{ github.run_id }}/artifact.tar.gz
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Build a synthetic artifact
+        run: |
+          mkdir -p _art && date -u > _art/timestamp.txt && tar -czf artifact.tar.gz _art
+
+      - name: Upload to source bucket
+        uses: ./
+        with:
+          action: upload
+          application-key-id: ${{ secrets.B2_APPLICATION_KEY_ID }}
+          application-key: ${{ secrets.B2_APPLICATION_KEY }}
+          bucket: ${{ secrets.B2_TEST_BUCKET_SRC }}
+          source: artifact.tar.gz
+          destination: ${{ env.KEY }}
+
+      - name: Replicate to destination bucket (server-side, cross-bucket)
+        id: copy
+        uses: ./
+        with:
+          action: copy
+          application-key-id: ${{ secrets.B2_APPLICATION_KEY_ID }}
+          application-key: ${{ secrets.B2_APPLICATION_KEY }}
+          bucket: ${{ secrets.B2_TEST_BUCKET }}        # destination
+          source-bucket: ${{ secrets.B2_TEST_BUCKET_SRC }}
+          source: ${{ env.KEY }}
+          destination: ${{ env.KEY }}
+
+      - name: Confirm copy produced a file-id
+        run: test -n "${{ steps.copy.outputs.file-id }}"
+
+      - name: Cleanup both buckets
+        if: always()
+        run: echo "Cleanup runs in next steps"
+
+      - name: Cleanup source
+        if: always()
+        uses: ./
+        with:
+          action: delete
+          application-key-id: ${{ secrets.B2_APPLICATION_KEY_ID }}
+          application-key: ${{ secrets.B2_APPLICATION_KEY }}
+          bucket: ${{ secrets.B2_TEST_BUCKET_SRC }}
+          source: ${{ env.KEY }}
+
+      - name: Cleanup destination
+        if: always()
+        uses: ./
+        with:
+          action: delete
+          application-key-id: ${{ secrets.B2_APPLICATION_KEY_ID }}
+          application-key: ${{ secrets.B2_APPLICATION_KEY }}
+          bucket: ${{ secrets.B2_TEST_BUCKET }}
+          source: ${{ env.KEY }}

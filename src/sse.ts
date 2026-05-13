@@ -1,0 +1,52 @@
+import { Buffer } from 'node:buffer'
+import { createHash } from 'node:crypto'
+import { SSE_B2, sseCustomer } from '@backblaze/b2-sdk'
+import type { EncryptionSetting } from '@backblaze/b2-sdk'
+
+/**
+ * Parse the `sse` input into an SDK {@link EncryptionSetting}.
+ *
+ * Accepted forms:
+ *   - `undefined` / empty → no encryption setting passed (B2 still applies any
+ *      bucket-default SSE-B2; we just don't override it).
+ *   - `"B2"` (case-insensitive) → SSE-B2 with the B2-managed key (no cost).
+ *   - `"C:<base64-32-byte-key>"` → SSE-C with a customer-provided key. We
+ *      compute the required base64 MD5 internally so the workflow author
+ *      doesn't have to.
+ *
+ * The action runs in Node only, so we use `node:crypto.createHash('md5')`
+ * directly rather than the SDK's isomorphic key wrapper. We deliberately do
+ * NOT log the key bytes; the only place they ever go is into the
+ * `customerKey` field of the SDK setting which the SDK marks as a secret in
+ * any error / debug output.
+ */
+export function parseSse(raw: string | undefined): EncryptionSetting | undefined {
+  if (raw === undefined || raw === '') return undefined
+
+  const normalized = raw.trim()
+  if (normalized.toUpperCase() === 'B2') return SSE_B2
+
+  if (normalized.startsWith('C:') || normalized.startsWith('c:')) {
+    const base64Key = normalized.slice(2).trim()
+    if (base64Key === '') {
+      throw new Error("SSE-C key is empty. Use 'C:<base64-encoded-32-byte-key>'.")
+    }
+    let keyBytes: Buffer
+    try {
+      keyBytes = Buffer.from(base64Key, 'base64')
+      /* v8 ignore next 3 -- Node's Buffer.from with 'base64' silently drops invalid chars rather than throwing; the catch is defensive in case the behavior tightens in a future Node version */
+    } catch (err) {
+      throw new Error(`SSE-C key is not valid base64: ${(err as Error).message}`)
+    }
+    if (keyBytes.byteLength !== 32) {
+      throw new Error(
+        `SSE-C key must decode to exactly 32 bytes (256 bits); got ${keyBytes.byteLength}.`,
+      )
+    }
+    const customerKey = keyBytes.toString('base64')
+    const customerKeyMd5 = createHash('md5').update(keyBytes).digest('base64')
+    return sseCustomer(customerKey, customerKeyMd5)
+  }
+
+  throw new Error(`Invalid 'sse' input: "${raw}". Expected "B2" or "C:<base64-32-byte-key>".`)
+}

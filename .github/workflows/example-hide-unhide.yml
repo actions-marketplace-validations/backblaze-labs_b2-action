@@ -1,0 +1,92 @@
+name: 'Example — hide & unhide (soft delete / restore)'
+
+# Demonstrates the soft-delete pattern: hide a file so it stops appearing
+# in lists, then unhide it later. Underlying data and prior versions
+# remain in B2 until lifecycle rules collect them.
+
+on:
+  workflow_dispatch:
+  pull_request:
+    paths:
+      - '.github/workflows/example-hide-unhide.yml'
+      - 'src/**'
+      - 'dist/**'
+
+permissions:
+  contents: read
+
+jobs:
+  soft-delete:
+    if: github.event_name == 'workflow_dispatch' || github.event.pull_request.head.repo.fork == false
+    runs-on: ubuntu-latest
+    env:
+      KEY: examples/hide/${{ github.run_id }}/masked.txt
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Create payload
+        run: echo "this is the visible content" > masked.txt
+
+      - name: Upload
+        uses: ./
+        with:
+          action: upload
+          application-key-id: ${{ secrets.B2_APPLICATION_KEY_ID }}
+          application-key: ${{ secrets.B2_APPLICATION_KEY }}
+          bucket: ${{ secrets.B2_TEST_BUCKET }}
+          source: masked.txt
+          destination: ${{ env.KEY }}
+
+      - name: Hide
+        uses: ./
+        with:
+          action: hide
+          application-key-id: ${{ secrets.B2_APPLICATION_KEY_ID }}
+          application-key: ${{ secrets.B2_APPLICATION_KEY }}
+          bucket: ${{ secrets.B2_TEST_BUCKET }}
+          source: ${{ env.KEY }}
+
+      - name: List should now skip the hidden file
+        id: ls-hidden
+        uses: ./
+        with:
+          action: list
+          application-key-id: ${{ secrets.B2_APPLICATION_KEY_ID }}
+          application-key: ${{ secrets.B2_APPLICATION_KEY }}
+          bucket: ${{ secrets.B2_TEST_BUCKET }}
+          source: ${{ env.KEY }}
+
+      - name: Assert list is empty
+        run: test "${{ steps.ls-hidden.outputs.files-listed }}" = "0"
+
+      - name: Unhide
+        uses: ./
+        with:
+          action: unhide
+          application-key-id: ${{ secrets.B2_APPLICATION_KEY_ID }}
+          application-key: ${{ secrets.B2_APPLICATION_KEY }}
+          bucket: ${{ secrets.B2_TEST_BUCKET }}
+          source: ${{ env.KEY }}
+
+      - name: List should now include the file again
+        id: ls-visible
+        uses: ./
+        with:
+          action: list
+          application-key-id: ${{ secrets.B2_APPLICATION_KEY_ID }}
+          application-key: ${{ secrets.B2_APPLICATION_KEY }}
+          bucket: ${{ secrets.B2_TEST_BUCKET }}
+          source: ${{ env.KEY }}
+
+      - name: Assert list is non-empty
+        run: test "${{ steps.ls-visible.outputs.files-listed }}" = "1"
+
+      - name: Cleanup
+        if: always()
+        uses: ./
+        with:
+          action: delete
+          application-key-id: ${{ secrets.B2_APPLICATION_KEY_ID }}
+          application-key: ${{ secrets.B2_APPLICATION_KEY }}
+          bucket: ${{ secrets.B2_TEST_BUCKET }}
+          source: ${{ env.KEY }}

@@ -1,0 +1,27 @@
+# Editor consistency for contributors whose IDE does not have Biome wired up.
+# Mirrors biome.json: 2-space indent, single quotes, no trailing whitespace,
+# 100-char line width, LF line endings.
+# https://editorconfig.org
+
+root = true
+
+[*]
+indent_style = space
+indent_size = 2
+end_of_line = lf
+charset = utf-8
+trim_trailing_whitespace = true
+insert_final_newline = true
+max_line_length = 100
+
+[*.md]
+# Markdown sometimes needs trailing whitespace for hard line breaks.
+trim_trailing_whitespace = false
+max_line_length = off
+
+[*.{yml,yaml}]
+# Workflow files can have indent-sensitive nesting; keep 2-space.
+indent_size = 2
+
+[Makefile]
+indent_style = tab

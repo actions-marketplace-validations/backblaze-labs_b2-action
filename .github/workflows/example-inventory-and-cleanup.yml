@@ -1,0 +1,88 @@
+name: 'Example — inventory & cleanup (list + delete dry-run)'
+
+# Catalogue files under a prefix as JSON, then preview a cleanup with
+# dry-run before doing the actual delete. The list output is also useful
+# as input to a downstream "find stale assets" job.
+
+on:
+  workflow_dispatch:
+  pull_request:
+    paths:
+      - '.github/workflows/example-inventory-and-cleanup.yml'
+      - 'src/**'
+      - 'dist/**'
+
+permissions:
+  contents: read
+
+jobs:
+  inventory:
+    if: github.event_name == 'workflow_dispatch' || github.event.pull_request.head.repo.fork == false
+    runs-on: ubuntu-latest
+    env:
+      PREFIX: examples/inventory/${{ github.run_id }}/
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Seed the prefix with a few files
+        run: |
+          mkdir -p _seed
+          for i in 1 2 3 4 5; do
+            echo "payload-$i" > "_seed/asset-$i.txt"
+          done
+
+      - name: Upload seed files
+        uses: ./
+        with:
+          action: sync
+          application-key-id: ${{ secrets.B2_APPLICATION_KEY_ID }}
+          application-key: ${{ secrets.B2_APPLICATION_KEY }}
+          bucket: ${{ secrets.B2_TEST_BUCKET }}
+          source: ./_seed
+          destination: ${{ env.PREFIX }}
+
+      - name: List inventory
+        id: inv
+        uses: ./
+        with:
+          action: list
+          application-key-id: ${{ secrets.B2_APPLICATION_KEY_ID }}
+          application-key: ${{ secrets.B2_APPLICATION_KEY }}
+          bucket: ${{ secrets.B2_TEST_BUCKET }}
+          source: ${{ env.PREFIX }}
+
+      - name: Show inventory JSON
+        env:
+          INVENTORY: ${{ steps.inv.outputs.summary-json }}
+        run: |
+          echo "$INVENTORY" | head -c 4000
+          echo "Files listed: ${{ steps.inv.outputs.files-listed }}"
+          test "${{ steps.inv.outputs.files-listed }}" = "5"
+
+      - name: Preview cleanup (dry-run)
+        uses: ./
+        with:
+          action: delete
+          application-key-id: ${{ secrets.B2_APPLICATION_KEY_ID }}
+          application-key: ${{ secrets.B2_APPLICATION_KEY }}
+          bucket: ${{ secrets.B2_TEST_BUCKET }}
+          source: ${{ env.PREFIX }}
+          dry-run: true
+
+      - name: Actual cleanup
+        uses: ./
+        with:
+          action: delete
+          application-key-id: ${{ secrets.B2_APPLICATION_KEY_ID }}
+          application-key: ${{ secrets.B2_APPLICATION_KEY }}
+          bucket: ${{ secrets.B2_TEST_BUCKET }}
+          source: ${{ env.PREFIX }}
+
+      - name: Confirm empty
+        uses: ./
+        with:
+          action: list
+          application-key-id: ${{ secrets.B2_APPLICATION_KEY_ID }}
+          application-key: ${{ secrets.B2_APPLICATION_KEY }}
+          bucket: ${{ secrets.B2_TEST_BUCKET }}
+          source: ${{ env.PREFIX }}

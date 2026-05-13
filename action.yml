@@ -1,0 +1,132 @@
+name: 'backblaze-b2'
+description: 'Upload, download, sync, copy, delete, hide, verify, presign, and lock Backblaze B2 Cloud Storage from GitHub Actions. TypeScript-native, built on the official b2-sdk.'
+author: 'Backblaze, Inc.'
+branding:
+  icon: 'archive'
+  color: 'red'
+
+inputs:
+  action:
+    description: 'One of: upload | download | sync | copy | delete | presign | list | hide | unhide | verify | retention | head | purge'
+    required: true
+  application-key-id:
+    description: 'B2 application key ID. If unset, falls back to the $B2_APPLICATION_KEY_ID env var.'
+    required: false
+  application-key:
+    description: 'B2 application key. If unset, falls back to the $B2_APPLICATION_KEY env var.'
+    required: false
+  bucket:
+    description: 'Target bucket name (the destination bucket for copy).'
+    required: true
+  source-bucket:
+    description: 'Source bucket for cross-bucket copy. Defaults to `bucket`.'
+    required: false
+  source:
+    description: 'Command-dependent. upload/sync (up): local path or glob. download/sync (down)/copy/delete/presign/list/hide/unhide/verify/retention: B2 file name or prefix.'
+    required: false
+  destination:
+    description: 'Command-dependent. upload/sync (up): B2 file name or prefix. download/sync (down): local path or directory. copy: destination B2 file name. verify: local file to compare against the remote SHA-1.'
+    required: false
+  include:
+    description: 'Comma-separated globs to include (upload). Patterns are anchored to source.'
+    required: false
+  exclude:
+    description: 'Comma-separated globs to exclude (upload). Defaults exclude .git/**.'
+    required: false
+    default: '.git/**'
+  concurrency:
+    description: 'Parallel parts for a large upload, or parallel files for a glob/sync (default 4).'
+    required: false
+    default: '4'
+  part-size:
+    description: 'Multipart part size in bytes. Defaults to the SDK-recommended size.'
+    required: false
+  resume:
+    description: 'Resume an in-progress large-file upload (default true).'
+    required: false
+    default: 'true'
+  content-type:
+    description: 'Content-Type for uploads. Defaults to "b2/x-auto" (B2 auto-detects).'
+    required: false
+  dry-run:
+    description: 'Preview what would happen without executing (sync/delete). Default false.'
+    required: false
+    default: 'false'
+  presign-ttl:
+    description: 'Presigned URL TTL in seconds (presign action). Default 3600.'
+    required: false
+    default: '3600'
+  endpoint:
+    description: 'Override the B2 realm endpoint. Leave empty for production.'
+    required: false
+  fail-on-empty:
+    description: 'Fail the action if an upload glob matches zero files (default true).'
+    required: false
+    default: 'true'
+  sse:
+    description: 'Server-side encryption: "B2" (SSE-B2) or "C:<base64-32-byte-key>" (SSE-C).'
+    required: false
+  compare-mode:
+    description: 'Sync comparison: modtime | size | none. Default modtime.'
+    required: false
+    default: 'modtime'
+  keep-mode:
+    description: 'Sync deletion policy for orphans: no-delete | delete | keep-days. Default no-delete.'
+    required: false
+    default: 'no-delete'
+  direction:
+    description: 'Sync direction: auto | up (local→B2) | down (B2→local). Default auto.'
+    required: false
+    default: 'auto'
+  max-results:
+    description: 'Maximum number of files returned by `list` (default 1000).'
+    required: false
+    default: '1000'
+  expected-sha1:
+    description: 'Expected SHA-1 hex digest for `verify`. If unset, the SHA-1 is computed from `destination` (a local file).'
+    required: false
+  retention-mode:
+    description: 'Object Lock retention mode for `retention`: compliance | governance | none.'
+    required: false
+  retention-until:
+    description: 'ISO 8601 timestamp until which the file is retained (required when retention-mode is compliance/governance).'
+    required: false
+  legal-hold:
+    description: 'Legal hold status for `retention`: on | off.'
+    required: false
+  bypass-governance:
+    description: 'Allow shortening a governance-mode retention (requires bypassGovernance capability).'
+    required: false
+    default: 'false'
+
+outputs:
+  file-id:
+    description: 'B2 file ID of a single-file op (upload, copy, hide, retention).'
+  file-name:
+    description: 'B2 file name (path) of a single-file op.'
+  content-sha1:
+    description: 'SHA-1 hex digest of an uploaded/downloaded object.'
+  bytes-transferred:
+    description: 'Total bytes uploaded/downloaded.'
+  files-uploaded:
+    description: 'Number of files uploaded (upload glob / sync up).'
+  files-downloaded:
+    description: 'Number of files downloaded (download prefix / sync down).'
+  files-deleted:
+    description: 'Number of files deleted (delete / sync).'
+  files-listed:
+    description: 'Number of files returned by `list`.'
+  presigned-url:
+    description: 'Presigned download URL (presign action).'
+  verified:
+    description: 'true/false — whether `verify` succeeded.'
+  remote-sha1:
+    description: 'Remote object SHA-1 retrieved by `verify`.'
+  local-sha1:
+    description: 'Local file SHA-1 computed by `verify`.'
+  summary-json:
+    description: 'JSON array with per-file details (name, fileId, size, sha1).'
+
+runs:
+  using: 'node24'
+  main: 'dist/index.js'

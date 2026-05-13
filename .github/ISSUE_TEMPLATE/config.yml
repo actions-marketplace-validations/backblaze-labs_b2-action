@@ -1,0 +1,11 @@
+blank_issues_enabled: false
+contact_links:
+  - name: Backblaze B2 service question
+    url: https://www.backblaze.com/help.html
+    about: For questions about B2 itself (pricing, capabilities, account settings), please use Backblaze support.
+  - name: SDK bug or feature request
+    url: https://github.com/backblaze/b2-sdk-typescript/issues
+    about: If the issue is in @backblaze/b2-sdk (upload/download semantics, encryption, etc.), file it there.
+  - name: Security vulnerability
+    url: https://github.com/backblaze-labs/b2-action/blob/main/SECURITY.md
+    about: Do NOT open a public issue for security reports. See SECURITY.md.

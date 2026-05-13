@@ -1,0 +1,88 @@
+name: 'Example — verify artifact SHA-1 (no download)'
+
+# Upload an artifact, then a later step (or a separate run) verifies the
+# remote SHA-1 matches a local copy WITHOUT downloading the body. Cheap
+# integrity check that catches accidental corruption / tampering.
+
+on:
+  workflow_dispatch:
+  pull_request:
+    paths:
+      - '.github/workflows/example-verify-artifacts.yml'
+      - 'src/**'
+      - 'dist/**'
+
+permissions:
+  contents: read
+
+jobs:
+  verify:
+    if: github.event_name == 'workflow_dispatch' || github.event.pull_request.head.repo.fork == false
+    runs-on: ubuntu-latest
+    env:
+      KEY: examples/verify/${{ github.run_id }}/asset.bin
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Create asset
+        run: dd if=/dev/urandom of=asset.bin bs=1024 count=32
+
+      - name: Upload
+        id: up
+        uses: ./
+        with:
+          action: upload
+          application-key-id: ${{ secrets.B2_APPLICATION_KEY_ID }}
+          application-key: ${{ secrets.B2_APPLICATION_KEY }}
+          bucket: ${{ secrets.B2_TEST_BUCKET }}
+          source: asset.bin
+          destination: ${{ env.KEY }}
+
+      - name: Verify against local file (good)
+        uses: ./
+        with:
+          action: verify
+          application-key-id: ${{ secrets.B2_APPLICATION_KEY_ID }}
+          application-key: ${{ secrets.B2_APPLICATION_KEY }}
+          bucket: ${{ secrets.B2_TEST_BUCKET }}
+          source: ${{ env.KEY }}
+          destination: asset.bin
+
+      - name: Verify against an expected SHA-1 (good)
+        uses: ./
+        with:
+          action: verify
+          application-key-id: ${{ secrets.B2_APPLICATION_KEY_ID }}
+          application-key: ${{ secrets.B2_APPLICATION_KEY }}
+          bucket: ${{ secrets.B2_TEST_BUCKET }}
+          source: ${{ env.KEY }}
+          expected-sha1: ${{ steps.up.outputs.content-sha1 }}
+
+      - name: Verify against a drifted local file (expected to fail)
+        id: drift
+        continue-on-error: true
+        uses: ./
+        with:
+          action: verify
+          application-key-id: ${{ secrets.B2_APPLICATION_KEY_ID }}
+          application-key: ${{ secrets.B2_APPLICATION_KEY }}
+          bucket: ${{ secrets.B2_TEST_BUCKET }}
+          source: ${{ env.KEY }}
+          expected-sha1: '0000000000000000000000000000000000000000'
+
+      - name: Confirm drift step failed
+        run: |
+          if [ "${{ steps.drift.outcome }}" != "failure" ]; then
+            echo "::error::drift verify should have failed"
+            exit 1
+          fi
+
+      - name: Cleanup
+        if: always()
+        uses: ./
+        with:
+          action: delete
+          application-key-id: ${{ secrets.B2_APPLICATION_KEY_ID }}
+          application-key: ${{ secrets.B2_APPLICATION_KEY }}
+          bucket: ${{ secrets.B2_TEST_BUCKET }}
+          source: ${{ env.KEY }}

@@ -1,0 +1,67 @@
+name: 'Example — promote release (server-side copy)'
+
+# When a tag lands, copy the staging artifact to a stable "latest" path
+# without re-uploading the bytes. Useful for "promote staging → prod"
+# patterns where re-running the build is wasteful or non-deterministic.
+
+on:
+  workflow_dispatch:
+  pull_request:
+    paths:
+      - '.github/workflows/example-promote-release.yml'
+      - 'src/**'
+      - 'dist/**'
+
+permissions:
+  contents: read
+
+jobs:
+  promote:
+    if: github.event_name == 'workflow_dispatch' || github.event.pull_request.head.repo.fork == false
+    runs-on: ubuntu-latest
+    env:
+      STAGING_KEY: examples/promote/${{ github.run_id }}/staging/app.tar.gz
+      RELEASE_KEY: examples/promote/${{ github.run_id }}/releases/latest/app.tar.gz
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Build synthetic artifact
+        run: |
+          mkdir -p _app
+          echo "version=v1.2.3" > _app/version.txt
+          tar -czf app.tar.gz _app
+
+      - name: Upload staging
+        uses: ./
+        with:
+          action: upload
+          application-key-id: ${{ secrets.B2_APPLICATION_KEY_ID }}
+          application-key: ${{ secrets.B2_APPLICATION_KEY }}
+          bucket: ${{ secrets.B2_TEST_BUCKET }}
+          source: app.tar.gz
+          destination: ${{ env.STAGING_KEY }}
+
+      - name: Promote to releases/latest (server-side copy)
+        id: promote
+        uses: ./
+        with:
+          action: copy
+          application-key-id: ${{ secrets.B2_APPLICATION_KEY_ID }}
+          application-key: ${{ secrets.B2_APPLICATION_KEY }}
+          bucket: ${{ secrets.B2_TEST_BUCKET }}
+          source: ${{ env.STAGING_KEY }}
+          destination: ${{ env.RELEASE_KEY }}
+
+      - name: Assert promotion produced a file-id
+        run: |
+          test -n "${{ steps.promote.outputs.file-id }}" || { echo "no file-id"; exit 1; }
+
+      - name: Cleanup
+        if: always()
+        uses: ./
+        with:
+          action: delete
+          application-key-id: ${{ secrets.B2_APPLICATION_KEY_ID }}
+          application-key: ${{ secrets.B2_APPLICATION_KEY }}
+          bucket: ${{ secrets.B2_TEST_BUCKET }}
+          source: examples/promote/${{ github.run_id }}/

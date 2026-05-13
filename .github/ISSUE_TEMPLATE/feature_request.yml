@@ -1,0 +1,40 @@
+name: Feature request
+description: Suggest a new verb, input, output, or behavior.
+title: '[feature] '
+labels: ['enhancement', 'needs-triage']
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Quick context: this Action wraps the [`@backblaze/b2-sdk`](https://github.com/backblaze/b2-sdk-typescript). If the capability you want already exists in the SDK and just isn't exposed here, that's an easy add. If it doesn't exist in the SDK yet, we'll probably need to land it there first.
+
+  - type: textarea
+    id: problem
+    attributes:
+      label: What problem are you trying to solve?
+      description: The workflow you're trying to build and what gets in the way today.
+    validations:
+      required: true
+
+  - type: textarea
+    id: proposal
+    attributes:
+      label: Proposed shape
+      description: |
+        Sketch the inputs / outputs / verb you'd like. Doesn't have to be final — we'll iterate.
+      placeholder: |
+        - uses: backblaze-labs/b2-action@v0
+          with:
+            action: new-verb
+            ...
+      render: yaml
+    validations:
+      required: false
+
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Alternatives you've considered
+      description: Existing verbs you tried, workarounds, other tools.
+    validations:
+      required: false

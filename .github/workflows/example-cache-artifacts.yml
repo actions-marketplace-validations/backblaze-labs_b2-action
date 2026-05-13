@@ -1,0 +1,71 @@
+name: 'Example — cache artifacts'
+
+# Save and restore a tarball between jobs using B2 instead of actions/cache.
+# Useful when you outgrow GH's per-org cache limit, want shared caches across
+# workflows, or need TTL/lifecycle controls only B2 provides.
+
+on:
+  workflow_dispatch:
+  pull_request:
+    paths:
+      - '.github/workflows/example-cache-artifacts.yml'
+      - 'src/**'
+      - 'dist/**'
+
+permissions:
+  contents: read
+
+jobs:
+  cache:
+    if: github.event_name == 'workflow_dispatch' || github.event.pull_request.head.repo.fork == false
+    runs-on: ubuntu-latest
+    env:
+      CACHE_KEY: cache/${{ runner.os }}/example-${{ github.run_id }}.tar.gz
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Build a synthetic cache payload
+        run: |
+          mkdir -p _cache
+          dd if=/dev/urandom of=_cache/blob bs=1024 count=128
+          tar -czf payload.tar.gz _cache
+
+      - name: Save cache to B2
+        id: save
+        uses: ./
+        with:
+          action: upload
+          application-key-id: ${{ secrets.B2_APPLICATION_KEY_ID }}
+          application-key: ${{ secrets.B2_APPLICATION_KEY }}
+          bucket: ${{ secrets.B2_TEST_BUCKET }}
+          source: payload.tar.gz
+          destination: ${{ env.CACHE_KEY }}
+
+      - name: Wipe local copy
+        run: rm -rf _cache payload.tar.gz
+
+      - name: Restore cache from B2
+        uses: ./
+        with:
+          action: download
+          application-key-id: ${{ secrets.B2_APPLICATION_KEY_ID }}
+          application-key: ${{ secrets.B2_APPLICATION_KEY }}
+          bucket: ${{ secrets.B2_TEST_BUCKET }}
+          source: ${{ env.CACHE_KEY }}
+          destination: payload.restored.tar.gz
+
+      - name: Verify cache integrity
+        run: |
+          tar -tzf payload.restored.tar.gz | grep _cache/blob
+          echo "Saved file-id: ${{ steps.save.outputs.file-id }}"
+          echo "SHA-1:         ${{ steps.save.outputs.content-sha1 }}"
+
+      - name: Cleanup
+        if: always()
+        uses: ./
+        with:
+          action: delete
+          application-key-id: ${{ secrets.B2_APPLICATION_KEY_ID }}
+          application-key: ${{ secrets.B2_APPLICATION_KEY }}
+          bucket: ${{ secrets.B2_TEST_BUCKET }}
+          source: ${{ env.CACHE_KEY }}
