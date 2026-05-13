@@ -9,15 +9,7 @@ on:
   workflow_dispatch:
   push:
     branches: [main]
-    paths:
-      - '.github/workflows/example-sse-encryption.yml'
-      - 'src/**'
-      - 'dist/**'
   pull_request:
-    paths:
-      - '.github/workflows/example-sse-encryption.yml'
-      - 'src/**'
-      - 'dist/**'
 
 permissions:
   contents: read

@@ -11,15 +11,7 @@ on:
     - cron: '17 3 * * *'
   push:
     branches: [main]
-    paths:
-      - '.github/workflows/example-scheduled-backup.yml'
-      - 'src/**'
-      - 'dist/**'
   pull_request:
-    paths:
-      - '.github/workflows/example-scheduled-backup.yml'
-      - 'src/**'
-      - 'dist/**'
 
 permissions:
   contents: read

@@ -109,9 +109,11 @@ jobs:
         run: |
           if ! git diff --exit-code -- dist/; then
             echo "::warning::dist/ is out of sync with src/ (likely because SDK main advanced). Run 'pnpm build' locally and commit the result before publishing a release."
-            echo "### dist/ drift" >> "$GITHUB_STEP_SUMMARY"
-            echo "" >> "$GITHUB_STEP_SUMMARY"
-            echo "\`dist/index.js\` doesn't match a fresh \`pnpm build\` against the current SDK \`main\`. Acceptable during SDK development; **must be resolved before tagging a release**." >> "$GITHUB_STEP_SUMMARY"
+            {
+              echo "### dist/ drift"
+              echo ""
+              echo "\`dist/index.js\` doesn't match a fresh \`pnpm build\` against the current SDK \`main\`. Acceptable during SDK development; **must be resolved before tagging a release**."
+            } >> "$GITHUB_STEP_SUMMARY"
           fi
       - name: Bundle size budget
         run: |
