@@ -22,7 +22,13 @@ inputs:
   ref:
     description: 'Git ref of the SDK to check out (branch, tag, or SHA).'
     required: false
-    default: 'main'
+    # Pinned to a specific SHA (not 'main') so SDK drift doesn't silently
+    # invalidate the committed `dist/index.js` between PRs. To bump:
+    #   1. cd into ../b2-typescript-sdk locally and `git pull`.
+    #   2. `cd ../b2-action && pnpm build` to regenerate dist/ against the new SDK.
+    #   3. Bump this `default:` to the new SDK HEAD SHA.
+    #   4. Commit dist/ + this file in the same PR.
+    default: 'c9e3461fbc189c8fe8c81e5ed454cf30553665b3'
 
 runs:
   using: composite

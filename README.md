@@ -44,8 +44,7 @@ The Backblaze B2 GitHub Action. TypeScript-native, built on the official [`@back
     - [Chain outputs](#chain-outputs)
   - [Inputs (full reference)](#inputs-full-reference)
   - [Outputs (full reference)](#outputs-full-reference)
-  - [Migrating from other B2 Actions](#migrating-from-other-b2-actions)
-  - [Why this Action exists](#why-this-action-exists)
+  - [Other Backblaze B2 Actions on the Marketplace](#other-backblaze-b2-actions-on-the-marketplace)
   - [Development \& contributing](#development--contributing)
   - [License](#license)
 
@@ -357,26 +356,17 @@ If you don't need customer-managed keys, **`sse: B2`** (SSE-B2, B2-managed) is t
 
 ---
 
-## Migrating from other B2 Actions
+## Other Backblaze B2 Actions on the Marketplace
 
-| Existing action | Migrating step |
-|---|---|
-| [`pigri/backblaze-b2-action`](https://github.com/pigri/backblaze-b2-action) (Docker, wraps `b2 sync`) | `action: sync`, `source: $SOURCE_DIR`, `destination: ''`, `keep-mode: delete`. Rename env vars `B2_APPKEY_ID` → `B2_APPLICATION_KEY_ID` and `B2_APPKEY` → `B2_APPLICATION_KEY`. |
-| [`yamatt/backblaze-b2-upload-action`](https://github.com/yamatt/backblaze-b2-upload-action) (Docker) | `action: upload`. Rename `key_id` → `application-key-id`, `application_key` → `application-key`, `bucket_name` → `bucket`, `file_path` → `source`, `remote_path` → `destination`. |
-| [`sksat/b2-upload-action`](https://github.com/sksat/b2-upload-action) (Docker) | `action: upload`. Rename `key_id` → `application-key-id`, `key` → `application-key`, `src` → `source`, `dest` → `destination`. |
-| [`sylwit/install-b2-cli-action`](https://github.com/sylwit/install-b2-cli-action) / [`andromidasj/install-b2-cli-action`](https://github.com/andromidasj/install-b2-cli-action) | No replacement needed — this Action talks directly to B2 over HTTPS. If you specifically need the `b2` CLI in your step, keep using those. |
+If this Action doesn't fit your workflow, here are other community-maintained options on the GitHub Marketplace. The "migration step" column shows how to map each one to this Action if you decide to switch.
 
----
-
-## Why this Action exists
-
-Every B2 Action on the Marketplace today wraps the Python `b2` CLI inside a Docker container (or a composite that wgets the binary). That means:
-
-- Docker cold starts: ~30 s before the first byte moves. This Action runs natively on the runner's Node 24 — ~1 s startup.
-- No structured outputs: you can't pipe a file ID or SHA into a later step.
-- No resume, no glob filtering, no log masking, no progress, no presigned URLs, no SSE-C, no Object Lock, no cross-bucket copy.
-
-The TypeScript SDK already implements every one of those primitives — this Action is the thinnest possible bridge.
+| Action | Scope | Migration step |
+|---|---|---|
+| [`pigri/backblaze-b2-action`](https://github.com/pigri/backblaze-b2-action) | Syncs a directory to a B2 bucket via the `b2 sync` CLI. | `action: sync`, `source: $SOURCE_DIR`, `destination: ''`, `keep-mode: delete`. Rename env vars `B2_APPKEY_ID` to `B2_APPLICATION_KEY_ID` and `B2_APPKEY` to `B2_APPLICATION_KEY`. |
+| [`yamatt/backblaze-b2-upload-action`](https://github.com/yamatt/backblaze-b2-upload-action) | Uploads a single file to a B2 bucket. | `action: upload`. Rename `key_id` to `application-key-id`, `application_key` to `application-key`, `bucket_name` to `bucket`, `file_path` to `source`, `remote_path` to `destination`. |
+| [`sksat/b2-upload-action`](https://github.com/sksat/b2-upload-action) | Uploads a single file to a B2 bucket. | `action: upload`. Rename `key_id` to `application-key-id`, `key` to `application-key`, `src` to `source`, `dest` to `destination`. |
+| [`sylwit/install-b2-cli-action`](https://github.com/sylwit/install-b2-cli-action) | Installs the Backblaze `b2` CLI binary on the runner. | No replacement needed if you only wanted the `b2` CLI installed; keep using it. If you wanted to actually call B2, switch to this Action. |
+| [`andromidasj/install-b2-cli-action`](https://github.com/andromidasj/install-b2-cli-action) | Installs and authorizes the Backblaze `b2` CLI. | Same as above. |
 
 ---
 

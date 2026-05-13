@@ -56,7 +56,7 @@ jobs:
       - name: Verify dist/ at tag matches a fresh build
         run: |
           if ! git diff --exit-code -- dist/; then
-            echo "::error::dist/ at $REF is out of sync with src/ at the same ref. Tag the commit only after `pnpm build` is committed."
+            echo "::error::dist/ at $REF is out of sync with src/ at the same ref. Tag the commit only after 'pnpm build' is committed."
             exit 1
           fi
 

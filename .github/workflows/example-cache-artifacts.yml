@@ -25,8 +25,11 @@ jobs:
   cache:
     if: github.event_name == 'workflow_dispatch' || github.event_name == 'push' || github.event.pull_request.head.repo.fork == false
     runs-on: ubuntu-latest
+    # We hardcode `Linux` rather than `${{ runner.os }}` because the `runner`
+    # context isn't allowed in job-level `env:` (only at step level). This job
+    # always runs on `ubuntu-latest` so the value is fixed anyway.
     env:
-      CACHE_KEY: cache/${{ runner.os }}/example-${{ github.run_id }}.tar.gz
+      CACHE_KEY: cache/Linux/example-${{ github.run_id }}.tar.gz
     steps:
       - uses: actions/checkout@v4
 

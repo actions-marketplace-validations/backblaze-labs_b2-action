@@ -32,7 +32,7 @@ jobs:
       # guarantees `dist/` is in sync with `src/` on the commit under test.
 
       - name: Generate a deterministic 5 MiB payload
-        run: dd if=/dev/urandom of=$PAYLOAD_PATH bs=1024 count=5120
+        run: dd if=/dev/urandom of="$PAYLOAD_PATH" bs=1024 count=5120
 
       # --- Run 1: this Action (Node24) ----------------------------------
       - name: Upload via this action — wall-clock

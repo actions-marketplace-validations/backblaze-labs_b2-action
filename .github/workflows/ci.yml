@@ -110,9 +110,11 @@ jobs:
         run: |
           SIZE=$(wc -c < dist/index.js)
           echo "dist/index.js is $SIZE bytes (budget: $MAX_BUNDLE_BYTES)"
-          echo "### Bundle size" >> "$GITHUB_STEP_SUMMARY"
-          echo "" >> "$GITHUB_STEP_SUMMARY"
-          echo "\`dist/index.js\` = **$SIZE bytes** (budget: **$MAX_BUNDLE_BYTES**)" >> "$GITHUB_STEP_SUMMARY"
+          {
+            echo "### Bundle size"
+            echo ""
+            echo "\`dist/index.js\` = **$SIZE bytes** (budget: **$MAX_BUNDLE_BYTES**)"
+          } >> "$GITHUB_STEP_SUMMARY"
           if [ "$SIZE" -gt "$MAX_BUNDLE_BYTES" ]; then
             echo "::error::dist/index.js exceeds budget. Either trim the dependency footprint or raise MAX_BUNDLE_BYTES in ci.yml with justification."
             exit 1

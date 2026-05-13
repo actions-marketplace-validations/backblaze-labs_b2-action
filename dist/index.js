@@ -62471,7 +62471,27 @@ function accountId(raw) {
 
 //# sourceMappingURL=ids.js.map
 
+;// CONCATENATED MODULE: ../b2-typescript-sdk/dist/util/paginator.js
+async function* paginatePages(fetcher, signal) {
+  let cursor;
+  for (; ; ) {
+    signal?.throwIfAborted();
+    const { page, nextCursor } = await fetcher(cursor);
+    yield page;
+    if (nextCursor === void 0) return;
+    cursor = nextCursor;
+  }
+}
+async function* paginateItems(fetcher, extractItems, signal) {
+  for await (const page of paginatePages(fetcher, signal)) {
+    yield* extractItems(page);
+  }
+}
+
+//# sourceMappingURL=paginator.js.map
+
 ;// CONCATENATED MODULE: ../b2-typescript-sdk/dist/bucket.js
+
 
 
 
@@ -62578,26 +62598,124 @@ class Bucket {
     );
   }
   /**
-   * Async generator that iterates over all files in the bucket, automatically handling pagination.
-   * @param options - Optional prefix, delimiter, and page size.
+   * Async iterator that yields the latest visible version of every file in
+   * the bucket, automatically handling pagination via `listFileNames`.
    *
-   * @returns An async generator of individual {@link FileVersion} objects.
+   * Hidden files (those whose latest version is a hide marker) are NOT
+   * yielded by this iterator. Use {@link paginateFileVersions} when you
+   * need full version history.
+   *
+   * @param options - Filter + pagination + abort options. `pageSize` is
+   *   forwarded to `b2_list_file_names`'s `maxFileCount` (default 1000,
+   *   B2-capped at 10000).
+   *
+   * @returns An async iterable of {@link FileVersion} entries.
+   *
+   * @example
+   * ```ts
+   * for await (const file of bucket.paginateFileNames({ prefix: 'photos/' })) {
+   *   console.log(file.fileName, file.contentLength)
+   * }
+   * ```
    */
-  async *listAllFiles(options) {
-    let startFileName;
-    for (; ; ) {
-      const resp = await this.listFileNames({
-        ...startFileName !== void 0 ? { startFileName } : {},
-        maxFileCount: options?.pageSize ?? 1e3,
-        ...options?.prefix !== void 0 ? { prefix: options.prefix } : {},
-        ...options?.delimiter !== void 0 ? { delimiter: options.delimiter } : {}
-      });
-      for (const file of resp.files) {
-        yield file;
-      }
-      if (!resp.nextFileName) break;
-      startFileName = resp.nextFileName;
-    }
+  paginateFileNames(options) {
+    return paginateItems(
+      async (cursor) => {
+        const resp = await this.listFileNames({
+          maxFileCount: options?.pageSize ?? 1e3,
+          ...cursor !== void 0 ? { startFileName: cursor } : {},
+          ...options?.prefix !== void 0 ? { prefix: options.prefix } : {},
+          ...options?.delimiter !== void 0 ? { delimiter: options.delimiter } : {}
+        });
+        return { page: resp, nextCursor: resp.nextFileName ?? void 0 };
+      },
+      (page) => page.files,
+      options?.signal
+    );
+  }
+  /**
+   * Async iterator that yields every version of every file in the bucket,
+   * including hidden files and historical versions, automatically handling
+   * pagination via `listFileVersions`.
+   *
+   * The two-cursor `(nextFileName, nextFileId)` continuation that the raw
+   * endpoint exposes is threaded internally; callers iterate flat.
+   *
+   * @param options - Filter + pagination + abort options.
+   *
+   * @returns An async iterable of {@link FileVersion} entries.
+   */
+  paginateFileVersions(options) {
+    return paginateItems(
+      async (cursor) => {
+        const resp = await this.listFileVersions({
+          maxFileCount: options?.pageSize ?? 1e3,
+          ...cursor !== void 0 ? { startFileName: cursor.fileName } : {},
+          ...cursor?.fileId !== void 0 ? { startFileId: cursor.fileId } : {},
+          ...options?.prefix !== void 0 ? { prefix: options.prefix } : {},
+          ...options?.delimiter !== void 0 ? { delimiter: options.delimiter } : {}
+        });
+        const nextCursor = resp.nextFileName !== null ? { fileName: resp.nextFileName, fileId: resp.nextFileId ?? void 0 } : void 0;
+        return { page: resp, nextCursor };
+      },
+      (page) => page.files,
+      options?.signal
+    );
+  }
+  /**
+   * Async iterator that yields every unfinished large file in the bucket,
+   * automatically handling pagination via `listUnfinishedLargeFiles`.
+   *
+   * Useful for janitorial scripts that want to inspect or cancel abandoned
+   * multipart uploads (typically followed by {@link cancelLargeFile} on
+   * the underlying raw client).
+   *
+   * @param options - Filter + pagination + abort options. `pageSize` is
+   *   B2-capped at 100 for this endpoint.
+   *
+   * @returns An async iterable of unfinished-large-file metadata entries.
+   */
+  paginateUnfinishedLargeFiles(options) {
+    return paginateItems(
+      async (cursor) => {
+        const resp = await this.listUnfinishedLargeFiles({
+          maxFileCount: options?.pageSize ?? 100,
+          ...cursor !== void 0 ? { startFileId: cursor } : {},
+          ...options?.namePrefix !== void 0 ? { namePrefix: options.namePrefix } : {}
+        });
+        return { page: resp, nextCursor: resp.nextFileId ?? void 0 };
+      },
+      (page) => page.files,
+      options?.signal
+    );
+  }
+  /**
+   * Async iterator that yields every uploaded part for a specific large
+   * file, automatically handling pagination via `listParts`.
+   *
+   * @param largeFileId - The unfinished large file to enumerate parts of.
+   * @param options - Pagination + abort options. `pageSize` is B2-capped
+   *   at 1000 for this endpoint; the default is 1000.
+   *
+   * @returns An async iterable of {@link PartInfo} entries.
+   */
+  paginateParts(largeFileId, options) {
+    return paginateItems(
+      async (cursor) => {
+        const resp = await this.client.raw.listParts(
+          this.client.accountInfo.getApiUrl(),
+          this.client.accountInfo.getAuthToken(),
+          {
+            fileId: largeFileId,
+            maxPartCount: options?.pageSize ?? 1e3,
+            ...cursor !== void 0 ? { startPartNumber: cursor } : {}
+          }
+        );
+        return { page: resp, nextCursor: resp.nextPartNumber ?? void 0 };
+      },
+      (page) => page.parts,
+      options?.signal
+    );
   }
   /**
    * Looks up the latest visible version of a file by name.
@@ -64247,6 +64365,7 @@ function applyLegalHoldHeader(headers, legalHold) {
 
 
 
+
 class B2Client {
   /** Low-level client for direct B2 API calls. */
   raw;
@@ -64394,6 +64513,35 @@ class B2Client {
       accountId: accountId(this.accountInfo.getAccountId()),
       ...options
     });
+  }
+  /**
+   * Async iterator that yields every application key on the account,
+   * automatically handling pagination via `listKeys`.
+   *
+   * @param options - Pagination + abort options. `pageSize` is forwarded
+   *   to `maxKeyCount`; the default is 1000.
+   *
+   * @returns An async iterable of {@link ApplicationKey} entries.
+   *
+   * @example
+   * ```ts
+   * for await (const key of client.paginateKeys()) {
+   *   console.log(key.keyName, key.capabilities)
+   * }
+   * ```
+   */
+  paginateKeys(options) {
+    return paginateItems(
+      async (cursor) => {
+        const resp = await this.listKeys({
+          maxKeyCount: options?.pageSize ?? 1e3,
+          ...cursor !== void 0 ? { startApplicationKeyId: cursor } : {}
+        });
+        return { page: resp, nextCursor: resp.nextApplicationKeyId ?? void 0 };
+      },
+      (page) => page.keys,
+      options?.signal
+    );
   }
   /**
    * Permanently deletes an application key.

@@ -1,0 +1,49 @@
+#!/usr/bin/env bash
+# Pre-commit: fast feedback — catches what CI would catch, in seconds.
+#
+# Order is fail-fast: cheap checks first. Skip with `git commit --no-verify`
+# only if you have a damn good reason.
+#
+# Total time on a clean repo: ~3 s.
+
+set -euo pipefail
+
+STAGED=$(git diff --cached --name-only --diff-filter=ACMR)
+if [ -z "$STAGED" ]; then
+  exit 0
+fi
+
+# Helper: only run a check if at least one matching file is staged.
+staged_matches() {
+  echo "$STAGED" | grep -qE "$1"
+}
+
+echo "▸ biome lint"
+pnpm --silent lint
+
+echo "▸ tsc typecheck"
+pnpm --silent typecheck
+
+# Rebuild dist/ when source is touched, and refuse the commit if the
+# rebuild produces a diff against what's staged. Forces dist/ to travel
+# with src/ changes — same gate CI's `build-and-check-dist` runs.
+if staged_matches '^src/|^package\.json$|^pnpm-lock\.yaml$|^tsconfig\.json$'; then
+  echo "▸ ncc build (src/ changed)"
+  pnpm --silent build
+  if ! git diff --quiet -- dist/; then
+    cat <<'EOF'
+✗ dist/ changed after rebuild and isn't staged. Run:
+    git add dist/
+  then re-commit.
+EOF
+    exit 1
+  fi
+fi
+
+# Workflow files: lint with actionlint.
+if staged_matches '^\.github/(workflows|actions)/'; then
+  echo "▸ actionlint (workflows changed)"
+  pnpm --silent actionlint
+fi
+
+echo "✓ pre-commit OK"
