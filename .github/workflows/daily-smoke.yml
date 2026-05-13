@@ -31,15 +31,10 @@ jobs:
       RUN_PREFIX: smoke/daily/${{ github.run_id }}-${{ github.run_attempt }}
     steps:
       - uses: actions/checkout@v4
-      - uses: pnpm/action-setup@v4
-        with:
-          version: 9
-      - uses: actions/setup-node@v4
-        with:
-          node-version: 24
-          cache: pnpm
-      - run: pnpm install --frozen-lockfile
-      - run: pnpm build
+      # No `pnpm install` / `pnpm build` — this workflow only invokes the
+      # action via `uses: ./`, which reads the committed `dist/index.js`. The
+      # build-and-check-dist CI job already guarantees `dist/` is in sync with
+      # `src/` on the commit being tested.
 
       - name: Build payloads
         run: |

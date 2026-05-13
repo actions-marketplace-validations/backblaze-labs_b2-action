@@ -27,15 +27,9 @@ jobs:
       PAYLOAD_KEY_DOCKER: bench/${{ github.run_id }}/docker.bin
     steps:
       - uses: actions/checkout@v4
-      - uses: pnpm/action-setup@v4
-        with:
-          version: 9
-      - uses: actions/setup-node@v4
-        with:
-          node-version: 24
-          cache: pnpm
-      - run: pnpm install --frozen-lockfile
-      - run: pnpm build
+      # No install/build — this workflow only `uses: ./` which reads the
+      # committed `dist/index.js`. `ci.yml`'s build-and-check-dist job already
+      # guarantees `dist/` is in sync with `src/` on the commit under test.
 
       - name: Generate a deterministic 5 MiB payload
         run: dd if=/dev/urandom of=$PAYLOAD_PATH bs=1024 count=5120

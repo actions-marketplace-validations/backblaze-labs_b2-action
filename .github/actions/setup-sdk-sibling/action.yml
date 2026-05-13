@@ -1,0 +1,58 @@
+name: 'Set up sibling SDK'
+description: |
+  Temporary scaffolding while @backblaze/b2-sdk isn't published to npm. Clones
+  the private SDK repo into $GITHUB_WORKSPACE/../b2-typescript-sdk so the
+  `link:../b2-typescript-sdk` dependency in this repo's package.json resolves
+  at install time. Builds the SDK so its `dist/` exists and the link is usable.
+
+  REMOVE ONCE THE SDK PUBLISHES TO NPM:
+    1. Swap the dependency in package.json to a real version range.
+    2. Delete this composite action directory.
+    3. Drop `uses: ./.github/actions/setup-sdk-sibling` from ci.yml + release.yml.
+    4. Drop the `SDK_REPO_TOKEN` secret.
+
+inputs:
+  token:
+    description: 'Fine-grained PAT (or GitHub App token) with Contents:Read on the SDK repo.'
+    required: true
+  repository:
+    description: 'Owner/repo of the SDK. Defaults to the same-org sibling.'
+    required: false
+    default: 'backblaze-labs/b2-typescript-sdk'
+  ref:
+    description: 'Git ref of the SDK to check out (branch, tag, or SHA).'
+    required: false
+    default: 'main'
+
+runs:
+  using: composite
+  steps:
+    - name: Clone the SDK alongside this repo
+      shell: bash
+      env:
+        SDK_TOKEN: ${{ inputs.token }}
+        SDK_REPO: ${{ inputs.repository }}
+        SDK_REF: ${{ inputs.ref }}
+      run: |
+        set -euo pipefail
+        # The action's checkout lives at $GITHUB_WORKSPACE. Place the SDK as
+        # a sibling so `link:../b2-typescript-sdk` in package.json resolves.
+        cd "$GITHUB_WORKSPACE/.."
+        if [ -d b2-typescript-sdk ]; then
+          echo "::notice::SDK sibling already present at $(pwd)/b2-typescript-sdk; skipping clone."
+        else
+          # x-access-token user is the standard for PAT-authenticated HTTPS clones.
+          git clone --depth 1 --branch "${SDK_REF}" \
+            "https://x-access-token:${SDK_TOKEN}@github.com/${SDK_REPO}.git" \
+            b2-typescript-sdk
+        fi
+        # Mask the token if it somehow ended up in any later log line.
+        echo "::add-mask::${SDK_TOKEN}"
+
+    - name: Install + build the SDK
+      shell: bash
+      working-directory: ${{ github.workspace }}/../b2-typescript-sdk
+      run: |
+        set -euo pipefail
+        pnpm install --frozen-lockfile
+        pnpm build

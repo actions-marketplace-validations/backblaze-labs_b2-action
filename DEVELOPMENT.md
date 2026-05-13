@@ -153,6 +153,41 @@ Once those are in place, the example workflows trigger on every PR (other than f
 
 The redundancy is deliberate: the simulator suite is what guarantees a contributor's fork PR gets validated end-to-end before secrets-gated workflows run.
 
+## Sibling-SDK CI scaffold (temporary)
+
+Until [`@backblaze/b2-sdk`](https://github.com/backblaze-labs/b2-typescript-sdk) is published to npm, this repo's `package.json` references the SDK via `"@backblaze/b2-sdk": "link:../b2-typescript-sdk"`. That works locally because the SDK lives alongside this repo, but it's empty on a clean GitHub runner.
+
+To unblock CI, a composite action at [`.github/actions/setup-sdk-sibling/`](./.github/actions/setup-sdk-sibling/action.yml) clones the SDK as a sibling and builds it before `pnpm install` runs in this repo. It uses a fine-grained PAT stored as `SDK_REPO_TOKEN`.
+
+### Wiring
+
+Only two workflows need this — the ones that actually run `pnpm install` and `pnpm build`:
+
+| Workflow | Uses the scaffold? |
+|---|---|
+| `ci.yml` | Yes (every job: test, coverage, lint, build-and-check-dist) |
+| `release.yml` | Yes |
+| `daily-smoke.yml` | No — `actions/checkout` + `uses: ./` is enough; the action reads from committed `dist/`. |
+| `benchmark.yml` | No — same reason as daily-smoke. |
+| All 10 `example-*.yml` | No — same reason. |
+
+### What the PAT needs
+
+A fine-grained Personal Access Token, owner `backblaze-labs`, scoped to *only* the SDK repository, with **`Contents: Read`** and nothing else. Stored as the `SDK_REPO_TOKEN` repository secret.
+
+### How to remove this scaffold
+
+Once `@backblaze/b2-sdk` is published to npm:
+
+1. Edit `package.json` and replace `"@backblaze/b2-sdk": "link:../b2-typescript-sdk"` with a real version range, e.g. `"@backblaze/b2-sdk": "^X.Y.Z"`.
+2. Re-run `pnpm install` locally so `pnpm-lock.yaml` updates.
+3. Delete the `.github/actions/setup-sdk-sibling/` directory.
+4. Remove every `uses: ./.github/actions/setup-sdk-sibling` block from `.github/workflows/ci.yml` and `.github/workflows/release.yml` (search for `TODO(sdk-published)` to find them).
+5. Delete the `SDK_REPO_TOKEN` secret from the repo settings.
+6. Commit.
+
+The composite action's own docstring repeats this checklist so future maintainers can find it without grepping.
+
 ## Step-by-step: adding a new verb
 
 The pattern is the same every time:
