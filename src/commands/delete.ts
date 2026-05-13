@@ -3,14 +3,21 @@ import type { Bucket } from '@backblaze/b2-sdk'
 import { findFileByName } from '../client.ts'
 import { type ParsedInputs, requireSource } from '../inputs.ts'
 
+/** One entry in {@link DeleteResult.files}. */
 export interface DeletedFile {
+  /** B2 file name (the key). */
   fileName: string
+  /** B2 file ID. */
   fileId: string
+  /** True for dry-run previews; the file was not actually deleted. */
   skipped: boolean
 }
 
+/** Result of {@link deleteCommand}. */
 export interface DeleteResult {
+  /** One entry per matched file version (including hide markers). */
   files: DeletedFile[]
+  /** Count of individual-file delete failures (non-fatal; sums into the dispatcher's `core.setFailed`). */
   errors: number
 }
 

@@ -9,16 +9,25 @@ import { StreamSource } from '@backblaze/b2-sdk/streams'
 import { type ParsedInputs, requireSource } from '../inputs.ts'
 import { makeProgressListener } from '../progress.ts'
 
+/** One entry in {@link UploadResult.files}. */
 export interface UploadedFile {
+  /** Absolute path on the runner that was uploaded. */
   localPath: string
+  /** B2 file name (the key) the upload landed under. */
   fileName: string
+  /** B2 file ID assigned by the server. */
   fileId: string
+  /** Byte size of the upload. */
   size: number
+  /** Whole-file SHA-1, or `null` when the file was multipart-uploaded. */
   contentSha1: string | null
 }
 
+/** Result of {@link uploadCommand}. */
 export interface UploadResult {
+  /** One entry per uploaded file. Single-file mode returns a one-element array. */
   files: UploadedFile[]
+  /** Total bytes uploaded across all files. */
   bytesTransferred: number
 }
 

@@ -7,3 +7,5 @@ coverage/
 .env.local
 .vscode/
 .idea/
+# TypeDoc-generated API site; built fresh in CI for GitHub Pages.
+docs/

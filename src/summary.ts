@@ -15,14 +15,31 @@ import { formatBytes } from './format.ts'
  * we no-op. We deliberately do not throw: a missing summary file is never
  * a reason to fail an otherwise-successful step.
  */
+/**
+ * One row in the `$GITHUB_STEP_SUMMARY` table emitted by a verb. Only
+ * `fileName` is required; the other cells render empty when omitted.
+ */
 export interface SummaryRow {
+  /** B2 file name or display label (e.g. `(uploaded)`, `(removed)`). */
   fileName: string
+  /** Byte size of the file. Rendered via {@link formatBytes}. */
   size?: number | undefined
+  /** B2 file ID (rendered as inline code). */
   fileId?: string | undefined
+  /** Content SHA-1. Truncated to 12 chars in the table for readability. */
   sha1?: string | null | undefined
+  /** Free-form status cell (e.g. `uploaded`, `would delete`, `deleted`). */
   status?: string | undefined
 }
 
+/**
+ * Append a markdown summary block to `$GITHUB_STEP_SUMMARY`. No-ops when
+ * the env var is unset (e.g. running the bundle locally for a smoke test).
+ *
+ * @param opts.title - Heading rendered as `## {title}`.
+ * @param opts.rows - One row per file. Empty rows render an empty table body.
+ * @param opts.totals - Optional aggregate line printed above the table.
+ */
 export async function writeStepSummary(opts: {
   title: string
   rows: SummaryRow[]

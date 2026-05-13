@@ -3,13 +3,19 @@ import type { B2Client, Bucket } from '@backblaze/b2-sdk'
 import { presignGetObjectUrl } from '@backblaze/b2-sdk/s3'
 import { type ParsedInputs, requireSource } from '../inputs.ts'
 
+/** One entry in {@link PresignResult.files}. */
 export interface PresignedFile {
+  /** B2 file name (the key the URL grants access to). */
   fileName: string
+  /** Presigned download URL. Masked via `core.setSecret` before this struct is logged. */
   url: string
+  /** Expiration time as milliseconds since the epoch. */
   expiresAt: number
 }
 
+/** Result of {@link presignCommand}. */
 export interface PresignResult {
+  /** One entry per generated URL. Single-file mode returns a one-element array. */
   files: PresignedFile[]
 }
 

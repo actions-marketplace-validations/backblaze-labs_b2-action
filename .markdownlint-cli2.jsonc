@@ -1,0 +1,19 @@
+{
+  // Markdownlint config for repo docs (README, DEVELOPMENT, CONTRIBUTING, etc).
+  // Rule reference: https://github.com/DavidAnson/markdownlint/blob/main/doc/Rules.md
+  "config": {
+    "default": true,
+    // Allow long lines: docs have URLs, tables, and code snippets that don't wrap cleanly.
+    "MD013": false,
+    // Allow inline HTML (used for collapsible sections in DEVELOPMENT.md, badges, etc.).
+    "MD033": false,
+    // Allow bare URLs in markdown (e.g. "see https://example.com").
+    "MD034": false,
+    // Allow duplicate headings (e.g. multiple "Example:" sections under different verbs).
+    "MD024": { "siblings_only": true },
+    // Permit first-line non-h1 headings (CHANGELOG.md leads with frontmatter-ish bullets).
+    "MD041": false
+  },
+  "ignores": ["node_modules/**", "dist/**", "docs/**", "**/oss2/**", "**/oss3/**"],
+  "globs": ["**/*.md"]
+}

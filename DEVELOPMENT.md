@@ -38,7 +38,7 @@ The action is a thin dispatcher. Every verb lands in [`@backblaze/b2-sdk`](https
 
 ## Source layout
 
-```
+```text
 src/
   main.ts          # entrypoint: parse inputs, build client, dispatch, set outputs
   inputs.ts        # typed parser + validator for INPUT_* env vars
@@ -74,6 +74,10 @@ pnpm build          # ncc build src/main.ts -o dist
 pnpm actionlint     # validate every workflow under .github/workflows/
 pnpm all            # lint + typecheck + test + build
 pnpm verify-dist    # build, then `git diff --exit-code dist/` (must be clean)
+pnpm docs           # typedoc (strict): generates docs/ for GitHub Pages
+pnpm docs:watch     # typedoc in watch mode for local authoring
+pnpm docs:lint      # markdownlint-cli2 against **/*.md
+pnpm docs:check-action-yml  # action.yml <> README sync check
 ```
 
 Requirements: Node 24+, pnpm 10+. The Action runs on Node 24 in the GitHub Actions runtime; CI tests Node 24 across Ubuntu / macOS / Windows.
@@ -113,6 +117,10 @@ Every PR runs:
 | `build-and-check-dist` | ncc build, then `git diff dist/`. **Drift is a warning, not an error**, while the SDK is on `main`-tracking (see [Sibling-SDK CI scaffold](#sibling-sdk-ci-scaffold-temporary)). Bundle size is gated hard at 4 MiB. |
 | `actionlint` | validates every workflow file under `.github/workflows/` |
 | `self-smoke` | runs `node dist/index.js` with no inputs, expects the missing-input error |
+| `sync-check` ([docs-lint.yml](./.github/workflows/docs-lint.yml)) | every input/output in `action.yml` also appears in the README reference tables. Drift fails CI. |
+| `markdownlint` ([docs-lint.yml](./.github/workflows/docs-lint.yml)) | prose-style consistency across `**/*.md`. Config in [`.markdownlint-cli2.jsonc`](./.markdownlint-cli2.jsonc). |
+| `link-check` ([docs-lint.yml](./.github/workflows/docs-lint.yml)) | lychee runs in `--offline` mode against `**/*.md`; catches broken relative paths and anchor fragments. External URLs are not pinged. |
+| `docs` ([docs.yml](./.github/workflows/docs.yml)) | TypeDoc with `treatWarningsAsErrors: true`; every export must have JSDoc. Published to GitHub Pages on push to `main`. |
 
 Plus, the [example workflows](./.github/workflows/README.md) are the integration test suite: they run against a real B2 test bucket on every PR (skipping forks because secrets aren't available there). The bucket itself is set up as described in the next section.
 
@@ -266,7 +274,7 @@ GitHub Actions runs the action's `main:` entrypoint directly from the repo: ther
 
 The SDK builds a User-Agent of the form:
 
-```
+```text
 b2-sdk-ts/<sdk-version> (typescript; @backblaze/b2-sdk; <runtime>; <os>; <arch>) b2-github-action/<action-version>
 ```
 

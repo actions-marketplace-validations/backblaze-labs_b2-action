@@ -20,7 +20,7 @@ The Backblaze B2 GitHub Action. TypeScript-native, built on the official [`@back
 - **Step-summary tables** rendered on every run via `$GITHUB_STEP_SUMMARY`.
 - **Secret-safe.** App keys, auth tokens, and presigned URLs are auto-masked with `::add-mask::`.
 
-> **Live test suite = the examples.** Every workflow under [.github/workflows/example-*.yml](.github/workflows/) is both a copy-paste-runnable example and an integration test that runs on every PR.
+> **Live test suite = the examples.** Every workflow under [.github/workflows/example-*.yml](./.github/workflows/README.md) is both a copy-paste-runnable example and an integration test that runs on every PR.
 
 ## Table of contents
 

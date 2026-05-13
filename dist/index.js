@@ -61352,6 +61352,19 @@ function getRealmUrl(realm) {
 
 //# sourceMappingURL=realms.js.map
 
+;// CONCATENATED MODULE: ../b2-typescript-sdk/dist/types/ids.js
+function accountId(raw) {
+  return raw;
+}
+function bucketId(raw) {
+  return raw;
+}
+function fileId(raw) {
+  return raw;
+}
+
+//# sourceMappingURL=ids.js.map
+
 ;// CONCATENATED MODULE: ../b2-typescript-sdk/dist/upload/concurrency.js
 class Semaphore {
   /** @param limit - Maximum number of concurrent acquisitions. */
@@ -61407,6 +61420,7 @@ async function bestEffort(fn) {
 ;// CONCATENATED MODULE: ../b2-typescript-sdk/dist/copy/large.js
 
 
+
 async function copyLargeFile(raw, accountInfo, options) {
   const recommendedPartSize = accountInfo.getRecommendedPartSize();
   const minPartSize = accountInfo.getAbsoluteMinimumPartSize();
@@ -61454,7 +61468,9 @@ async function copyLargeFile(raw, accountInfo, options) {
         try {
           const resp = await raw.copyPart(accountInfo.getApiUrl(), accountInfo.getAuthToken(), {
             sourceFileId: options.sourceFileId,
-            largeFileId,
+            // `startLargeFile` returns `LargeFileId`; `copyPart` takes the
+            // same value typed as `FileId`. Re-brand via the factory.
+            largeFileId: fileId(largeFileId),
             partNumber: range.partNumber,
             range: `bytes=${range.start}-${range.end}`,
             ...options.sourceServerSideEncryption !== void 0 ? { sourceServerSideEncryption: options.sourceServerSideEncryption } : {},
@@ -61482,7 +61498,14 @@ async function copyLargeFile(raw, accountInfo, options) {
 
 //# sourceMappingURL=large.js.map
 
+;// CONCATENATED MODULE: ../b2-typescript-sdk/dist/util/text-codec.js
+const utf8Encoder = new TextEncoder();
+const utf8Decoder = new TextDecoder();
+
+//# sourceMappingURL=text-codec.js.map
+
 ;// CONCATENATED MODULE: ../b2-typescript-sdk/dist/raw/encoding.js
+
 const SAFE_CHARS = new Set(
   "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789-._~!$&'()*+,;=:@/".split("")
 );
@@ -61492,7 +61515,7 @@ function encodeFileName(name) {
     if (SAFE_CHARS.has(char)) {
       encoded.push(char);
     } else {
-      const bytes = new TextEncoder().encode(char);
+      const bytes = utf8Encoder.encode(char);
       for (const byte of bytes) {
         encoded.push(`%${byte.toString(16).toUpperCase().padStart(2, "0")}`);
       }
@@ -61526,6 +61549,7 @@ function parseFileInfoHeaders(headers) {
 //# sourceMappingURL=encoding.js.map
 
 ;// CONCATENATED MODULE: ../b2-typescript-sdk/dist/download/single.js
+
 
 async function downloadById(raw, accountInfo, options) {
   const resp = await raw.downloadFileById(
@@ -61581,7 +61605,7 @@ function extractDownloadHeaders(headers) {
     contentType: headers.get("Content-Type") ?? "application/octet-stream",
     contentLength: Number.parseInt(headers.get("Content-Length") ?? "0", 10),
     contentSha1: headers.get("X-Bz-Content-Sha1"),
-    fileId: headers.get("X-Bz-File-Id") ?? "",
+    fileId: fileId(headers.get("X-Bz-File-Id") ?? ""),
     fileName: decodeURIComponent(headers.get("X-Bz-File-Name") ?? ""),
     fileInfo,
     uploadTimestamp: Number.parseInt(headers.get("X-Bz-Upload-Timestamp") ?? "0", 10)
@@ -62474,19 +62498,6 @@ class B2Object {
 }
 
 //# sourceMappingURL=object.js.map
-
-;// CONCATENATED MODULE: ../b2-typescript-sdk/dist/types/ids.js
-function accountId(raw) {
-  return raw;
-}
-function bucketId(raw) {
-  return raw;
-}
-function fileId(raw) {
-  return raw;
-}
-
-//# sourceMappingURL=ids.js.map
 
 ;// CONCATENATED MODULE: ../b2-typescript-sdk/dist/util/paginator.js
 async function* paginatePages(fetcher, signal) {
@@ -66068,6 +66079,7 @@ function* actionsForBoth(source, dest, direction, compareMode, compareThreshold,
 
 
 
+
 function resolveDirection(source, dest) {
   if (source.type === "local" && dest.type === "b2") return "local-to-b2";
   if (source.type === "b2" && dest.type === "local") return "b2-to-local";
@@ -66208,8 +66220,8 @@ function createActionFactory(config) {
       return new DeleteRemoteAction(
         path.relativePath,
         path.selectedVersion.fileId,
-        async (fileId, fileName) => {
-          await bucket.deleteFileVersion(fileName, fileId);
+        async (fileId$1, fileName) => {
+          await bucket.deleteFileVersion(fileName, fileId(fileId$1));
         }
       );
     },
@@ -66755,6 +66767,14 @@ async function sha1OfFile(path) {
 
 
 
+/**
+ * Append a markdown summary block to `$GITHUB_STEP_SUMMARY`. No-ops when
+ * the env var is unset (e.g. running the bundle locally for a smoke test).
+ *
+ * @param opts.title - Heading rendered as `## {title}`.
+ * @param opts.rows - One row per file. Empty rows render an empty table body.
+ * @param opts.totals - Optional aggregate line printed above the table.
+ */
 async function writeStepSummary(opts) {
     const path = process.env.GITHUB_STEP_SUMMARY;
     if (path === undefined || path === '')

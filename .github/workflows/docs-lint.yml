@@ -1,0 +1,63 @@
+name: Docs lint
+
+# Three integrity checks for the documentation surface:
+#   1. `action.yml` <> README.md sync (every input/output appears in both).
+#   2. markdownlint-cli2 for prose style consistency.
+#   3. lychee for broken markdown links (offline + fragment-aware).
+#
+# Cheap and fast. Runs on every PR + every push to main.
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    paths:
+      - '**/*.md'
+      - 'action.yml'
+      - 'scripts/check-action-yml-vs-readme.mjs'
+      - '.markdownlint-cli2.jsonc'
+      - '.github/workflows/docs-lint.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  sync-check:
+    name: action.yml <> README
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+      - run: node scripts/check-action-yml-vs-readme.mjs
+
+  markdownlint:
+    name: markdownlint
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: pnpm
+      # We only need markdownlint-cli2 here, not the full dep tree. Install
+      # it directly so this job doesn't have to clone the sibling SDK.
+      - run: pnpm dlx markdownlint-cli2
+
+  link-check:
+    name: Markdown link check
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: lychee
+        uses: lycheeverse/lychee-action@v2
+        with:
+          # Offline mode: only check relative paths and fragments. External
+          # URLs go un-pinged to keep this job fast and stable. The repo's
+          # CI is not the right place to discover that a Backblaze docs
+          # page got reorganized.
+          args: --offline --include-fragments --no-progress --verbose '**/*.md'
+          fail: true

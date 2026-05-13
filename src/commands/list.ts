@@ -2,18 +2,29 @@ import * as core from '@actions/core'
 import type { Bucket } from '@backblaze/b2-sdk'
 import type { ParsedInputs } from '../inputs.ts'
 
+/** One entry in {@link ListResult.files}. Mirrors the SDK's per-version metadata. */
 export interface ListedFile {
+  /** B2 file name (the key). */
   fileName: string
+  /** B2 file ID. */
   fileId: string
+  /** Byte size of the file. */
   size: number
+  /** Whole-file SHA-1, or `null` for multipart uploads. */
   contentSha1: string | null
+  /** Server-side upload timestamp in milliseconds since the epoch. */
   uploadTimestamp: number
+  /** Content-Type the file was uploaded with. */
   contentType: string
+  /** Custom `X-Bz-Info-*` headers from upload time. */
   fileInfo: Record<string, string>
 }
 
+/** Result of {@link listCommand}. */
 export interface ListResult {
+  /** Files matching the prefix, capped by `maxResults`. */
   files: ListedFile[]
+  /** True when more files exist beyond `maxResults`. Use to detect pagination. */
   truncated: boolean
 }
 

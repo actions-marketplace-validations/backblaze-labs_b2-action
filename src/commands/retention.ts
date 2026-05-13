@@ -3,11 +3,17 @@ import type { Bucket } from '@backblaze/b2-sdk'
 import { findFileByName } from '../client.ts'
 import { type ParsedInputs, requireSource } from '../inputs.ts'
 
+/** Result of {@link retentionCommand}: describes what was applied to the target version. */
 export interface RetentionResult {
+  /** B2 file name the retention/hold was applied to. */
   fileName: string
+  /** B2 file ID of the version that was modified. */
   fileId: string
+  /** Retention mode after the call. `none` means retention was cleared. Undefined if only legal-hold was touched. */
   appliedMode: 'compliance' | 'governance' | 'none' | undefined
+  /** Retention expiration timestamp (ms since the epoch). `null` when mode is `none`. */
   retainUntilTimestamp: number | null | undefined
+  /** Legal-hold state after the call. Undefined when not touched by this invocation. */
   appliedLegalHold: 'on' | 'off' | undefined
 }
 

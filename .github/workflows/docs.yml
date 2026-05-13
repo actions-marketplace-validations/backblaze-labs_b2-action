@@ -1,0 +1,62 @@
+name: Deploy API Docs
+
+# Builds TypeDoc on every push to main and deploys the result to GitHub
+# Pages. The site is intended for contributors and curious users who want
+# to read the TS-level shapes (ParsedInputs, command result types, etc.);
+# user-facing usage docs live in README.md.
+#
+# One-time setup: enable Pages in the repo Settings (Settings > Pages >
+# Source: GitHub Actions). The first run will fail until that's flipped.
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: pages
+  cancel-in-progress: false
+
+jobs:
+  build:
+    name: Build docs
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      # We need the SDK sibling on disk because package.json's
+      # @backblaze/b2-sdk dep is `link:../b2-typescript-sdk` (private repo).
+      # Matches the pattern in ci.yml / release.yml.
+      - name: Clone sibling SDK
+        uses: ./.github/actions/setup-sdk-sibling
+        with:
+          token: ${{ secrets.SDK_REPO_TOKEN }}
+
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: pnpm
+
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm run docs
+
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: docs
+
+  deploy:
+    name: Deploy to GitHub Pages
+    needs: build
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - id: deployment
+        uses: actions/deploy-pages@v4

@@ -22,7 +22,7 @@ Skip a hook with `--no-verify` if you absolutely need to. CI runs the same check
 
 ## Project shape
 
-```
+```text
 src/
   main.ts          # entrypoint: parse inputs, build client, dispatch, set outputs
   inputs.ts        # typed parser + validator for INPUT_* env vars

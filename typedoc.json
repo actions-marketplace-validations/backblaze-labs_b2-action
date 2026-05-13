@@ -1,0 +1,73 @@
+{
+  "$schema": "https://typedoc.org/schema.json",
+  "entryPoints": [
+    "src/main.ts",
+    "src/client.ts",
+    "src/inputs.ts",
+    "src/format.ts",
+    "src/progress.ts",
+    "src/sse.ts",
+    "src/summary.ts",
+    "src/version.ts",
+    "src/commands/copy.ts",
+    "src/commands/delete.ts",
+    "src/commands/download.ts",
+    "src/commands/head.ts",
+    "src/commands/hide.ts",
+    "src/commands/list.ts",
+    "src/commands/presign.ts",
+    "src/commands/purge.ts",
+    "src/commands/retention.ts",
+    "src/commands/sync.ts",
+    "src/commands/unhide.ts",
+    "src/commands/upload.ts",
+    "src/commands/verify.ts"
+  ],
+  "out": "docs",
+  "name": "backblaze-labs/b2-action",
+  "includeVersion": true,
+  "readme": "README.md",
+  "tsconfig": "tsconfig.json",
+  "excludePrivate": true,
+  "excludeProtected": true,
+  "excludeInternal": true,
+  "excludeExternals": true,
+  "categorizeByGroup": true,
+  "navigationLinks": {
+    "GitHub": "https://github.com/backblaze-labs/b2-action",
+    "Backblaze B2": "https://www.backblaze.com/cloud-storage"
+  },
+  "externalSymbolLinkMappings": {
+    "@backblaze/b2-sdk": {
+      "B2Client": "https://backblaze-labs.github.io/b2-typescript-sdk/classes/index.B2Client.html",
+      "Bucket": "https://backblaze-labs.github.io/b2-typescript-sdk/classes/index.Bucket.html",
+      "Bucket.deleteAll": "https://backblaze-labs.github.io/b2-typescript-sdk/classes/index.Bucket.html#deleteAll",
+      "Bucket.unhide": "https://backblaze-labs.github.io/b2-typescript-sdk/classes/index.Bucket.html#unhide",
+      "synchronize": "https://backblaze-labs.github.io/b2-typescript-sdk/functions/sync.synchronize.html",
+      "EncryptionSetting": "https://backblaze-labs.github.io/b2-typescript-sdk/types/index.EncryptionSetting.html"
+    }
+  },
+  "treatWarningsAsErrors": true,
+  "validation": {
+    "notExported": true,
+    "invalidLink": true,
+    "notDocumented": true
+  },
+  "requiredToBeDocumented": [
+    "Class",
+    "Interface",
+    "Function",
+    "Method",
+    "Property",
+    "Enum",
+    "EnumMember",
+    "TypeAlias",
+    "Variable",
+    "Accessor",
+    "Constructor",
+    "GetSignature",
+    "SetSignature",
+    "CallSignature",
+    "IndexSignature"
+  ]
+}

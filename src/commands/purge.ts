@@ -2,15 +2,23 @@ import * as core from '@actions/core'
 import type { Bucket } from '@backblaze/b2-sdk'
 import type { ParsedInputs } from '../inputs.ts'
 
+/** One entry in {@link PurgeResult.files}. */
 export interface PurgedFile {
+  /** B2 file name (the key). */
   fileName: string
+  /** B2 file ID of the version that was purged. */
   fileId: string
+  /** Which kind of version this entry refers to: an `upload` (real data), a `hide` marker, or a `skip` (dry-run). */
   action: 'upload' | 'hide' | 'skip'
+  /** True for dry-run previews; the version was not actually purged. */
   skipped: boolean
 }
 
+/** Result of {@link purgeCommand}. */
 export interface PurgeResult {
+  /** One entry per matched version (live, prior, and hide markers). */
   files: PurgedFile[]
+  /** Count of individual-version purge failures. */
   errors: number
 }
 

@@ -3,12 +3,19 @@ import type { B2Client, Bucket } from '@backblaze/b2-sdk'
 import { findFileByName } from '../client.ts'
 import { type ParsedInputs, requireSource } from '../inputs.ts'
 
+/** Result of {@link copyCommand}. Single-file (copy is always one-source-one-destination). */
 export interface CopyResult {
+  /** Source bucket name. */
   sourceBucket: string
+  /** Source file name (the B2 key in the source bucket). */
   sourceFileName: string
+  /** Destination bucket name. */
   destinationBucket: string
+  /** Destination file name (the B2 key in the destination bucket). */
   destinationFileName: string
+  /** B2 file ID of the newly-created destination object. */
   fileId: string
+  /** Byte size of the copied object. */
   size: number
 }
 

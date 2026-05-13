@@ -5,12 +5,19 @@ import type { Bucket } from '@backblaze/b2-sdk'
 import { IncrementalSha1 } from '@backblaze/b2-sdk/streams'
 import { type ParsedInputs, requireSource } from '../inputs.ts'
 
+/** Result of {@link verifyCommand}. */
 export interface VerifyResult {
+  /** B2 file name that was checked. */
   fileName: string
+  /** Server-reported byte size of the remote object. */
   remoteSize: number
+  /** Remote whole-file SHA-1, or `null` if the file was multipart-uploaded. */
   remoteSha1: string | null
+  /** Locally-computed SHA-1, or `null` if no local file was provided. */
   localSha1: string | null
+  /** True when remote SHA-1 matches the expected value. */
   verified: boolean
+  /** Human-readable failure reason; `undefined` on success. */
   reason: string | undefined
 }
 

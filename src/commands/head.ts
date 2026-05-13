@@ -2,13 +2,21 @@ import * as core from '@actions/core'
 import type { Bucket } from '@backblaze/b2-sdk'
 import { type ParsedInputs, requireSource } from '../inputs.ts'
 
+/** Result of {@link headCommand}: metadata read from a HEAD request, no body. */
 export interface HeadResult {
+  /** B2 file name (the key). */
   fileName: string
+  /** B2 file ID. */
   fileId: string
+  /** Byte size of the file (from `Content-Length`). */
   size: number
+  /** Content-Type the file was uploaded with. */
   contentType: string
+  /** Whole-file SHA-1, or `null` for multipart uploads. */
   contentSha1: string | null
+  /** B2-side upload timestamp in milliseconds since the epoch. */
   uploadTimestamp: number
+  /** Custom `X-Bz-Info-*` headers attached at upload time. */
   fileInfo: Record<string, string>
 }
 

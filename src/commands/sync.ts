@@ -12,14 +12,23 @@ import type {
 } from '@backblaze/b2-sdk/sync'
 import { type ParsedInputs, requireSource } from '../inputs.ts'
 
+/** Result of {@link syncCommand}: per-event log plus aggregate counters. */
 export interface SyncResult {
+  /** Per-file events emitted by the SDK's `synchronize()` (upload-done, download-done, skip, delete-*, hide, error). */
   events: SyncEvent[]
+  /** Resolved direction of this sync (after `auto` resolution). */
   direction: 'local-to-b2' | 'b2-to-local'
+  /** Count of files uploaded. */
   uploaded: number
+  /** Count of files downloaded. */
   downloaded: number
+  /** Count of files deleted/hidden across both sides. */
   deleted: number
+  /** Count of files left unchanged (already in sync). */
   skipped: number
+  /** Count of per-file errors. */
   errors: number
+  /** Total bytes transferred across both directions. */
   bytesTransferred: number
 }
 

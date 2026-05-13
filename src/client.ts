@@ -3,16 +3,30 @@ import { B2Client, type Bucket, type HttpTransport } from '@backblaze/b2-sdk'
 import type { FileVersion } from '@backblaze/b2-sdk'
 import { VERSION } from './version.ts'
 
+/**
+ * An authorized B2Client paired with the bucket name the action is scoped
+ * to. Returned by {@link buildClient}; consumed by command dispatch sites
+ * that need either the high-level client (cross-bucket copy, presign) or
+ * the resolved bucket (via {@link getBucket}).
+ */
 export interface AuthorizedClient {
+  /** The authorized SDK client. `client.accountInfo` is populated. */
   client: B2Client
+  /** The destination bucket name as provided to the action's `bucket` input. */
   bucketName: string
 }
 
+/** Inputs to {@link buildClient}. */
 export interface BuildClientOptions {
+  /** B2 application key ID. */
   applicationKeyId: string
+  /** B2 application key (the secret). Masked via `core.setSecret` by the dispatcher. */
   applicationKey: string
+  /** Target bucket name (stored on the result for later `getBucket` resolution). */
   bucket: string
+  /** Override the default B2 realm endpoint. Only set for staging / custom realms. */
   endpoint?: string | undefined
+  /** Inject a custom transport (used by tests with the SDK's `B2Simulator`). */
   transport?: HttpTransport | undefined
 }
 

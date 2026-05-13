@@ -2,9 +2,11 @@ import * as core from '@actions/core'
 import type { Bucket } from '@backblaze/b2-sdk'
 import { type ParsedInputs, requireSource } from '../inputs.ts'
 
+/** Result of {@link unhideCommand}. */
 export interface UnhideResult {
+  /** B2 file name that was unhidden. */
   fileName: string
-  /** File ID of the removed hide marker, or null if there was nothing hidden. */
+  /** File ID of the removed hide marker, or `null` if there was nothing hidden. */
   removedMarkerFileId: string | null
 }
 

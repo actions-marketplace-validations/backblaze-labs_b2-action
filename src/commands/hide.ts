@@ -2,8 +2,11 @@ import * as core from '@actions/core'
 import type { Bucket } from '@backblaze/b2-sdk'
 import { type ParsedInputs, requireSource } from '../inputs.ts'
 
+/** Result of {@link hideCommand}: identifies the hide marker that was just created. */
 export interface HideResult {
+  /** B2 file name that was hidden. */
   fileName: string
+  /** File ID of the hide marker (a special version with `action: 'hide'`). */
   fileId: string
 }
 

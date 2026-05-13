@@ -8,15 +8,23 @@ import type { Bucket, SseCDownloadKey } from '@backblaze/b2-sdk'
 import { type ParsedInputs, requireSource } from '../inputs.ts'
 import { makeProgressListener } from '../progress.ts'
 
+/** One entry in {@link DownloadResult.files}. */
 export interface DownloadedFile {
+  /** B2 file name (the key that was fetched). */
   fileName: string
+  /** Absolute path on the runner where the body landed. */
   localPath: string
+  /** Byte size of the downloaded body. */
   size: number
+  /** Remote SHA-1, or `null` if the file was multipart-uploaded (B2 doesn't store a whole-file SHA-1 in that case). */
   contentSha1: string | null
 }
 
+/** Result of {@link downloadCommand}. */
 export interface DownloadResult {
+  /** One entry per downloaded file. Single-file modes return a one-element array. */
   files: DownloadedFile[]
+  /** Total bytes transferred across all files. */
   bytesTransferred: number
 }
 

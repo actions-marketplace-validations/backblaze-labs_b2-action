@@ -2,6 +2,12 @@ import * as core from '@actions/core'
 import type { EncryptionSetting } from '@backblaze/b2-sdk'
 import { parseSse } from './sse.ts'
 
+/**
+ * Discriminator the action's dispatcher switches on. Matches the values
+ * accepted by the `action:` input in `action.yml`. Adding a new verb
+ * requires updating this union, the runtime `VALID_ACTIONS` list, the
+ * dispatcher in `src/main.ts`, and the documentation surfaces.
+ */
 export type ActionName =
   | 'upload'
   | 'download'
@@ -33,10 +39,15 @@ const VALID_ACTIONS: readonly ActionName[] = [
   'purge',
 ]
 
+/** How `sync` decides whether two files match. Drives the SDK's `synchronize()`. */
 export type CompareMode = 'modtime' | 'size' | 'none'
+/** What `sync` does with destination-only files when reconciling. */
 export type KeepMode = 'no-delete' | 'delete' | 'keep-days'
+/** Direction of a `sync`: `auto` infers from whether `source` is local or remote. */
 export type SyncDirection = 'auto' | 'up' | 'down'
+/** B2 Object Lock retention mode. `none` clears any prior retention. */
 export type RetentionMode = 'compliance' | 'governance' | 'none'
+/** B2 Object Lock legal-hold state. */
 export type LegalHold = 'on' | 'off'
 
 const VALID_COMPARE: readonly CompareMode[] = ['modtime', 'size', 'none']
@@ -45,34 +56,78 @@ const VALID_DIRECTION: readonly SyncDirection[] = ['auto', 'up', 'down']
 const VALID_RETENTION_MODE: readonly RetentionMode[] = ['compliance', 'governance', 'none']
 const VALID_LEGAL_HOLD: readonly LegalHold[] = ['on', 'off']
 
+/**
+ * The fully-parsed, fully-validated action surface. Built by
+ * {@link parseInputs} from `INPUT_*` env vars (via `@actions/core`); every
+ * command in `src/commands/` consumes a frozen instance of this shape.
+ *
+ * Most fields map 1:1 to inputs declared in `action.yml`. Defaults and
+ * optionality match the YAML surface; see `action.yml` for the user-facing
+ * documentation per input.
+ */
 export interface ParsedInputs {
+  /** Which verb to dispatch to. */
   action: ActionName
+  /** B2 application key ID. */
   applicationKeyId: string
+  /** B2 application key (the secret). Masked at parse time via `core.setSecret`. */
   applicationKey: string
+  /** Destination bucket name for the action. */
   bucket: string
+  /** Cross-bucket `copy` source bucket. Undefined means same-bucket copy. */
   sourceBucket: string | undefined
+  /**
+   * Verb-dependent source. Upload/sync: a local path or glob. Download/copy/
+   * delete/presign/list/hide/unhide/verify/retention/head/purge: a B2 file
+   * name or prefix (trailing `/` means prefix mode for verbs that support it).
+   */
   source: string | undefined
+  /**
+   * Verb-dependent destination. Upload/sync: B2 file name or prefix.
+   * Download: local path. Copy: destination file name. Other verbs: ignored.
+   */
   destination: string | undefined
+  /** Glob patterns to include during upload/sync expansion. */
   include: string[]
+  /** Glob patterns to exclude during upload/sync expansion. Default: `.git/**`. */
   exclude: string[]
+  /** Parallel parts/files for upload/sync. */
   concurrency: number
+  /** Multipart part size in bytes. Undefined defers to the SDK's recommendation. */
   partSize: number | undefined
+  /** Resume an in-progress multipart upload. */
   resume: boolean
+  /** Content-Type to set on uploaded objects. Undefined leaves B2's auto-detect. */
   contentType: string | undefined
+  /** Preview without executing (sync/delete/purge). */
   dryRun: boolean
+  /** Presigned-URL TTL in seconds. */
   presignTtlSeconds: number
+  /** Override B2 realm endpoint for staging / custom realms. */
   endpoint: string | undefined
+  /** Fail the action when upload/sync matches zero files. */
   failOnEmpty: boolean
+  /** Raw `sse:` input value as the user typed it. Retained for diagnostics. */
   sse: string | undefined
+  /** Parsed SSE specification ready to hand to the SDK. */
   encryption: EncryptionSetting | undefined
+  /** How `sync` compares files. */
   compareMode: CompareMode
+  /** How `sync` treats destination-only files. */
   keepMode: KeepMode
+  /** Direction of a `sync` (auto-detected when set to `auto`). */
   syncDirection: SyncDirection
+  /** Cap on listed/presigned entries for `list` and prefix `presign`. */
   maxResults: number
+  /** Literal SHA-1 to compare against in `verify` (when set, no local read). */
   expectedSha1: string | undefined
+  /** Object Lock retention mode to apply (`retention` verb). */
   retentionMode: RetentionMode | undefined
+  /** ISO-8601 timestamp until which retention applies. Required with `retentionMode`. */
   retentionUntil: string | undefined
+  /** Legal-hold state to apply (`retention` verb). */
   legalHold: LegalHold | undefined
+  /** Allow shortening a governance-mode retention (requires key capability). */
   bypassGovernance: boolean
 }
 
