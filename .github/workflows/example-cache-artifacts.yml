@@ -6,6 +6,12 @@ name: 'Example — cache artifacts'
 
 on:
   workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/example-cache-artifacts.yml'
+      - 'src/**'
+      - 'dist/**'
   pull_request:
     paths:
       - '.github/workflows/example-cache-artifacts.yml'
@@ -17,7 +23,7 @@ permissions:
 
 jobs:
   cache:
-    if: github.event_name == 'workflow_dispatch' || github.event.pull_request.head.repo.fork == false
+    if: github.event_name == 'workflow_dispatch' || github.event_name == 'push' || github.event.pull_request.head.repo.fork == false
     runs-on: ubuntu-latest
     env:
       CACHE_KEY: cache/${{ runner.os }}/example-${{ github.run_id }}.tar.gz

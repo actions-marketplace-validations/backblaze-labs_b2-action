@@ -1,27 +1,11 @@
 # Backblaze B2 GitHub Action
 
-<!-- Status -->
 [![CI](https://github.com/backblaze-labs/b2-action/actions/workflows/ci.yml/badge.svg)](https://github.com/backblaze-labs/b2-action/actions/workflows/ci.yml)
 [![Release](https://github.com/backblaze-labs/b2-action/actions/workflows/release.yml/badge.svg)](https://github.com/backblaze-labs/b2-action/actions/workflows/release.yml)
 [![Marketplace](https://img.shields.io/github/v/release/backblaze-labs/b2-action?label=marketplace&color=red&logo=githubactions&logoColor=white)](https://github.com/marketplace/actions/backblaze-b2)
 [![Latest release](https://img.shields.io/github/v/release/backblaze-labs/b2-action?display_name=tag&sort=semver&color=blue)](https://github.com/backblaze-labs/b2-action/releases/latest)
 [![License: MIT](https://img.shields.io/badge/license-MIT-yellow.svg)](./LICENSE)
-
-<!-- Quality -->
-[![Tests](https://img.shields.io/badge/tests-104%20passing-brightgreen.svg?logo=vitest&logoColor=white)](./__tests__)
 [![Coverage](https://img.shields.io/badge/coverage-97%25-brightgreen.svg)](./vitest.config.ts)
-
-<!-- Tech stack -->
-[![TypeScript](https://img.shields.io/badge/typescript-strict-3178C6.svg?logo=typescript&logoColor=white)](./tsconfig.json)
-[![Node 24](https://img.shields.io/badge/node-24-339933.svg?logo=node.js&logoColor=white)](./.nvmrc)
-[![Code style: Biome](https://img.shields.io/badge/code_style-biome-60a5fa.svg?logo=biome&logoColor=white)](./biome.json)
-[![Powered by @backblaze/b2-sdk](https://img.shields.io/badge/powered_by-%40backblaze%2Fb2--sdk-red.svg)](https://github.com/backblaze/b2-sdk-typescript)
-
-<!-- Community -->
-[![PRs welcome](https://img.shields.io/badge/PRs-welcome-blue.svg)](./CONTRIBUTING.md)
-[![Open issues](https://img.shields.io/github/issues/backblaze-labs/b2-action.svg?color=informational)](https://github.com/backblaze-labs/b2-action/issues)
-[![GitHub Stars](https://img.shields.io/github/stars/backblaze-labs/b2-action?style=flat&logo=github)](https://github.com/backblaze-labs/b2-action/stargazers)
-[![Backblaze](https://img.shields.io/badge/-Backblaze-EE3232.svg?logo=backblaze&logoColor=white)](https://www.backblaze.com/cloud-storage)
 
 The Backblaze B2 GitHub Action. TypeScript-native, built on the official [`@backblaze/b2-sdk`](https://github.com/backblaze/b2-sdk-typescript). Thirteen verbs covering every B2 operation a CI workflow needs.
 
@@ -40,28 +24,30 @@ The Backblaze B2 GitHub Action. TypeScript-native, built on the official [`@back
 
 ## Table of contents
 
-- [Quick start](#quick-start)
-- [Verbs](#verbs)
-- [Worked examples](#worked-examples)
-  - [Upload a single file](#upload-a-single-file)
-  - [Upload a directory with globs](#upload-a-directory-with-globs)
-  - [Download a file or a prefix](#download-a-file-or-a-prefix)
-  - [Sync (both directions)](#sync-both-directions)
-  - [Server-side copy (same-bucket or cross-bucket)](#server-side-copy-same-bucket-or-cross-bucket)
-  - [List, dry-run-delete, delete](#list-dry-run-delete-delete)
-  - [Hide / unhide](#hide--unhide)
-  - [Verify SHA-1 without downloading](#verify-sha-1-without-downloading)
-  - [Presign a download URL](#presign-a-download-url)
-  - [Server-side encryption](#server-side-encryption)
-    - [Generating an SSE-C key](#generating-an-sse-c-key)
-  - [Object Lock retention + legal hold](#object-lock-retention--legal-hold)
-  - [Chain outputs](#chain-outputs)
-- [Inputs (full reference)](#inputs-full-reference)
-- [Outputs (full reference)](#outputs-full-reference)
-- [Migrating from other B2 Actions](#migrating-from-other-b2-actions)
-- [Why this Action exists](#why-this-action-exists)
-- [Development & contributing](#development--contributing)
-- [License](#license)
+- [Backblaze B2 GitHub Action](#backblaze-b2-github-action)
+  - [Table of contents](#table-of-contents)
+  - [Quick start](#quick-start)
+  - [Verbs](#verbs)
+  - [Worked examples](#worked-examples)
+    - [Upload a single file](#upload-a-single-file)
+    - [Upload a directory with globs](#upload-a-directory-with-globs)
+    - [Download a file or a prefix](#download-a-file-or-a-prefix)
+    - [Sync (both directions)](#sync-both-directions)
+    - [Server-side copy (same-bucket or cross-bucket)](#server-side-copy-same-bucket-or-cross-bucket)
+    - [List, dry-run-delete, delete](#list-dry-run-delete-delete)
+    - [Hide / unhide](#hide--unhide)
+    - [Verify SHA-1 without downloading](#verify-sha-1-without-downloading)
+    - [Presign a download URL](#presign-a-download-url)
+    - [Server-side encryption](#server-side-encryption)
+      - [Generating an SSE-C key](#generating-an-sse-c-key)
+    - [Object Lock retention + legal hold](#object-lock-retention--legal-hold)
+    - [Chain outputs](#chain-outputs)
+  - [Inputs (full reference)](#inputs-full-reference)
+  - [Outputs (full reference)](#outputs-full-reference)
+  - [Migrating from other B2 Actions](#migrating-from-other-b2-actions)
+  - [Why this Action exists](#why-this-action-exists)
+  - [Development \& contributing](#development--contributing)
+  - [License](#license)
 
 ---
 

@@ -63634,7 +63634,29 @@ class RetryTransport {
 
 //# sourceMappingURL=transport.js.map
 
+;// CONCATENATED MODULE: ../b2-typescript-sdk/dist/types/encryption.js
+const EncryptionAlgorithm = {
+  /** AES with a 256-bit key. The only algorithm B2 currently supports. */
+  Aes256: "AES256"
+};
+const EncryptionMode = {
+  /** B2-managed encryption keys. */
+  SseB2: "SSE-B2",
+  /** Customer-provided encryption keys. */
+  SseC: "SSE-C",
+  /** No encryption. */
+  None: "none"
+};
+const SSE_B2 = { mode: "SSE-B2", algorithm: "AES256" };
+const SSE_NONE = { mode: "none" };
+function sseCustomer(customerKey, customerKeyMd5) {
+  return { mode: "SSE-C", algorithm: "AES256", customerKey, customerKeyMd5 };
+}
+
+//# sourceMappingURL=encryption.js.map
+
 ;// CONCATENATED MODULE: ../b2-typescript-sdk/dist/raw/index.js
+
 
 
 class RawClient {
@@ -64160,11 +64182,11 @@ class RawClient {
   }
 }
 function applyEncryptionHeaders(headers, encryption) {
-  if (!encryption || encryption.mode === "none") return;
-  if (encryption.mode === "SSE-B2") {
-    headers["X-Bz-Server-Side-Encryption"] = "AES256";
-  } else if (encryption.mode === "SSE-C") {
-    headers["X-Bz-Server-Side-Encryption-Customer-Algorithm"] = "AES256";
+  if (!encryption || encryption.mode === EncryptionMode.None) return;
+  if (encryption.mode === EncryptionMode.SseB2) {
+    headers["X-Bz-Server-Side-Encryption"] = EncryptionAlgorithm.Aes256;
+  } else if (encryption.mode === EncryptionMode.SseC) {
+    headers["X-Bz-Server-Side-Encryption-Customer-Algorithm"] = EncryptionAlgorithm.Aes256;
     headers["X-Bz-Server-Side-Encryption-Customer-Key"] = encryption.customerKey;
     headers["X-Bz-Server-Side-Encryption-Customer-Key-Md5"] = encryption.customerKeyMd5;
   }
@@ -64181,7 +64203,10 @@ function buildDownloadRequestHeaders(authToken, options) {
   const headers = { Authorization: authToken };
   if (options?.range) headers["Range"] = options.range;
   if (options?.serverSideEncryption) {
-    applyEncryptionHeaders(headers, { mode: "SSE-C", ...options.serverSideEncryption });
+    applyEncryptionHeaders(headers, {
+      mode: EncryptionMode.SseC,
+      ...options.serverSideEncryption
+    });
   }
   return headers;
 }
@@ -65772,7 +65797,30 @@ class LocalFolder {
 
 //# sourceMappingURL=local.js.map
 
+;// CONCATENATED MODULE: ../b2-typescript-sdk/dist/types/file.js
+const FileAction = {
+  /** Large file upload started but not yet finished. */
+  Start: "start",
+  /** Normal upload (small or finished large file). */
+  Upload: "upload",
+  /** Hide marker (soft delete). */
+  Hide: "hide",
+  /** Virtual folder marker. */
+  Folder: "folder",
+  /** Created via server-side copy. */
+  Copy: "copy"
+};
+const MetadataDirective = {
+  /** Preserve the source file's contentType and fileInfo. */
+  Copy: "COPY",
+  /** Use the values provided in the copy request. */
+  Replace: "REPLACE"
+};
+
+//# sourceMappingURL=file.js.map
+
 ;// CONCATENATED MODULE: ../b2-typescript-sdk/dist/sync/scanners/b2.js
+
 class B2Folder {
   type = "b2";
   bucket;
@@ -65813,7 +65861,7 @@ class B2Folder {
     for (const [fileName, versions] of sorted) {
       versions.sort((a, b) => b.uploadTimestamp - a.uploadTimestamp);
       const selected = versions[0];
-      if (!selected || selected.action === "hide") continue;
+      if (!selected || selected.action === FileAction.Hide) continue;
       const relativePath = this.prefix !== "" ? fileName.slice(this.prefix.length) : fileName;
       yield {
         relativePath,
@@ -66277,27 +66325,6 @@ async function sha1OfFile(path) {
 var external_node_buffer_ = __nccwpck_require__(4573);
 // EXTERNAL MODULE: external "node:crypto"
 var external_node_crypto_ = __nccwpck_require__(7598);
-;// CONCATENATED MODULE: ../b2-typescript-sdk/dist/types/encryption.js
-const EncryptionAlgorithm = {
-  /** AES with a 256-bit key. The only algorithm B2 currently supports. */
-  Aes256: "AES256"
-};
-const EncryptionMode = {
-  /** B2-managed encryption keys. */
-  SseB2: "SSE-B2",
-  /** Customer-provided encryption keys. */
-  SseC: "SSE-C",
-  /** No encryption. */
-  None: "none"
-};
-const SSE_B2 = { mode: "SSE-B2", algorithm: "AES256" };
-const SSE_NONE = { mode: "none" };
-function sseCustomer(customerKey, customerKeyMd5) {
-  return { mode: "SSE-C", algorithm: "AES256", customerKey, customerKeyMd5 };
-}
-
-//# sourceMappingURL=encryption.js.map
-
 ;// CONCATENATED MODULE: ./src/sse.ts
 
 

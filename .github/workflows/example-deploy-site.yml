@@ -5,6 +5,12 @@ name: 'Example — deploy site (sync)'
 
 on:
   workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/example-deploy-site.yml'
+      - 'src/**'
+      - 'dist/**'
   pull_request:
     paths:
       - '.github/workflows/example-deploy-site.yml'
@@ -16,7 +22,7 @@ permissions:
 
 jobs:
   deploy:
-    if: github.event_name == 'workflow_dispatch' || github.event.pull_request.head.repo.fork == false
+    if: github.event_name == 'workflow_dispatch' || github.event_name == 'push' || github.event.pull_request.head.repo.fork == false
     runs-on: ubuntu-latest
     env:
       DEPLOY_PREFIX: examples/deploy-site/${{ github.run_id }}

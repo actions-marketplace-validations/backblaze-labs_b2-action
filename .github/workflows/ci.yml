@@ -121,10 +121,20 @@ jobs:
   actionlint:
     name: actionlint
     runs-on: ubuntu-latest
+    # We download the actionlint binary directly (rather than a wrapper Action)
+    # because every JS/composite wrapper we've tried (raven-actions, etc.) runs
+    # `npm install` somewhere in the repo root, which fails as long as
+    # `package.json` references `@backblaze/b2-sdk` via pnpm's `link:` protocol —
+    # npm doesn't understand `link:`. The official binary has no such coupling.
     steps:
       - uses: actions/checkout@v4
+      - name: Download actionlint
+        id: get_actionlint
+        shell: bash
+        run: bash <(curl https://raw.githubusercontent.com/rhysd/actionlint/main/scripts/download-actionlint.bash)
       - name: Run actionlint
-        uses: raven-actions/actionlint@v2
+        shell: bash
+        run: ${{ steps.get_actionlint.outputs.executable }} -color
 
   self-smoke:
     name: action smoke test (offline)
