@@ -6,7 +6,7 @@ Instructions for AI assistants working on `backblaze-labs/b2-action` (the Backbl
 
 A GitHub Action that wraps `@backblaze/b2-sdk` to upload, download, sync, copy, and manage Backblaze B2 Cloud Storage from a CI workflow. Node 24 JavaScript action, single `dist/index.js` produced by [`@vercel/ncc`](https://github.com/vercel/ncc).
 
-The sibling SDK at `../b2-typescript-sdk` is the source of truth for B2 wire-protocol concerns. Whenever you'd reach for raw HTTP, `fetch`, `boto3`, the `b2` CLI, or a shelled-out subprocess — stop and use the SDK instead.
+The sibling SDK at `../b2-typescript-sdk` is the source of truth for B2 wire-protocol concerns. Whenever you'd reach for raw HTTP, `fetch`, `boto3`, the `b2` CLI, or a shelled-out subprocess: stop and use the SDK instead.
 
 ## Conventions
 
@@ -28,7 +28,7 @@ pnpm typecheck   # tsc --noEmit
 pnpm test        # vitest run, against B2Simulator
 pnpm build       # ncc build src/main.ts -o dist
 pnpm all         # lint + typecheck + test + build
-pnpm verify-dist # build, then `git diff --exit-code dist/` — must be clean before commit
+pnpm verify-dist # build, then `git diff --exit-code dist/`: must be clean before commit
 ```
 
 ## Architecture
@@ -43,7 +43,7 @@ pnpm verify-dist # build, then `git diff --exit-code dist/` — must be clean be
 
 ## Command files
 
-Each `src/commands/<verb>.ts` exports one async function that takes `(bucket: Bucket, inputs: ParsedInputs)` and returns a typed result. The function does its own progress reporting (via `src/progress.ts`) and `core.startGroup` / `core.endGroup` framing. It does NOT call `core.setOutput` — that's the dispatcher's job.
+Each `src/commands/<verb>.ts` exports one async function that takes `(bucket: Bucket, inputs: ParsedInputs)` and returns a typed result. The function does its own progress reporting (via `src/progress.ts`) and `core.startGroup` / `core.endGroup` framing. It does NOT call `core.setOutput`: that's the dispatcher's job.
 
 ## User-Agent
 
@@ -51,7 +51,7 @@ The SDK enforces a stable `b2-sdk-ts/<v>` + `@backblaze/b2-sdk` prefix in the Us
 
 ## dist/
 
-`dist/index.js` (and its sourcemap) is committed to git — GitHub Actions reads it directly. CI fails if `pnpm build` produces a diff that wasn't committed. Always run `pnpm build` before opening a PR that changes anything under `src/`.
+`dist/index.js` (and its sourcemap) is committed to git: GitHub Actions reads it directly. CI fails if `pnpm build` produces a diff that wasn't committed. Always run `pnpm build` before opening a PR that changes anything under `src/`.
 
 ## Testing
 

@@ -11,7 +11,7 @@ Please include:
 
 - A clear description of the vulnerability and the impact you observed.
 - Reproduction steps, including the action version (`uses: backblaze-labs/b2-action@<ref>`), the inputs that trigger it, and the workflow context.
-- Any logs you can share **after redacting credentials** — see the redaction guidance below.
+- Any logs you can share **after redacting credentials**: see the redaction guidance below.
 
 We will acknowledge within **5 business days** and provide a remediation timeline once we've reproduced the issue.
 

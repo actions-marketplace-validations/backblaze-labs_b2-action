@@ -2,7 +2,7 @@ import pkg from '../package.json' with { type: 'json' }
 
 /**
  * Action version. Read directly from package.json so there is no
- * second-source-of-truth to keep in sync — bumping `version` in package.json
+ * second-source-of-truth to keep in sync: bumping `version` in package.json
  * automatically propagates here, into the User-Agent header, and into the
  * bundled `dist/index.js`.
  *

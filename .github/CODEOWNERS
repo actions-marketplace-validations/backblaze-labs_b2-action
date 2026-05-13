@@ -11,7 +11,7 @@
 # preferred over an individual so reviews don't block on one person being out.
 *                               @backblaze-labs/maintainers
 
-# Build / release infrastructure — extra scrutiny because a broken release
+# Build / release infrastructure: extra scrutiny because a broken release
 # workflow can publish a broken Action to millions of consumers.
 /.github/workflows/release.yml  @backblaze-labs/maintainers
 /.github/workflows/ci.yml       @backblaze-labs/maintainers

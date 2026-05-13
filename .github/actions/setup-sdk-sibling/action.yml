@@ -24,7 +24,7 @@ inputs:
     required: false
     # Tracks the SDK's `main` branch while the SDK is in active development.
     # Consequence: the `build-and-check-dist` CI job is intentionally a warning
-    # rather than an error — see the comment in that job. Once the SDK
+    # rather than an error: see the comment in that job. Once the SDK
     # publishes to npm, this whole composite action goes away.
     default: 'main'
 

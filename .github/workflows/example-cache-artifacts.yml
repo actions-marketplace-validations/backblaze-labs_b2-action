@@ -1,4 +1,4 @@
-name: 'Example — cache artifacts'
+name: 'Example: cache artifacts'
 
 # Save and restore a tarball between jobs using B2 instead of actions/cache.
 # Useful when you outgrow GH's per-org cache limit, want shared caches across

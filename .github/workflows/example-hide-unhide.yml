@@ -1,4 +1,4 @@
-name: 'Example — hide & unhide (soft delete / restore)'
+name: 'Example: hide & unhide (soft delete / restore)'
 
 # Demonstrates the soft-delete pattern: hide a file so it stops appearing
 # in lists, then unhide it later. Underlying data and prior versions

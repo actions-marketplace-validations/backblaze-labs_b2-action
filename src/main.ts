@@ -52,7 +52,7 @@ export async function run(): Promise<void> {
         core.setOutput('summary-json', JSON.stringify(result.files))
         core.info(`uploaded ${result.files.length} file(s), ${result.bytesTransferred} bytes`)
         await writeStepSummary({
-          title: 'Backblaze B2 — upload',
+          title: 'Backblaze B2: upload',
           totals: { files: result.files.length, bytes: result.bytesTransferred },
           rows: result.files.map((f) => ({
             fileName: f.fileName,
@@ -76,7 +76,7 @@ export async function run(): Promise<void> {
         core.setOutput('summary-json', JSON.stringify(result.files))
         core.info(`downloaded ${result.files.length} file(s), ${result.bytesTransferred} bytes`)
         await writeStepSummary({
-          title: 'Backblaze B2 — download',
+          title: 'Backblaze B2: download',
           totals: { files: result.files.length, bytes: result.bytesTransferred },
           rows: result.files.map((f) => ({
             fileName: f.fileName,
@@ -98,8 +98,8 @@ export async function run(): Promise<void> {
           throw new Error(`Sync completed with ${result.errors} error(s)`)
         }
         const syncTitlePrefix = inputs.dryRun
-          ? 'Backblaze B2 — sync (dry-run)'
-          : 'Backblaze B2 — sync'
+          ? 'Backblaze B2: sync (dry-run)'
+          : 'Backblaze B2: sync'
         await writeStepSummary({
           title: `${syncTitlePrefix} [${result.direction}]`,
           totals: {
@@ -130,7 +130,7 @@ export async function run(): Promise<void> {
         core.setOutput('bytes-transferred', String(result.size))
         core.setOutput('summary-json', JSON.stringify([result]))
         await writeStepSummary({
-          title: 'Backblaze B2 — copy',
+          title: 'Backblaze B2: copy',
           rows: [
             {
               fileName: `b2://${result.sourceBucket}/${result.sourceFileName} → b2://${result.destinationBucket}/${result.destinationFileName}`,
@@ -152,7 +152,7 @@ export async function run(): Promise<void> {
           throw new Error(`Delete completed with ${result.errors} error(s)`)
         }
         await writeStepSummary({
-          title: inputs.dryRun ? 'Backblaze B2 — delete (dry-run)' : 'Backblaze B2 — delete',
+          title: inputs.dryRun ? 'Backblaze B2: delete (dry-run)' : 'Backblaze B2: delete',
           totals: { files: actuallyDeleted + wouldDelete, bytes: 0 },
           rows: result.files.map((f) => ({
             fileName: f.fileName,
@@ -172,7 +172,7 @@ export async function run(): Promise<void> {
         core.setOutput('files-listed', String(result.files.length))
         core.setOutput('summary-json', JSON.stringify(result.files))
         await writeStepSummary({
-          title: `Backblaze B2 — presign (${result.files.length})`,
+          title: `Backblaze B2: presign (${result.files.length})`,
           rows: result.files.slice(0, 50).map((f) => ({
             fileName: f.fileName,
             status: `expires at ${new Date(f.expiresAt * 1000).toISOString()}`,
@@ -190,7 +190,7 @@ export async function run(): Promise<void> {
           )
         }
         await writeStepSummary({
-          title: `Backblaze B2 — list (${result.files.length}${result.truncated ? '+' : ''})`,
+          title: `Backblaze B2: list (${result.files.length}${result.truncated ? '+' : ''})`,
           totals: {
             files: result.files.length,
             bytes: result.files.reduce((s, f) => s + f.size, 0),
@@ -211,7 +211,7 @@ export async function run(): Promise<void> {
         core.setOutput('file-name', result.fileName)
         core.setOutput('summary-json', JSON.stringify([result]))
         await writeStepSummary({
-          title: 'Backblaze B2 — hide',
+          title: 'Backblaze B2: hide',
           rows: [{ fileName: result.fileName, fileId: result.fileId, status: 'hidden' }],
         })
         return
@@ -224,7 +224,7 @@ export async function run(): Promise<void> {
         }
         core.setOutput('summary-json', JSON.stringify([result]))
         await writeStepSummary({
-          title: 'Backblaze B2 — unhide',
+          title: 'Backblaze B2: unhide',
           rows: [
             {
               fileName: result.fileName,
@@ -243,7 +243,7 @@ export async function run(): Promise<void> {
         if (result.localSha1 !== null) core.setOutput('local-sha1', result.localSha1)
         core.setOutput('summary-json', JSON.stringify([result]))
         await writeStepSummary({
-          title: result.verified ? 'Backblaze B2 — verify ✓' : 'Backblaze B2 — verify ✗',
+          title: result.verified ? 'Backblaze B2: verify ✓' : 'Backblaze B2: verify ✗',
           rows: [
             {
               fileName: result.fileName,
@@ -266,7 +266,7 @@ export async function run(): Promise<void> {
         core.setOutput('bytes-transferred', '0')
         core.setOutput('summary-json', JSON.stringify([result]))
         await writeStepSummary({
-          title: 'Backblaze B2 — head',
+          title: 'Backblaze B2: head',
           rows: [
             {
               fileName: result.fileName,
@@ -289,7 +289,7 @@ export async function run(): Promise<void> {
           throw new Error(`Purge completed with ${result.errors} error(s)`)
         }
         await writeStepSummary({
-          title: inputs.dryRun ? 'Backblaze B2 — purge (dry-run)' : 'Backblaze B2 — purge',
+          title: inputs.dryRun ? 'Backblaze B2: purge (dry-run)' : 'Backblaze B2: purge',
           totals: { files: actuallyDeleted + wouldDelete, bytes: 0 },
           rows: result.files.slice(0, 100).map((f) => ({
             fileName: f.fileName,
@@ -305,7 +305,7 @@ export async function run(): Promise<void> {
         core.setOutput('file-name', result.fileName)
         core.setOutput('summary-json', JSON.stringify([result]))
         await writeStepSummary({
-          title: 'Backblaze B2 — retention',
+          title: 'Backblaze B2: retention',
           rows: [
             {
               fileName: result.fileName,

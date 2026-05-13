@@ -1,30 +1,15 @@
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import { parseInputs } from '../src/inputs.ts'
-
-const ORIGINAL_ENV = { ...process.env }
-
-function setInput(name: string, value: string): void {
-  const key = `INPUT_${name.replace(/ /g, '_').toUpperCase()}`
-  process.env[key] = value
-}
-
-function clearAllInputs(): void {
-  for (const k of Object.keys(process.env)) {
-    if (k.startsWith('INPUT_')) Reflect.deleteProperty(process.env, k)
-  }
-}
+import { resetInputEnv, setInput } from './_helpers.ts'
 
 describe('parseInputs', () => {
   beforeEach(() => {
-    clearAllInputs()
+    resetInputEnv()
     Reflect.deleteProperty(process.env, 'B2_APPLICATION_KEY_ID')
     Reflect.deleteProperty(process.env, 'B2_APPLICATION_KEY')
   })
 
-  afterEach(() => {
-    clearAllInputs()
-    process.env = { ...ORIGINAL_ENV }
-  })
+  afterEach(resetInputEnv)
 
   it('reads credentials from action inputs', () => {
     setInput('action', 'upload')

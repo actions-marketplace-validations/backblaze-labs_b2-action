@@ -5,12 +5,10 @@ import { syncCommand } from '../../src/commands/sync.ts'
 import { uploadCommand } from '../../src/commands/upload.ts'
 import { type TestFixture, makeFixture, makeInputs } from '../_helpers.ts'
 
-function inputs(over: Record<string, unknown> = {}) {
-  return makeInputs('sync', { bucket: 'gh-action-syncdown', ...over })
-}
-
 describe('sync command (B2 → local)', () => {
   let fx: TestFixture
+  const inputs = (over: Record<string, unknown> = {}) => makeInputs('sync', fx, { ...over })
+
   beforeEach(async () => {
     fx = await makeFixture('gh-action-syncdown')
   })
@@ -25,8 +23,7 @@ describe('sync command (B2 → local)', () => {
       await writeFile(local, `payload-${name}`)
       await uploadCommand(
         fx.bucket,
-        makeInputs('upload', {
-          bucket: 'gh-action-syncdown',
+        makeInputs('upload', fx, {
           source: local,
           destination: `dl/${name}`,
         }),
@@ -54,8 +51,7 @@ describe('sync command (B2 → local)', () => {
     await writeFile(local, 'auto-payload')
     await uploadCommand(
       fx.bucket,
-      makeInputs('upload', {
-        bucket: 'gh-action-syncdown',
+      makeInputs('upload', fx, {
         source: local,
         destination: 'auto/auto.txt',
       }),

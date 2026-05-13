@@ -1,4 +1,4 @@
-name: 'Example — verify artifact SHA-1 (no download)'
+name: 'Example: verify artifact SHA-1 (no download)'
 
 # Upload an artifact, then a later step (or a separate run) verifies the
 # remote SHA-1 matches a local copy WITHOUT downloading the body. Cheap

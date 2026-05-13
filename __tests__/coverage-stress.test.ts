@@ -2,7 +2,7 @@
  * Coverage-stress tests.
  *
  * Each `describe` here targets a specific gap surfaced by `pnpm test:coverage`.
- * The intent is breadth, not depth — every test exercises one previously-
+ * The intent is breadth, not depth: every test exercises one previously-
  * uncovered branch or line. Production behavior is validated by the
  * per-command suites under `__tests__/commands/`.
  *
@@ -14,8 +14,6 @@
 import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { B2Client, type Bucket } from '@backblaze/b2-sdk'
-import { B2Simulator } from '@backblaze/b2-sdk/simulator'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { copyCommand } from '../src/commands/copy.ts'
 import { deleteCommand } from '../src/commands/delete.ts'
@@ -32,52 +30,27 @@ import { uploadCommand } from '../src/commands/upload.ts'
 import { verifyCommand } from '../src/commands/verify.ts'
 import { parseInputs } from '../src/inputs.ts'
 import { writeStepSummary } from '../src/summary.ts'
-import { makeInputs } from './_helpers.ts'
-
-// --- Test fixture --------------------------------------------------------
-
-interface Fixture {
-  workDir: string
-  bucket: Bucket
-  client: B2Client
-}
-
-async function makeFixture(bucketName = 'gh-action-stress'): Promise<Fixture> {
-  const sim = new B2Simulator()
-  const client = new B2Client({
-    applicationKeyId: 'test-key-id',
-    applicationKey: 'test-key',
-    transport: sim.transport(),
-  })
-  await client.authorize()
-  const bucket = await client.createBucket({ bucketName, bucketType: 'allPrivate' })
-  const workDir = await mkdtemp(join(tmpdir(), 'b2-stress-'))
-  return { workDir, bucket, client }
-}
-
-const ORIGINAL_ENV = { ...process.env }
-function setInput(name: string, value: string): void {
-  process.env[`INPUT_${name.replace(/ /g, '_').toUpperCase()}`] = value
-}
-function resetEnv(): void {
-  for (const k of Object.keys(process.env)) {
-    if (k.startsWith('INPUT_')) Reflect.deleteProperty(process.env, k)
-  }
-  process.env = { ...ORIGINAL_ENV }
-}
+import {
+  type TestFixture,
+  makeFixture,
+  makeInputs,
+  resetInputEnv,
+  seedFile,
+  setInput,
+} from './_helpers.ts'
 
 // =========================================================================
-// inputs.ts — every enum reject + parseBool/parsePositiveInt error path
+// inputs.ts: every enum reject + parseBool/parsePositiveInt error path
 // =========================================================================
 
-describe('parseInputs — exhaustive validation rejects', () => {
+describe('parseInputs: exhaustive validation rejects', () => {
   beforeEach(() => {
-    resetEnv()
+    resetInputEnv()
     setInput('application-key-id', 'k')
     setInput('application-key', 's')
     setInput('bucket', 'b')
   })
-  afterEach(resetEnv)
+  afterEach(resetInputEnv)
 
   it('rejects invalid compare-mode', () => {
     setInput('action', 'sync')
@@ -152,11 +125,11 @@ describe('parseInputs — exhaustive validation rejects', () => {
 })
 
 // =========================================================================
-// download.ts — resolveLocalPath edge cases
+// download.ts: resolveLocalPath edge cases
 // =========================================================================
 
-describe('download — destination resolution edge cases', () => {
-  let fx: Fixture
+describe('download: destination resolution edge cases', () => {
+  let fx: TestFixture
   beforeEach(async () => {
     fx = await makeFixture('gh-action-dl-edges')
   })
@@ -169,8 +142,7 @@ describe('download — destination resolution edge cases', () => {
     await writeFile(local, 'asset')
     await uploadCommand(
       fx.bucket,
-      makeInputs('upload', {
-        bucket: 'gh-action-dl-edges',
+      makeInputs('upload', fx, {
         source: local,
         destination: 'asset.txt',
       }),
@@ -181,8 +153,7 @@ describe('download — destination resolution edge cases', () => {
 
     const result = await downloadCommand(
       fx.bucket,
-      makeInputs('download', {
-        bucket: 'gh-action-dl-edges',
+      makeInputs('download', fx, {
         source: 'asset.txt',
         destination: targetDir, // existing directory, no trailing slash
       }),
@@ -195,8 +166,7 @@ describe('download — destination resolution edge cases', () => {
     await writeFile(local, 'no-dest')
     await uploadCommand(
       fx.bucket,
-      makeInputs('upload', {
-        bucket: 'gh-action-dl-edges',
+      makeInputs('upload', fx, {
         source: local,
         destination: 'no-dest.txt',
       }),
@@ -207,7 +177,7 @@ describe('download — destination resolution edge cases', () => {
     try {
       const result = await downloadCommand(
         fx.bucket,
-        makeInputs('download', { bucket: 'gh-action-dl-edges', source: 'no-dest.txt' }),
+        makeInputs('download', fx, { source: 'no-dest.txt' }),
       )
       expect(result.files[0]?.localPath.endsWith('no-dest.txt')).toBe(true)
     } finally {
@@ -220,16 +190,14 @@ describe('download — destination resolution edge cases', () => {
     await writeFile(local, 'trail')
     await uploadCommand(
       fx.bucket,
-      makeInputs('upload', {
-        bucket: 'gh-action-dl-edges',
+      makeInputs('upload', fx, {
         source: local,
         destination: 'trail.txt',
       }),
     )
     const result = await downloadCommand(
       fx.bucket,
-      makeInputs('download', {
-        bucket: 'gh-action-dl-edges',
+      makeInputs('download', fx, {
         source: 'trail.txt',
         destination: `${fx.workDir}/`,
       }),
@@ -245,11 +213,11 @@ describe('download — destination resolution edge cases', () => {
 })
 
 // =========================================================================
-// verify.ts — multipart-null-sha1 branch (spy on bucket.download)
+// verify.ts: multipart-null-sha1 branch (spy on bucket.download)
 // =========================================================================
 
-describe('verify — multipart file with null remote SHA-1', () => {
-  let fx: Fixture
+describe('verify: multipart file with null remote SHA-1', () => {
+  let fx: TestFixture
   beforeEach(async () => {
     fx = await makeFixture('gh-action-verify-mp')
   })
@@ -268,16 +236,15 @@ describe('verify — multipart file with null remote SHA-1', () => {
     await writeFile(local, 'x')
     await uploadCommand(
       fx.bucket,
-      makeInputs('upload', { bucket: 'gh-action-verify-mp', source: local, destination: 'd.txt' }),
+      makeInputs('upload', fx, { source: local, destination: 'd.txt' }),
     )
-    // destination is a directory, not a file — sha1OfFile should throw.
+    // destination is a directory, not a file: sha1OfFile should throw.
     const aDir = join(fx.workDir, 'somedir')
     await mkdir(aDir, { recursive: true })
     await expect(
       verifyCommand(
         fx.bucket,
-        makeInputs('verify', {
-          bucket: 'gh-action-verify-mp',
+        makeInputs('verify', fx, {
           source: 'd.txt',
           destination: aDir,
         }),
@@ -287,17 +254,17 @@ describe('verify — multipart file with null remote SHA-1', () => {
 
   it('throws when source is empty', async () => {
     await expect(
-      verifyCommand(fx.bucket, makeInputs('verify', { bucket: 'gh-action-verify-mp', source: '' })),
+      verifyCommand(fx.bucket, makeInputs('verify', fx, { source: '' })),
     ).rejects.toThrow(/'source' input is required/)
   })
 })
 
 // =========================================================================
-// hide / unhide / head / retention / copy / delete — missing input rejects
+// hide / unhide / head / retention / copy / delete: missing input rejects
 // =========================================================================
 
-describe('command guards — missing required inputs', () => {
-  let fx: Fixture
+describe('command guards: missing required inputs', () => {
+  let fx: TestFixture
   beforeEach(async () => {
     fx = await makeFixture('gh-action-guards')
   })
@@ -313,14 +280,14 @@ describe('command guards — missing required inputs', () => {
 
   it('unhide rejects empty source', async () => {
     await expect(
-      unhideCommand(fx.bucket, makeInputs('unhide', { bucket: 'gh-action-guards', source: '' })),
+      unhideCommand(fx.bucket, makeInputs('unhide', fx, { source: '' })),
     ).rejects.toThrow(/'source' input is required/)
   })
 
   it('head rejects empty source', async () => {
-    await expect(
-      headCommand(fx.bucket, makeInputs('head', { bucket: 'gh-action-guards', source: '' })),
-    ).rejects.toThrow(/'source' input is required/)
+    await expect(headCommand(fx.bucket, makeInputs('head', fx, { source: '' }))).rejects.toThrow(
+      /'source' input is required/,
+    )
   })
 
   it('retention rejects missing source', async () => {
@@ -334,13 +301,12 @@ describe('command guards — missing required inputs', () => {
     await writeFile(local, 'r')
     await uploadCommand(
       fx.bucket,
-      makeInputs('upload', { bucket: 'gh-action-guards', source: local, destination: 'r.txt' }),
+      makeInputs('upload', fx, { source: local, destination: 'r.txt' }),
     )
     await expect(
       retentionCommand(
         fx.bucket,
-        makeInputs('retention', {
-          bucket: 'gh-action-guards',
+        makeInputs('retention', fx, {
           source: 'r.txt',
           retentionMode: 'governance',
           retentionUntil: 'not-an-iso-date',
@@ -353,8 +319,7 @@ describe('command guards — missing required inputs', () => {
     await expect(
       retentionCommand(
         fx.bucket,
-        makeInputs('retention', {
-          bucket: 'gh-action-guards',
+        makeInputs('retention', fx, {
           source: 'phantom.txt',
           legalHold: 'on',
         }),
@@ -364,21 +329,13 @@ describe('command guards — missing required inputs', () => {
 
   it('copy rejects missing source', async () => {
     await expect(
-      copyCommand(
-        fx.client,
-        fx.bucket,
-        makeInputs('copy', { bucket: 'gh-action-guards', destination: 'd' }),
-      ),
+      copyCommand(fx.client, fx.bucket, makeInputs('copy', fx, { destination: 'd' })),
     ).rejects.toThrow(/'source' input is required/)
   })
 
   it('copy rejects missing destination', async () => {
     await expect(
-      copyCommand(
-        fx.client,
-        fx.bucket,
-        makeInputs('copy', { bucket: 'gh-action-guards', source: 's' }),
-      ),
+      copyCommand(fx.client, fx.bucket, makeInputs('copy', fx, { source: 's' })),
     ).rejects.toThrow(/'destination' input is required/)
   })
 
@@ -394,8 +351,7 @@ describe('command guards — missing required inputs', () => {
         copyCommand(
           fx.client,
           fx.bucket,
-          makeInputs('copy', {
-            bucket: 'gh-action-guards',
+          makeInputs('copy', fx, {
             sourceBucket: 'no-such-bucket',
             source: 'c.txt',
             destination: 'c.copy.txt',
@@ -427,21 +383,17 @@ describe('command guards — missing required inputs', () => {
 
   it('presign rejects empty source', async () => {
     await expect(
-      presignCommand(
-        fx.client,
-        fx.bucket,
-        makeInputs('presign', { bucket: 'gh-action-guards', source: '' }),
-      ),
+      presignCommand(fx.client, fx.bucket, makeInputs('presign', fx, { source: '' })),
     ).rejects.toThrow(/'source' input is required/)
   })
 })
 
 // =========================================================================
-// purge — bucket-wide warning path + missing source
+// purge: bucket-wide warning path + missing source
 // =========================================================================
 
-describe('purge — wide-scope warning path', () => {
-  let fx: Fixture
+describe('purge: wide-scope warning path', () => {
+  let fx: TestFixture
   beforeEach(async () => {
     fx = await makeFixture('gh-action-purge-wide')
   })
@@ -461,18 +413,14 @@ describe('purge — wide-scope warning path', () => {
       await writeFile(local, name)
       await uploadCommand(
         fx.bucket,
-        makeInputs('upload', {
-          bucket: 'gh-action-purge-wide',
+        makeInputs('upload', fx, {
           source: local,
           destination: name,
         }),
       )
     }
 
-    const result = await purgeCommand(
-      fx.bucket,
-      makeInputs('purge', { bucket: 'gh-action-purge-wide', source: '' }),
-    )
+    const result = await purgeCommand(fx.bucket, makeInputs('purge', fx, { source: '' }))
     expect(result.errors).toBe(0)
     expect(result.files.length).toBeGreaterThanOrEqual(3)
     const after = await fx.bucket.listFileVersions({ prefix: '' })
@@ -481,11 +429,11 @@ describe('purge — wide-scope warning path', () => {
 })
 
 // =========================================================================
-// list — skips hide markers, hits maxResults exactly
+// list: skips hide markers, hits maxResults exactly
 // =========================================================================
 
-describe('list — version filter and max-results boundary', () => {
-  let fx: Fixture
+describe('list: version filter and max-results boundary', () => {
+  let fx: TestFixture
   beforeEach(async () => {
     fx = await makeFixture('gh-action-list-versions')
   })
@@ -498,18 +446,14 @@ describe('list — version filter and max-results boundary', () => {
     await writeFile(local, 'maskable')
     await uploadCommand(
       fx.bucket,
-      makeInputs('upload', {
-        bucket: 'gh-action-list-versions',
+      makeInputs('upload', fx, {
         source: local,
         destination: 'mask.txt',
       }),
     )
     await fx.bucket.hideFile('mask.txt')
 
-    const result = await listCommand(
-      fx.bucket,
-      makeInputs('list', { bucket: 'gh-action-list-versions', source: '' }),
-    )
+    const result = await listCommand(fx.bucket, makeInputs('list', fx, { source: '' }))
     // listFileNames returns the latest visible version, which for a hidden
     // file is the hide marker itself. We filter that out.
     expect(result.files).toHaveLength(0)
@@ -521,32 +465,28 @@ describe('list — version filter and max-results boundary', () => {
       await writeFile(local, `body-${i}`)
       await uploadCommand(
         fx.bucket,
-        makeInputs('upload', {
-          bucket: 'gh-action-list-versions',
+        makeInputs('upload', fx, {
           source: local,
           destination: `f${i}.txt`,
         }),
       )
     }
-    const result = await listCommand(
-      fx.bucket,
-      makeInputs('list', { bucket: 'gh-action-list-versions', maxResults: 1 }),
-    )
+    const result = await listCommand(fx.bucket, makeInputs('list', fx, { maxResults: 1 }))
     expect(result.files).toHaveLength(1)
     expect(result.truncated).toBe(true)
   })
 })
 
 // =========================================================================
-// sync — B2 → local with delete-local (keep-mode: delete)
+// sync: B2 → local with delete-local (keep-mode: delete)
 // =========================================================================
 
 // =========================================================================
-// delete — single-file dry-run
+// delete: single-file dry-run
 // =========================================================================
 
-describe('delete — single-file dry-run path', () => {
-  let fx: Fixture
+describe('delete: single-file dry-run path', () => {
+  let fx: TestFixture
   beforeEach(async () => {
     fx = await makeFixture('gh-action-del-single-dry')
   })
@@ -559,16 +499,14 @@ describe('delete — single-file dry-run path', () => {
     await writeFile(local, 'kept')
     await uploadCommand(
       fx.bucket,
-      makeInputs('upload', {
-        bucket: 'gh-action-del-single-dry',
+      makeInputs('upload', fx, {
         source: local,
         destination: 'preview.txt',
       }),
     )
     const result = await deleteCommand(
       fx.bucket,
-      makeInputs('delete', {
-        bucket: 'gh-action-del-single-dry',
+      makeInputs('delete', fx, {
         source: 'preview.txt',
         dryRun: true,
       }),
@@ -583,11 +521,11 @@ describe('delete — single-file dry-run path', () => {
 })
 
 // =========================================================================
-// upload — single-file path with destination overriding the file name
+// upload: single-file path with destination overriding the file name
 // =========================================================================
 
-describe('upload — single-file rename via destination', () => {
-  let fx: Fixture
+describe('upload: single-file rename via destination', () => {
+  let fx: TestFixture
   beforeEach(async () => {
     fx = await makeFixture('gh-action-upload-rename')
   })
@@ -600,8 +538,7 @@ describe('upload — single-file rename via destination', () => {
     await writeFile(local, 'rename me')
     const result = await uploadCommand(
       fx.bucket,
-      makeInputs('upload', {
-        bucket: 'gh-action-upload-rename',
+      makeInputs('upload', fx, {
         source: local,
         destination: 'releases/v1/app.bin', // exact key, no trailing slash
       }),
@@ -614,8 +551,7 @@ describe('upload — single-file rename via destination', () => {
     await writeFile(local, 'attach')
     const result = await uploadCommand(
       fx.bucket,
-      makeInputs('upload', {
-        bucket: 'gh-action-upload-rename',
+      makeInputs('upload', fx, {
         source: local,
         destination: 'prefix/',
       }),
@@ -625,10 +561,10 @@ describe('upload — single-file rename via destination', () => {
 })
 
 // =========================================================================
-// progress.ts — GB-scale formatting
+// progress.ts: GB-scale formatting
 // =========================================================================
 
-describe('progress.ts — GB-scale formatting', () => {
+describe('progress.ts: GB-scale formatting', () => {
   it('handles a multi-GB transferred value without crashing', async () => {
     // Re-import here to avoid pulling makeProgressListener at the top.
     const { makeProgressListener } = await import('../src/progress.ts')
@@ -656,11 +592,11 @@ describe('progress.ts — GB-scale formatting', () => {
 })
 
 // =========================================================================
-// download — SSE-C decryption path (sseFromInputs returns a key)
+// download: SSE-C decryption path (sseFromInputs returns a key)
 // =========================================================================
 
-describe('download — SSE-C decryption', () => {
-  let fx: Fixture
+describe('download: SSE-C decryption', () => {
+  let fx: TestFixture
   beforeEach(async () => {
     fx = await makeFixture('gh-action-ssec')
   })
@@ -678,8 +614,7 @@ describe('download — SSE-C decryption', () => {
     const local = join(fx.workDir, 'enc.txt')
     await writeFile(local, 'secret payload')
     await uploadCommand(fx.bucket, {
-      ...makeInputs('upload', {
-        bucket: 'gh-action-ssec',
+      ...makeInputs('upload', fx, {
         source: local,
         destination: 'enc.txt',
       }),
@@ -688,8 +623,7 @@ describe('download — SSE-C decryption', () => {
 
     const out = join(fx.workDir, 'roundtrip.txt')
     const result = await downloadCommand(fx.bucket, {
-      ...makeInputs('download', {
-        bucket: 'gh-action-ssec',
+      ...makeInputs('download', fx, {
         source: 'enc.txt',
         destination: out,
       }),
@@ -699,8 +633,8 @@ describe('download — SSE-C decryption', () => {
   })
 })
 
-describe('sync — b2-to-local with orphan deletion', () => {
-  let fx: Fixture
+describe('sync: b2-to-local with orphan deletion', () => {
+  let fx: TestFixture
   beforeEach(async () => {
     fx = await makeFixture('gh-action-sync-orphans')
   })
@@ -714,8 +648,7 @@ describe('sync — b2-to-local with orphan deletion', () => {
     await writeFile(local, 'r')
     await uploadCommand(
       fx.bucket,
-      makeInputs('upload', {
-        bucket: 'gh-action-sync-orphans',
+      makeInputs('upload', fx, {
         source: local,
         destination: 'r/remote.txt',
       }),
@@ -730,8 +663,7 @@ describe('sync — b2-to-local with orphan deletion', () => {
 
     const result = await syncCommand(
       fx.bucket,
-      makeInputs('sync', {
-        bucket: 'gh-action-sync-orphans',
+      makeInputs('sync', fx, {
         source: 'r',
         destination: dest,
         syncDirection: 'down',
@@ -744,11 +676,11 @@ describe('sync — b2-to-local with orphan deletion', () => {
 })
 
 // =========================================================================
-// copy — copyLargeFile branch via config mock
+// copy: copyLargeFile branch via config mock
 // =========================================================================
 
-describe('copy — large-file path', () => {
-  let fx: Fixture
+describe('copy: large-file path', () => {
+  let fx: TestFixture
   beforeEach(async () => {
     fx = await makeFixture('gh-action-stress-copy-large')
   })
@@ -761,8 +693,7 @@ describe('copy — large-file path', () => {
     await writeFile(local, 'tiny payload but accountInfo says everything is "large"')
     await uploadCommand(
       fx.bucket,
-      makeInputs('upload', {
-        bucket: 'gh-action-stress-copy-large',
+      makeInputs('upload', fx, {
         source: local,
         destination: 'src.txt',
       }),
@@ -777,8 +708,7 @@ describe('copy — large-file path', () => {
       const result = await copyCommand(
         fx.client,
         fx.bucket,
-        makeInputs('copy', {
-          bucket: 'gh-action-stress-copy-large',
+        makeInputs('copy', fx, {
           source: 'src.txt',
           destination: 'archive/src.txt',
         }),
@@ -793,11 +723,11 @@ describe('copy — large-file path', () => {
 })
 
 // =========================================================================
-// retention — `mode: 'none'` path (clears retention)
+// retention: `mode: 'none'` path (clears retention)
 // =========================================================================
 
-describe('retention — clearing retention with mode=none', () => {
-  let fx: Fixture
+describe('retention: clearing retention with mode=none', () => {
+  let fx: TestFixture
   beforeEach(async () => {
     fx = await makeFixture('gh-action-stress-retention-none')
     await fx.bucket.delete()
@@ -816,8 +746,7 @@ describe('retention — clearing retention with mode=none', () => {
     await writeFile(local, 'clearable')
     await uploadCommand(
       fx.bucket,
-      makeInputs('upload', {
-        bucket: 'gh-action-stress-retention-none',
+      makeInputs('upload', fx, {
         source: local,
         destination: 'r.txt',
       }),
@@ -828,8 +757,7 @@ describe('retention — clearing retention with mode=none', () => {
     try {
       await retentionCommand(
         fx.bucket,
-        makeInputs('retention', {
-          bucket: 'gh-action-stress-retention-none',
+        makeInputs('retention', fx, {
           source: 'r.txt',
           retentionMode: 'none',
         }),
@@ -844,11 +772,11 @@ describe('retention — clearing retention with mode=none', () => {
 })
 
 // =========================================================================
-// sync — local-to-b2 orphan deletion
+// sync: local-to-b2 orphan deletion
 // =========================================================================
 
-describe('sync — orphan deletion (local-to-b2)', () => {
-  let fx: Fixture
+describe('sync: orphan deletion (local-to-b2)', () => {
+  let fx: TestFixture
   beforeEach(async () => {
     fx = await makeFixture('gh-action-stress-sync-up-orphan')
   })
@@ -858,16 +786,7 @@ describe('sync — orphan deletion (local-to-b2)', () => {
 
   it('removes a remote orphan when syncing up with keep-mode=delete', async () => {
     // Seed a remote-only file, then sync up with `delete` keep-mode.
-    const seed = join(fx.workDir, 'orphan-seed.txt')
-    await writeFile(seed, 'will be removed by sync')
-    await uploadCommand(
-      fx.bucket,
-      makeInputs('upload', {
-        bucket: 'gh-action-stress-sync-up-orphan',
-        source: seed,
-        destination: 'site/orphan.txt',
-      }),
-    )
+    await seedFile(fx, 'site/orphan.txt', 'will be removed by sync')
 
     const localSrc = join(fx.workDir, 'src')
     await mkdir(localSrc, { recursive: true })
@@ -875,8 +794,7 @@ describe('sync — orphan deletion (local-to-b2)', () => {
 
     const result = await syncCommand(
       fx.bucket,
-      makeInputs('sync', {
-        bucket: 'gh-action-stress-sync-up-orphan',
+      makeInputs('sync', fx, {
         source: localSrc,
         destination: 'site',
         syncDirection: 'up',
@@ -893,11 +811,11 @@ describe('sync — orphan deletion (local-to-b2)', () => {
 })
 
 // =========================================================================
-// delete — prefix dry-run (`skip` event branch)
+// delete: prefix dry-run (`skip` event branch)
 // =========================================================================
 
-describe('delete — prefix dry-run', () => {
-  let fx: Fixture
+describe('delete: prefix dry-run', () => {
+  let fx: TestFixture
   beforeEach(async () => {
     fx = await makeFixture('gh-action-stress-del-prefix-dry')
   })
@@ -912,16 +830,14 @@ describe('delete — prefix dry-run', () => {
     await writeFile(f2, 'two')
     await uploadCommand(
       fx.bucket,
-      makeInputs('upload', {
-        bucket: 'gh-action-stress-del-prefix-dry',
+      makeInputs('upload', fx, {
         source: f1,
         destination: 'p/1.txt',
       }),
     )
     await uploadCommand(
       fx.bucket,
-      makeInputs('upload', {
-        bucket: 'gh-action-stress-del-prefix-dry',
+      makeInputs('upload', fx, {
         source: f2,
         destination: 'p/2.txt',
       }),
@@ -929,8 +845,7 @@ describe('delete — prefix dry-run', () => {
 
     const result = await deleteCommand(
       fx.bucket,
-      makeInputs('delete', {
-        bucket: 'gh-action-stress-del-prefix-dry',
+      makeInputs('delete', fx, {
         source: 'p/',
         dryRun: true,
       }),
@@ -941,11 +856,11 @@ describe('delete — prefix dry-run', () => {
 })
 
 // =========================================================================
-// download — prefix mode with undefined destination
+// download: prefix mode with undefined destination
 // =========================================================================
 
-describe('download — prefix mode defaults destination to cwd', () => {
-  let fx: Fixture
+describe('download: prefix mode defaults destination to cwd', () => {
+  let fx: TestFixture
   beforeEach(async () => {
     fx = await makeFixture('gh-action-stress-dl-edges')
   })
@@ -954,24 +869,12 @@ describe('download — prefix mode defaults destination to cwd', () => {
   })
 
   it('uses "." when destination is undefined', async () => {
-    const f1 = join(fx.workDir, 'd.txt')
-    await writeFile(f1, 'dl-default-dest')
-    await uploadCommand(
-      fx.bucket,
-      makeInputs('upload', {
-        bucket: 'gh-action-stress-dl-edges',
-        source: f1,
-        destination: 'dd/d.txt',
-      }),
-    )
+    await seedFile(fx, 'dd/d.txt', 'dl-default-dest')
 
     const cwd = process.cwd()
     process.chdir(fx.workDir)
     try {
-      const result = await downloadCommand(
-        fx.bucket,
-        makeInputs('download', { bucket: 'gh-action-stress-dl-edges', source: 'dd/' }),
-      )
+      const result = await downloadCommand(fx.bucket, makeInputs('download', fx, { source: 'dd/' }))
       expect(result.files.length).toBeGreaterThanOrEqual(1)
     } finally {
       process.chdir(cwd)
@@ -980,11 +883,11 @@ describe('download — prefix mode defaults destination to cwd', () => {
 })
 
 // =========================================================================
-// upload — directory-as-source path (recursive glob expansion)
+// upload: directory-as-source path (recursive glob expansion)
 // =========================================================================
 
-describe('upload — directory as source', () => {
-  let fx: Fixture
+describe('upload: directory as source', () => {
+  let fx: TestFixture
   beforeEach(async () => {
     fx = await makeFixture('gh-action-stress-upload-dir')
   })
@@ -1001,8 +904,7 @@ describe('upload — directory as source', () => {
 
     const result = await uploadCommand(
       fx.bucket,
-      makeInputs('upload', {
-        bucket: 'gh-action-stress-upload-dir',
+      makeInputs('upload', fx, {
         source: dir,
         destination: 'site',
       }),
@@ -1016,10 +918,10 @@ describe('upload — directory as source', () => {
 })
 
 // =========================================================================
-// summary — row that omits every optional field
+// summary: row that omits every optional field
 // =========================================================================
 
-describe('summary — row with only fileName set', () => {
+describe('summary: row with only fileName set', () => {
   const ORIGINAL = process.env.GITHUB_STEP_SUMMARY
   let dir: string
   let path: string

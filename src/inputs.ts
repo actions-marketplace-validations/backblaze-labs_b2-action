@@ -82,8 +82,8 @@ export interface ParsedInputs {
  * Credentials lookup order:
  *
  *   1. `application-key-id` / `application-key` action inputs
- *   2. `B2_APPLICATION_KEY_ID` / `B2_APPLICATION_KEY` env vars — the official
- *      contract used by the Backblaze b2 CLI and the @backblaze/b2-sdk.
+ *   2. `B2_APPLICATION_KEY_ID` / `B2_APPLICATION_KEY` env vars (the official
+ *      contract used by the Backblaze b2 CLI and the @backblaze/b2-sdk).
  *
  * The credential value, once resolved, is immediately masked via `core.setSecret`
  * so any accidental echo (including from a misbehaving sub-process) is redacted

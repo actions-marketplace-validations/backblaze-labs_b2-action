@@ -1,4 +1,4 @@
-name: 'Example — share build artifact via presigned URL'
+name: 'Example: share build artifact via presigned URL'
 
 # Build something, upload it, and post a presigned download URL as a comment
 # on the PR so reviewers can click through without needing B2 access.

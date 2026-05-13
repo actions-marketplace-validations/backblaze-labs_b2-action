@@ -1,5 +1,6 @@
 import * as core from '@actions/core'
 import type { ProgressEvent, ProgressListener } from '@backblaze/b2-sdk'
+import { formatBytes } from './format.ts'
 
 /**
  * Build a progress listener that throttles output to one update per
@@ -41,11 +42,4 @@ export function makeProgressListener(label: string, intervalMs = 1000): Progress
     lastBytes = event.bytesTransferred
     lastTime = now
   }
-}
-
-function formatBytes(n: number): string {
-  if (n < 1024) return `${n}B`
-  if (n < 1024 * 1024) return `${(n / 1024).toFixed(1)}KB`
-  if (n < 1024 * 1024 * 1024) return `${(n / 1024 / 1024).toFixed(1)}MB`
-  return `${(n / 1024 / 1024 / 1024).toFixed(2)}GB`
 }

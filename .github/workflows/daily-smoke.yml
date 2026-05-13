@@ -31,7 +31,7 @@ jobs:
       RUN_PREFIX: smoke/daily/${{ github.run_id }}-${{ github.run_attempt }}
     steps:
       - uses: actions/checkout@v4
-      # No `pnpm install` / `pnpm build` — this workflow only invokes the
+      # No `pnpm install` / `pnpm build`: this workflow only invokes the
       # action via `uses: ./`, which reads the committed `dist/index.js`. The
       # build-and-check-dist CI job already guarantees `dist/` is in sync with
       # `src/` on the commit being tested.

@@ -41,7 +41,6 @@ export async function syncCommand(bucket: Bucket, inputs: ParsedInputs): Promise
   const compareMode = inputs.compareMode
   const keepMode = inputs.keepMode
   const dryRun = inputs.dryRun
-  const concurrency = inputs.concurrency
 
   const config = await buildConfig(bucket, inputs, direction)
 
@@ -107,9 +106,6 @@ export async function syncCommand(bucket: Bucket, inputs: ParsedInputs): Promise
   core.info(
     `sync done [${direction}]: ${uploaded} uploaded, ${downloaded} downloaded, ${deleted} removed, ${skipped} unchanged, ${errors} errors`,
   )
-  // Concurrency is referenced by the SDK config above; touching it here keeps
-  // the variable from being flagged as unused on edits to the loop body.
-  void concurrency
 
   return {
     events,

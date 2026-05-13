@@ -1,5 +1,6 @@
 import { appendFile } from 'node:fs/promises'
 import * as core from '@actions/core'
+import { formatBytes } from './format.ts'
 
 /**
  * Append a markdown summary block to `$GITHUB_STEP_SUMMARY`.
@@ -11,7 +12,7 @@ import * as core from '@actions/core'
  * `::group::` log lines.
  *
  * If the env var is unset (e.g. running the bundle locally for a smoke test),
- * we no-op. We deliberately do not throw — a missing summary file is never
+ * we no-op. We deliberately do not throw: a missing summary file is never
  * a reason to fail an otherwise-successful step.
  */
 export interface SummaryRow {
@@ -65,11 +66,4 @@ export async function writeStepSummary(opts: {
 
 function escapePipes(s: string): string {
   return s.replace(/\|/g, '\\|')
-}
-
-function formatBytes(n: number): string {
-  if (n < 1024) return `${n} B`
-  if (n < 1024 * 1024) return `${(n / 1024).toFixed(1)} KB`
-  if (n < 1024 * 1024 * 1024) return `${(n / 1024 / 1024).toFixed(1)} MB`
-  return `${(n / 1024 / 1024 / 1024).toFixed(2)} GB`
 }

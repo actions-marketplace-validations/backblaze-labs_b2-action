@@ -62779,14 +62779,26 @@ class Bucket {
   }
   /**
    * Permanently deletes a specific file version. Both file name and file ID are required.
+   *
+   * If the file is under Object Lock retention, B2 will reject the
+   * delete: compliance-mode files cannot be deleted until the retention
+   * expires; governance-mode files require `bypassGovernance: true`
+   * AND a calling key with the `bypassGovernance` capability. Files on
+   * legal hold cannot be deleted by anyone until the hold is removed.
+   *
    * @param fileName - The file path of the version to delete.
    * @param fileId - The unique identifier of the file version to delete.
+   * @param options - Optional flag for bypassing governance retention.
    */
-  async deleteFileVersion(fileName, fileId) {
+  async deleteFileVersion(fileName, fileId, options) {
     await this.client.raw.deleteFileVersion(
       this.client.accountInfo.getApiUrl(),
       this.client.accountInfo.getAuthToken(),
-      { fileName, fileId }
+      {
+        fileName,
+        fileId,
+        ...options?.bypassGovernance !== void 0 ? { bypassGovernance: options.bypassGovernance } : {}
+      }
     );
   }
   /**
@@ -64600,7 +64612,7 @@ const package_namespaceObject = {"rE":"0.1.0"};
 
 /**
  * Action version. Read directly from package.json so there is no
- * second-source-of-truth to keep in sync — bumping `version` in package.json
+ * second-source-of-truth to keep in sync: bumping `version` in package.json
  * automatically propagates here, into the User-Agent header, and into the
  * bundled `dist/index.js`.
  *
@@ -64761,8 +64773,8 @@ const VALID_LEGAL_HOLD = ['on', 'off'];
  * Credentials lookup order:
  *
  *   1. `application-key-id` / `application-key` action inputs
- *   2. `B2_APPLICATION_KEY_ID` / `B2_APPLICATION_KEY` env vars — the official
- *      contract used by the Backblaze b2 CLI and the @backblaze/b2-sdk.
+ *   2. `B2_APPLICATION_KEY_ID` / `B2_APPLICATION_KEY` env vars (the official
+ *      contract used by the Backblaze b2 CLI and the @backblaze/b2-sdk).
  *
  * The credential value, once resolved, is immediately masked via `core.setSecret`
  * so any accidental echo (including from a misbehaving sub-process) is redacted
@@ -65051,7 +65063,25 @@ var external_node_path_ = __nccwpck_require__(6760);
 var external_node_stream_ = __nccwpck_require__(7075);
 ;// CONCATENATED MODULE: external "node:stream/promises"
 const external_node_stream_promises_namespaceObject = __WEBPACK_EXTERNAL_createRequire(import.meta.url)("node:stream/promises");
+;// CONCATENATED MODULE: ./src/format.ts
+/**
+ * Format a byte count with KB/MB/GB suffixes.
+ *
+ * Single source of truth so the workflow log (progress.ts) and the step
+ * summary table (summary.ts) never drift on thresholds or rounding.
+ */
+function formatBytes(n) {
+    if (n < 1024)
+        return `${n} B`;
+    if (n < 1024 * 1024)
+        return `${(n / 1024).toFixed(1)} KB`;
+    if (n < 1024 * 1024 * 1024)
+        return `${(n / 1024 / 1024).toFixed(1)} MB`;
+    return `${(n / 1024 / 1024 / 1024).toFixed(2)} GB`;
+}
+
 ;// CONCATENATED MODULE: ./src/progress.ts
+
 
 /**
  * Build a progress listener that throttles output to one update per
@@ -65083,15 +65113,6 @@ function makeProgressListener(label, intervalMs = 1000) {
         lastBytes = event.bytesTransferred;
         lastTime = now;
     };
-}
-function formatBytes(n) {
-    if (n < 1024)
-        return `${n}B`;
-    if (n < 1024 * 1024)
-        return `${(n / 1024).toFixed(1)}KB`;
-    if (n < 1024 * 1024 * 1024)
-        return `${(n / 1024 / 1024).toFixed(1)}MB`;
-    return `${(n / 1024 / 1024 / 1024).toFixed(2)}GB`;
 }
 
 ;// CONCATENATED MODULE: ./src/commands/download.ts
@@ -65453,7 +65474,7 @@ async function presignOne(client, bucket, fileName, ttlSeconds, authPrefix) {
  * implementation streams over `listFileVersions` and removes all versions,
  * but `purge` makes the wipe-the-prefix intent explicit and warns loudly.
  *
- * If `source` is empty or `/`, this purges the **entire bucket** — and
+ * If `source` is empty or `/`, this purges the **entire bucket**, and
  * we require `dry-run: false` to be set _intentionally_ to do so. (Default
  * behavior is to refuse a bucket-wide purge unless `source` is explicitly
  * an empty string in inputs, not undefined.)
@@ -66363,7 +66384,6 @@ async function syncCommand(bucket, inputs) {
     const compareMode = inputs.compareMode;
     const keepMode = inputs.keepMode;
     const dryRun = inputs.dryRun;
-    const concurrency = inputs.concurrency;
     const config = await buildConfig(bucket, inputs, direction);
     core.startGroup(`sync ${direction === 'local-to-b2' ? source : `b2://${bucket.name}/${source}`} ` +
         `→ ${direction === 'local-to-b2' ? `b2://${bucket.name}/${inputs.destination ?? ''}` : (inputs.destination ?? '.')} ` +
@@ -66421,9 +66441,6 @@ async function syncCommand(bucket, inputs) {
         core.endGroup();
     }
     core.info(`sync done [${direction}]: ${uploaded} uploaded, ${downloaded} downloaded, ${deleted} removed, ${skipped} unchanged, ${errors} errors`);
-    // Concurrency is referenced by the SDK config above; touching it here keeps
-    // the variable from being flagged as unused on edits to the loop body.
-    void concurrency;
     return {
         events,
         direction,
@@ -66737,6 +66754,7 @@ async function sha1OfFile(path) {
 ;// CONCATENATED MODULE: ./src/summary.ts
 
 
+
 async function writeStepSummary(opts) {
     const path = process.env.GITHUB_STEP_SUMMARY;
     if (path === undefined || path === '')
@@ -66745,14 +66763,14 @@ async function writeStepSummary(opts) {
     lines.push(`## ${opts.title}`);
     lines.push('');
     if (opts.totals !== undefined) {
-        lines.push(`**${opts.totals.files}** files, **${summary_formatBytes(opts.totals.bytes)}** total.`);
+        lines.push(`**${opts.totals.files}** files, **${formatBytes(opts.totals.bytes)}** total.`);
         lines.push('');
     }
     if (opts.rows.length > 0) {
         lines.push('| File | Size | File ID | SHA-1 | Status |');
         lines.push('|------|------|---------|-------|--------|');
         for (const r of opts.rows) {
-            lines.push(`| \`${escapePipes(r.fileName)}\` | ${r.size !== undefined ? summary_formatBytes(r.size) : ''} | ${r.fileId !== undefined ? `\`${escapePipes(r.fileId)}\`` : ''} | ${r.sha1 !== undefined && r.sha1 !== null ? `\`${r.sha1.slice(0, 12)}…\`` : ''} | ${r.status ?? ''} |`);
+            lines.push(`| \`${escapePipes(r.fileName)}\` | ${r.size !== undefined ? formatBytes(r.size) : ''} | ${r.fileId !== undefined ? `\`${escapePipes(r.fileId)}\`` : ''} | ${r.sha1 !== undefined && r.sha1 !== null ? `\`${r.sha1.slice(0, 12)}…\`` : ''} | ${r.status ?? ''} |`);
         }
     }
     lines.push('');
@@ -66766,15 +66784,6 @@ async function writeStepSummary(opts) {
 }
 function escapePipes(s) {
     return s.replace(/\|/g, '\\|');
-}
-function summary_formatBytes(n) {
-    if (n < 1024)
-        return `${n} B`;
-    if (n < 1024 * 1024)
-        return `${(n / 1024).toFixed(1)} KB`;
-    if (n < 1024 * 1024 * 1024)
-        return `${(n / 1024 / 1024).toFixed(1)} MB`;
-    return `${(n / 1024 / 1024 / 1024).toFixed(2)} GB`;
 }
 
 ;// CONCATENATED MODULE: ./src/main.ts
@@ -66830,7 +66839,7 @@ async function run() {
                 core.setOutput('summary-json', JSON.stringify(result.files));
                 core.info(`uploaded ${result.files.length} file(s), ${result.bytesTransferred} bytes`);
                 await writeStepSummary({
-                    title: 'Backblaze B2 — upload',
+                    title: 'Backblaze B2: upload',
                     totals: { files: result.files.length, bytes: result.bytesTransferred },
                     rows: result.files.map((f) => ({
                         fileName: f.fileName,
@@ -66855,7 +66864,7 @@ async function run() {
                 core.setOutput('summary-json', JSON.stringify(result.files));
                 core.info(`downloaded ${result.files.length} file(s), ${result.bytesTransferred} bytes`);
                 await writeStepSummary({
-                    title: 'Backblaze B2 — download',
+                    title: 'Backblaze B2: download',
                     totals: { files: result.files.length, bytes: result.bytesTransferred },
                     rows: result.files.map((f) => ({
                         fileName: f.fileName,
@@ -66877,8 +66886,8 @@ async function run() {
                     throw new Error(`Sync completed with ${result.errors} error(s)`);
                 }
                 const syncTitlePrefix = inputs.dryRun
-                    ? 'Backblaze B2 — sync (dry-run)'
-                    : 'Backblaze B2 — sync';
+                    ? 'Backblaze B2: sync (dry-run)'
+                    : 'Backblaze B2: sync';
                 await writeStepSummary({
                     title: `${syncTitlePrefix} [${result.direction}]`,
                     totals: {
@@ -66909,7 +66918,7 @@ async function run() {
                 core.setOutput('bytes-transferred', String(result.size));
                 core.setOutput('summary-json', JSON.stringify([result]));
                 await writeStepSummary({
-                    title: 'Backblaze B2 — copy',
+                    title: 'Backblaze B2: copy',
                     rows: [
                         {
                             fileName: `b2://${result.sourceBucket}/${result.sourceFileName} → b2://${result.destinationBucket}/${result.destinationFileName}`,
@@ -66931,7 +66940,7 @@ async function run() {
                     throw new Error(`Delete completed with ${result.errors} error(s)`);
                 }
                 await writeStepSummary({
-                    title: inputs.dryRun ? 'Backblaze B2 — delete (dry-run)' : 'Backblaze B2 — delete',
+                    title: inputs.dryRun ? 'Backblaze B2: delete (dry-run)' : 'Backblaze B2: delete',
                     totals: { files: actuallyDeleted + wouldDelete, bytes: 0 },
                     rows: result.files.map((f) => ({
                         fileName: f.fileName,
@@ -66951,7 +66960,7 @@ async function run() {
                 core.setOutput('files-listed', String(result.files.length));
                 core.setOutput('summary-json', JSON.stringify(result.files));
                 await writeStepSummary({
-                    title: `Backblaze B2 — presign (${result.files.length})`,
+                    title: `Backblaze B2: presign (${result.files.length})`,
                     rows: result.files.slice(0, 50).map((f) => ({
                         fileName: f.fileName,
                         status: `expires at ${new Date(f.expiresAt * 1000).toISOString()}`,
@@ -66967,7 +66976,7 @@ async function run() {
                     core.warning(`list result truncated at max-results=${inputs.maxResults}; raise it to see more`);
                 }
                 await writeStepSummary({
-                    title: `Backblaze B2 — list (${result.files.length}${result.truncated ? '+' : ''})`,
+                    title: `Backblaze B2: list (${result.files.length}${result.truncated ? '+' : ''})`,
                     totals: {
                         files: result.files.length,
                         bytes: result.files.reduce((s, f) => s + f.size, 0),
@@ -66988,7 +66997,7 @@ async function run() {
                 core.setOutput('file-name', result.fileName);
                 core.setOutput('summary-json', JSON.stringify([result]));
                 await writeStepSummary({
-                    title: 'Backblaze B2 — hide',
+                    title: 'Backblaze B2: hide',
                     rows: [{ fileName: result.fileName, fileId: result.fileId, status: 'hidden' }],
                 });
                 return;
@@ -67001,7 +67010,7 @@ async function run() {
                 }
                 core.setOutput('summary-json', JSON.stringify([result]));
                 await writeStepSummary({
-                    title: 'Backblaze B2 — unhide',
+                    title: 'Backblaze B2: unhide',
                     rows: [
                         {
                             fileName: result.fileName,
@@ -67022,7 +67031,7 @@ async function run() {
                     core.setOutput('local-sha1', result.localSha1);
                 core.setOutput('summary-json', JSON.stringify([result]));
                 await writeStepSummary({
-                    title: result.verified ? 'Backblaze B2 — verify ✓' : 'Backblaze B2 — verify ✗',
+                    title: result.verified ? 'Backblaze B2: verify ✓' : 'Backblaze B2: verify ✗',
                     rows: [
                         {
                             fileName: result.fileName,
@@ -67046,7 +67055,7 @@ async function run() {
                 core.setOutput('bytes-transferred', '0');
                 core.setOutput('summary-json', JSON.stringify([result]));
                 await writeStepSummary({
-                    title: 'Backblaze B2 — head',
+                    title: 'Backblaze B2: head',
                     rows: [
                         {
                             fileName: result.fileName,
@@ -67069,7 +67078,7 @@ async function run() {
                     throw new Error(`Purge completed with ${result.errors} error(s)`);
                 }
                 await writeStepSummary({
-                    title: inputs.dryRun ? 'Backblaze B2 — purge (dry-run)' : 'Backblaze B2 — purge',
+                    title: inputs.dryRun ? 'Backblaze B2: purge (dry-run)' : 'Backblaze B2: purge',
                     totals: { files: actuallyDeleted + wouldDelete, bytes: 0 },
                     rows: result.files.slice(0, 100).map((f) => ({
                         fileName: f.fileName,
@@ -67085,7 +67094,7 @@ async function run() {
                 core.setOutput('file-name', result.fileName);
                 core.setOutput('summary-json', JSON.stringify([result]));
                 await writeStepSummary({
-                    title: 'Backblaze B2 — retention',
+                    title: 'Backblaze B2: retention',
                     rows: [
                         {
                             fileName: result.fileName,

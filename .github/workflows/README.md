@@ -2,11 +2,11 @@
 
 This folder contains:
 
-- **`ci.yml`** — runs on every PR: typecheck, lint, vitest (Ubuntu / macOS / Windows), coverage gate, build, `dist/` freshness, bundle-size budget, actionlint, offline self-smoke.
-- **`release.yml`** — fires on `v*` tags: full gate + GitHub Release + floats the major-version tag (`v0`, `v1`, …).
-- **`daily-smoke.yml`** — 03:13 UTC cron: real-B2 end-to-end smoke against the test bucket.
-- **`benchmark.yml`** — weekly + on-demand: cold-start comparison against `yamatt/backblaze-b2-upload-action` (Docker).
-- **`example-*.yml`** — ten **example workflows that are also the integration test suite**. See the table below.
+- **`ci.yml`**: runs on every PR: typecheck, lint, vitest (Ubuntu / macOS / Windows), coverage gate, build, `dist/` freshness, bundle-size budget, actionlint, offline self-smoke.
+- **`release.yml`**: fires on `v*` tags: full gate + GitHub Release + floats the major-version tag (`v0`, `v1`, …).
+- **`daily-smoke.yml`**: 03:13 UTC cron: real-B2 end-to-end smoke against the test bucket.
+- **`benchmark.yml`**: weekly + on-demand: cold-start comparison against `yamatt/backblaze-b2-upload-action` (Docker).
+- **`example-*.yml`**: ten **example workflows that are also the integration test suite**. See the table below.
 
 ## Example workflows (= integration test suite)
 
@@ -35,4 +35,4 @@ Copy any `example-*.yml` into your own `.github/workflows/`, then:
 2. Replace `${{ secrets.B2_TEST_BUCKET }}` etc. with your own bucket secret names.
 3. Adjust the `on:` triggers, paths, and cleanup behavior to match your workflow.
 
-Nothing else in the file should need to change — every input the action accepts is documented in the [top-level README](../../README.md). For the test-bucket setup expected by these workflows (bucket name, capabilities, lifecycle rules), see [DEVELOPMENT.md → Test bucket setup](../../DEVELOPMENT.md#test-bucket-setup).
+Nothing else in the file should need to change: every input the action accepts is documented in the [top-level README](../../README.md). For the test-bucket setup expected by these workflows (bucket name, capabilities, lifecycle rules), see [DEVELOPMENT.md → Test bucket setup](../../DEVELOPMENT.md#test-bucket-setup).

@@ -1,4 +1,4 @@
-name: 'Example — deploy site (sync)'
+name: 'Example: deploy site (sync)'
 
 # Build a static site and sync the output directory to B2. Replaces the
 # `b2 sync` pattern used by older Docker-based actions.

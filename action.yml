@@ -119,7 +119,7 @@ outputs:
   presigned-url:
     description: 'Presigned download URL (presign action).'
   verified:
-    description: 'true/false — whether `verify` succeeded.'
+    description: 'true/false: whether `verify` succeeded.'
   remote-sha1:
     description: 'Remote object SHA-1 retrieved by `verify`.'
   local-sha1:

@@ -1,6 +1,6 @@
 # Contributing to `backblaze-labs/b2-action`
 
-Thanks for your interest. The Action is intentionally small and built on the official [`@backblaze/b2-sdk`](https://github.com/backblaze/b2-sdk-typescript) — most behavior changes happen there, not here. This file covers what to do when you genuinely need to change *this* repo.
+Thanks for your interest. The Action is intentionally small and built on the official [`@backblaze/b2-sdk`](https://github.com/backblaze/b2-sdk-typescript): most behavior changes happen there, not here. This file covers what to do when you genuinely need to change *this* repo.
 
 ## Local setup
 
@@ -13,7 +13,7 @@ Requirements: Node 24+, pnpm 10+. The action runs on Node 24 in the GitHub Actio
 
 `pnpm install` also wires up git hooks (via [husky](https://github.com/typicode/husky)):
 
-- **`pre-commit`** runs lint + typecheck. If your staged changes touch `src/` (or `package.json`, `tsconfig.json`, `pnpm-lock.yaml`), it also rebuilds `dist/` and refuses the commit if `dist/` would change without being staged — the same gate `build-and-check-dist` enforces in CI. If staged changes touch `.github/workflows/` or `.github/actions/`, `actionlint` runs against the whole workflows tree. Total time ≈ 3 s on a clean repo.
+- **`pre-commit`** runs lint + typecheck. If your staged changes touch `src/` (or `package.json`, `tsconfig.json`, `pnpm-lock.yaml`), it also rebuilds `dist/` and refuses the commit if `dist/` would change without being staged: the same gate `build-and-check-dist` enforces in CI. If staged changes touch `.github/workflows/` or `.github/actions/`, `actionlint` runs against the whole workflows tree. Total time ≈ 3 s on a clean repo.
 - **`pre-push`** runs the full vitest suite plus `--coverage`. Catches anything `pre-commit` skipped for speed.
 
 Skip a hook with `--no-verify` if you absolutely need to. CI runs the same checks regardless.
@@ -50,7 +50,7 @@ The pattern is the same every time:
    - Validate the inputs it depends on (`source`, `destination`, etc.) and throw a clear error if missing.
    - Use `core.startGroup` / `core.endGroup` to frame the per-call log block.
    - Return a typed result object the dispatcher can map to outputs.
-   - **NEVER** call `core.setOutput` directly — that's the dispatcher's job.
+   - **NEVER** call `core.setOutput` directly: that's the dispatcher's job.
 2. **Register the verb** in `src/inputs.ts` (`ActionName` type + `VALID_ACTIONS` array).
 3. **Add the dispatch case** in `src/main.ts`. Map the typed result to `core.setOutput(...)` calls and call `writeStepSummary({...})` with a friendly per-row table.
 4. **Document the inputs/outputs** in `action.yml`. Add any new inputs to the inputs block and any new outputs to the outputs block.

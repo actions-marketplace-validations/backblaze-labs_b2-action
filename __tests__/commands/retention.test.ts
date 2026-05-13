@@ -3,14 +3,12 @@ import { join } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import { retentionCommand } from '../../src/commands/retention.ts'
 import { uploadCommand } from '../../src/commands/upload.ts'
-import { type TestFixture, makeFixture, makeInputs } from '../_helpers.ts'
-
-function inputs(over: Record<string, unknown> = {}) {
-  return makeInputs('retention', { bucket: 'gh-action-retention', ...over })
-}
+import { type TestFixture, makeFixture, makeInputs, seedFile } from '../_helpers.ts'
 
 describe('retention command', () => {
   let fx: TestFixture
+  const inputs = (over: Record<string, unknown> = {}) => makeInputs('retention', fx, { ...over })
+
   beforeEach(async () => {
     fx = await makeFixture('gh-action-retention')
   })
@@ -23,8 +21,7 @@ describe('retention command', () => {
     await writeFile(local, 'locked content')
     await uploadCommand(
       fx.bucket,
-      makeInputs('upload', {
-        bucket: 'gh-action-retention',
+      makeInputs('upload', fx, {
         source: local,
         destination: 'locked.txt',
       }),
@@ -49,8 +46,7 @@ describe('retention command', () => {
     await writeFile(local, 'held')
     await uploadCommand(
       fx.bucket,
-      makeInputs('upload', {
-        bucket: 'gh-action-retention',
+      makeInputs('upload', fx, {
         source: local,
         destination: 'hold.txt',
       }),
@@ -64,32 +60,14 @@ describe('retention command', () => {
   })
 
   it('rejects retention-mode without retention-until', async () => {
-    const local = join(fx.workDir, 'malformed.txt')
-    await writeFile(local, 'bad-config')
-    await uploadCommand(
-      fx.bucket,
-      makeInputs('upload', {
-        bucket: 'gh-action-retention',
-        source: local,
-        destination: 'malformed.txt',
-      }),
-    )
+    await seedFile(fx, 'malformed.txt', 'bad-config')
     await expect(
       retentionCommand(fx.bucket, inputs({ source: 'malformed.txt', retentionMode: 'compliance' })),
     ).rejects.toThrow(/retention-until/)
   })
 
   it('requires either retention-mode or legal-hold', async () => {
-    const local = join(fx.workDir, 'none.txt')
-    await writeFile(local, 'nothing')
-    await uploadCommand(
-      fx.bucket,
-      makeInputs('upload', {
-        bucket: 'gh-action-retention',
-        source: local,
-        destination: 'none.txt',
-      }),
-    )
+    await seedFile(fx, 'none.txt', 'nothing')
     await expect(retentionCommand(fx.bucket, inputs({ source: 'none.txt' }))).rejects.toThrow(
       /retention-mode.*legal-hold/,
     )

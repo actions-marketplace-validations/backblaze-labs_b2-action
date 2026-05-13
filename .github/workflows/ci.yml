@@ -135,8 +135,8 @@ jobs:
     # We download the actionlint binary directly (rather than a wrapper Action)
     # because every JS/composite wrapper we've tried (raven-actions, etc.) runs
     # `npm install` somewhere in the repo root, which fails as long as
-    # `package.json` references `@backblaze/b2-sdk` via pnpm's `link:` protocol —
-    # npm doesn't understand `link:`. The official binary has no such coupling.
+    # `package.json` references `@backblaze/b2-sdk` via pnpm's `link:` protocol,
+    # and npm doesn't understand `link:`. The official binary has no such coupling.
     steps:
       - uses: actions/checkout@v4
       - name: Download actionlint

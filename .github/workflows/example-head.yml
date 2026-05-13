@@ -1,0 +1,69 @@
+name: 'Example: head (metadata probe without body transfer)'
+
+# HEAD a B2 object to read its metadata (size, SHA-1, content-type,
+# fileInfo, upload timestamp) without transferring the body. Useful for
+# cheap pre-checks before a download, or for asserting that an upload
+# from an earlier step actually landed with the SHA-1 you expected.
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  head:
+    if: github.event_name == 'workflow_dispatch' || github.event_name == 'push' || github.event.pull_request.head.repo.fork == false
+    runs-on: ubuntu-latest
+    env:
+      KEY: examples/head/${{ github.run_id }}/probe.bin
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Create asset
+        run: dd if=/dev/urandom of=probe.bin bs=1024 count=8
+
+      - name: Upload
+        id: up
+        uses: ./
+        with:
+          action: upload
+          application-key-id: ${{ secrets.B2_APPLICATION_KEY_ID }}
+          application-key: ${{ secrets.B2_APPLICATION_KEY }}
+          bucket: ${{ secrets.B2_TEST_BUCKET }}
+          source: probe.bin
+          destination: ${{ env.KEY }}
+          content-type: 'application/octet-stream'
+
+      - name: HEAD the object
+        id: probe
+        uses: ./
+        with:
+          action: head
+          application-key-id: ${{ secrets.B2_APPLICATION_KEY_ID }}
+          application-key: ${{ secrets.B2_APPLICATION_KEY }}
+          bucket: ${{ secrets.B2_TEST_BUCKET }}
+          source: ${{ env.KEY }}
+
+      - name: Assert HEAD outputs match upload
+        run: |
+          set -euo pipefail
+          test "${{ steps.probe.outputs.file-id }}" = "${{ steps.up.outputs.file-id }}"
+          test "${{ steps.probe.outputs.content-sha1 }}" = "${{ steps.up.outputs.content-sha1 }}"
+          # HEAD transfers no bytes:
+          test "${{ steps.probe.outputs.bytes-transferred }}" = "0"
+          # summary-json is an array of HeadResults (one entry); spot-check shape:
+          echo '${{ steps.probe.outputs.summary-json }}' | jq -e '.[0].contentType, .[0].uploadTimestamp, .[0].size'
+
+      - name: Cleanup
+        if: always()
+        uses: ./
+        with:
+          action: delete
+          application-key-id: ${{ secrets.B2_APPLICATION_KEY_ID }}
+          application-key: ${{ secrets.B2_APPLICATION_KEY }}
+          bucket: ${{ secrets.B2_TEST_BUCKET }}
+          source: ${{ env.KEY }}

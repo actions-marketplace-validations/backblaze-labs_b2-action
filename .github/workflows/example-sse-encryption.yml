@@ -1,4 +1,4 @@
-name: 'Example — server-side encryption (SSE-B2 + SSE-C)'
+name: 'Example: server-side encryption (SSE-B2 + SSE-C)'
 
 # Exercises both encryption flavors:
 #   - SSE-B2: B2 manages the key. No setup beyond `sse: B2`.

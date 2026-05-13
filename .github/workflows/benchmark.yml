@@ -1,11 +1,11 @@
-name: Benchmark — Node24 action vs Docker-CLI actions
+name: 'Benchmark: Node24 action vs Docker-CLI actions'
 
 # Measures cold-start + first-byte time for an upload using:
 #   - this action (Node24, ncc-bundled)
 #   - yamatt/backblaze-b2-upload-action (Docker, wraps backblazeit/b2)
 #
 # Publishes the comparison as a step summary table. Runs on workflow_dispatch
-# only — it's deliberately not on PR because the numbers fluctuate with GH
+# only: it's deliberately not on PR because the numbers fluctuate with GH
 # runner cold-cache state and we don't want noisy PR signals.
 
 on:
@@ -27,7 +27,7 @@ jobs:
       PAYLOAD_KEY_DOCKER: bench/${{ github.run_id }}/docker.bin
     steps:
       - uses: actions/checkout@v4
-      # No install/build — this workflow only `uses: ./` which reads the
+      # No install/build: this workflow only `uses: ./` which reads the
       # committed `dist/index.js`. `ci.yml`'s build-and-check-dist job already
       # guarantees `dist/` is in sync with `src/` on the commit under test.
 
@@ -35,7 +35,7 @@ jobs:
         run: dd if=/dev/urandom of="$PAYLOAD_PATH" bs=1024 count=5120
 
       # --- Run 1: this Action (Node24) ----------------------------------
-      - name: Upload via this action — wall-clock
+      - name: 'Upload via this action: wall-clock'
         id: ours
         run: |
           START=$(date +%s%N)
@@ -63,7 +63,7 @@ jobs:
           echo "this-action elapsed: ${ELAPSED_MS} ms"
 
       # --- Run 2: Docker-based comparison action ------------------------
-      - name: Upload via yamatt/backblaze-b2-upload-action — wall-clock
+      - name: 'Upload via yamatt/backblaze-b2-upload-action: wall-clock'
         id: docker
         run: |
           START=$(date +%s%N)
@@ -98,7 +98,7 @@ jobs:
             VERDICT="⚠️ this action is slower than the Docker action"
           fi
           {
-            echo "## Upload benchmark — 5 MiB payload"
+            echo "## Upload benchmark: 5 MiB payload"
             echo ""
             echo "| Action | Wall-clock (ms) |"
             echo "|---|---|"

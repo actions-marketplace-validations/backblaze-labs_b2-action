@@ -1,4 +1,4 @@
-name: 'Example — cross-bucket replicate (server-side)'
+name: 'Example: cross-bucket replicate (server-side)'
 
 # Copy an artifact from a source bucket to a destination bucket without the
 # bytes traversing the runner. Useful for promote-staging-to-prod patterns

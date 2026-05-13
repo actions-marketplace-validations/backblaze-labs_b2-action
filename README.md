@@ -10,7 +10,7 @@
 The Backblaze B2 GitHub Action. TypeScript-native, built on the official [`@backblaze/b2-sdk`](https://github.com/backblaze/b2-sdk-typescript). Thirteen verbs covering every B2 operation a CI workflow needs.
 
 - **Node 24 action.** No Docker. Sub-second cold start.
-- **Thirteen verbs.** `upload`, `download`, `sync`, `copy`, `delete`, `list`, `hide`, `unhide`, `verify`, `presign`, `retention`, `head`, `purge` — pick via the `action` input.
+- **Thirteen verbs.** `upload`, `download`, `sync`, `copy`, `delete`, `list`, `hide`, `unhide`, `verify`, `presign`, `retention`, `head`, `purge`: pick via the `action` input.
 - **Resumable multipart uploads** for any file size; streaming I/O so multi-GB payloads don't buffer in RAM.
 - **Server-side everything.** `copy` (same-bucket or cross-bucket) and `delete` operations stay server-side; bytes never traverse the runner.
 - **Server-side encryption.** SSE-B2 (managed) and SSE-C (customer key, base64).
@@ -260,11 +260,11 @@ The `sse: C:<value>` input expects a **base64-encoded 32-byte (256-bit) key**. G
 openssl rand -base64 32
 ```
 
-That outputs ~44 characters (e.g. `JXqRk7TZUyDhPmlAv9pn0WzgQGkBNyfwHJtoMSCRXNc=`). Paste the value into a GitHub repository secret (`Settings → Secrets and variables → Actions`) — convention is `B2_SSE_C_KEY_B64`.
+That outputs ~44 characters (e.g. `JXqRk7TZUyDhPmlAv9pn0WzgQGkBNyfwHJtoMSCRXNc=`). Paste the value into a GitHub repository secret (`Settings → Secrets and variables → Actions`): convention is `B2_SSE_C_KEY_B64`.
 
 A few things to know before you commit to SSE-C:
 
-- **You own the key, Backblaze does not.** B2 never stores it. **Lose the key, lose the data** — no recovery.
+- **You own the key, Backblaze does not.** B2 never stores it. **Lose the key, lose the data**: no recovery.
 - **The same key must be supplied at download time** as was used at upload. The action's `download` verb takes the same `sse: C:<key>` input.
 - **Rotating the key invalidates any existing SSE-C objects** encrypted with the old value. You'd need to download-then-reupload everything with the new key.
 - **The action auto-masks the key** in workflow logs via `::add-mask::`, but that masking does not survive copy-paste. Keep secrets out of bug reports.

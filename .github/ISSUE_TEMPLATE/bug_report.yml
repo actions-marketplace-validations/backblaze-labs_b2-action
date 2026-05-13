@@ -8,7 +8,7 @@ body:
       value: |
         Thanks for taking the time to file a bug. Before submitting, please:
 
-        - **Redact credentials.** This Action calls `core.setSecret` on your app key, auth token, and any presigned URL, so the workflow live log masks them — but those masks do not survive copy-paste into this form. Replace any sensitive values with `<REDACTED>` before posting.
+        - **Redact credentials.** This Action calls `core.setSecret` on your app key, auth token, and any presigned URL, so the workflow live log masks them: but those masks do not survive copy-paste into this form. Replace any sensitive values with `<REDACTED>` before posting.
         - Confirm you're on a recent version. Try pinning to a specific SHA or the latest `v0.x` tag to rule out an in-flight fix.
 
   - type: input

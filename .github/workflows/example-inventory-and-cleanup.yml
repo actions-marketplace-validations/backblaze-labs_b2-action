@@ -1,4 +1,4 @@
-name: 'Example — inventory & cleanup (list + delete dry-run)'
+name: 'Example: inventory & cleanup (list + delete dry-run)'
 
 # Catalogue files under a prefix as JSON, then preview a cleanup with
 # dry-run before doing the actual delete. The list output is also useful

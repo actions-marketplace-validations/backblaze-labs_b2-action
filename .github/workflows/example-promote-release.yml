@@ -1,4 +1,4 @@
-name: 'Example — promote release (server-side copy)'
+name: 'Example: promote release (server-side copy)'
 
 # When a tag lands, copy the staging artifact to a stable "latest" path
 # without re-uploading the bytes. Useful for "promote staging → prod"

@@ -8,23 +8,23 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 Nothing has been released yet. The first tagged release will be `0.1.0`; everything below is the planned content of that release.
 
-### Added — thirteen verbs
+### Added: thirteen verbs
 
-- `upload` — single file or glob upload. Streams via fs ReadStream → Web ReadableStream so multi-GB payloads don't buffer in RAM. Multipart auto-routes via the SDK when size exceeds the recommended part size, with `concurrency`, `part-size`, `resume` controls.
-- `download` — single file (by basename, exact path, or into an existing directory) or prefix-bulk (when `source` ends with `/`).
-- `sync` — bi-directional mirror between a local directory and a B2 bucket prefix. `direction: auto | up | down` auto-detects from `source`. Supports `compare-mode` (modtime / size / none), `keep-mode` (no-delete / delete / keep-days), and `dry-run`.
-- `copy` — server-side copy via `b2_copy_file` (small) or `b2_copy_part` (large). Same-bucket or cross-bucket via `source-bucket`. Bytes never traverse the runner.
-- `delete` — single file by name, or prefix-bulk via `b2_list_file_versions` streamed through the SDK's `deleteAll`. Supports `dry-run`.
-- `list` — list files under a prefix, emit JSON as a step output for downstream consumers; reports truncation against `max-results`.
-- `hide` — soft-delete via hide marker (thin wrapper around `b2_hide_file`).
-- `unhide` — restore a hidden file by deleting its top hide marker (wraps the SDK's `bucket.unhide()`).
-- `verify` — HEAD-request the remote SHA-1 and compare to `expected-sha1` or a local file at `destination`. No body transfer. Reports `verified`, `remote-sha1`, `local-sha1` outputs.
-- `presign` — time-limited download URL via `b2_get_download_authorization`. URL is masked with `core.setSecret`. Prefix mode (trailing `/`) generates one URL per file under the prefix, capped by `max-results`.
-- `retention` — Object Lock retention (compliance/governance) + legal hold on a file version. Requires a fileLock-enabled bucket.
-- `head` — HEAD-only metadata probe (size, sha1, contentType, fileInfo, uploadTimestamp) without transferring the body.
-- `purge` — permanently delete every file version under a prefix, including hide markers and historical uploads. Differs from `delete` in intent (wipe-and-rebuild) and emits a loud warning when no prefix is specified. Supports `dry-run`.
+- `upload`: single file or glob upload. Streams via fs ReadStream → Web ReadableStream so multi-GB payloads don't buffer in RAM. Multipart auto-routes via the SDK when size exceeds the recommended part size, with `concurrency`, `part-size`, `resume` controls.
+- `download`: single file (by basename, exact path, or into an existing directory) or prefix-bulk (when `source` ends with `/`).
+- `sync`: bi-directional mirror between a local directory and a B2 bucket prefix. `direction: auto | up | down` auto-detects from `source`. Supports `compare-mode` (modtime / size / none), `keep-mode` (no-delete / delete / keep-days), and `dry-run`.
+- `copy`: server-side copy via `b2_copy_file` (small) or `b2_copy_part` (large). Same-bucket or cross-bucket via `source-bucket`. Bytes never traverse the runner.
+- `delete`: single file by name, or prefix-bulk via `b2_list_file_versions` streamed through the SDK's `deleteAll`. Supports `dry-run`.
+- `list`: list files under a prefix, emit JSON as a step output for downstream consumers; reports truncation against `max-results`.
+- `hide`: soft-delete via hide marker (thin wrapper around `b2_hide_file`).
+- `unhide`: restore a hidden file by deleting its top hide marker (wraps the SDK's `bucket.unhide()`).
+- `verify`: HEAD-request the remote SHA-1 and compare to `expected-sha1` or a local file at `destination`. No body transfer. Reports `verified`, `remote-sha1`, `local-sha1` outputs.
+- `presign`: time-limited download URL via `b2_get_download_authorization`. URL is masked with `core.setSecret`. Prefix mode (trailing `/`) generates one URL per file under the prefix, capped by `max-results`.
+- `retention`: Object Lock retention (compliance/governance) + legal hold on a file version. Requires a fileLock-enabled bucket.
+- `head`: HEAD-only metadata probe (size, sha1, contentType, fileInfo, uploadTimestamp) without transferring the body.
+- `purge`: permanently delete every file version under a prefix, including hide markers and historical uploads. Differs from `delete` in intent (wipe-and-rebuild) and emits a loud warning when no prefix is specified. Supports `dry-run`.
 
-### Added — cross-cutting
+### Added: cross-cutting
 
 - Node 24 JavaScript action bundled with `@vercel/ncc`.
 - Server-side encryption: `sse: B2` (SSE-B2) or `sse: C:<base64-32-byte-key>` (SSE-C). MD5 of the SSE-C key is computed internally with `node:crypto`.
@@ -33,7 +33,7 @@ Nothing has been released yet. The first tagged release will be `0.1.0`; everyth
 - Auto-masking of the application key, the resulting auth token, and any presigned URL via `core.setSecret`.
 - Custom User-Agent attribution (`b2-github-action/<version>`) so Backblaze server-side logs can identify CI traffic.
 
-### Added — quality gates
+### Added: quality gates
 
 - Vitest suite (104 tests across 13 files) running against the SDK's in-memory `B2Simulator`. No real network.
 - Coverage gate (`pnpm test:coverage`): 95 % statements / 85 % branches / 100 % functions / 95 % lines. Current run: **97.15 % / 87.58 % / 100 % / 97.15 %**.
@@ -42,7 +42,7 @@ Nothing has been released yet. The first tagged release will be `0.1.0`; everyth
 - Dependabot config for weekly npm + github-actions updates.
 - Ten example workflows under `.github/workflows/example-*.yml` that double as live integration tests against a real B2 test bucket. See [.github/workflows/README.md](.github/workflows/README.md) for the catalogue. There is no separate `integration.yml`; the examples *are* the integration suite.
 
-### Added — community files
+### Added: community files
 
 - `SECURITY.md` with redaction guidance and a 30-day coordinated-disclosure timeline.
 - `CONTRIBUTING.md` documenting the "add a new verb" pattern, style conventions, and release process.
@@ -54,10 +54,10 @@ Nothing has been released yet. The first tagged release will be `0.1.0`; everyth
 - Status + Quality + Tech-stack + Community badge rows in the README (CI, Release, Marketplace, Latest release, License, Tests, Coverage, Bundle size, Verbs, Examples, TypeScript, Node 24, Biome, SDK attribution, No-Docker, PRs welcome, Open issues, Stars, Backblaze).
 - Mermaid architecture diagram in the README "How it works" section.
 
-### Added — operational
+### Added: operational
 
-- `daily-smoke.yml` workflow — runs the most-used verbs end-to-end against a real B2 test bucket once a day. Catches B2 API drift or SDK regressions before user-reported issues.
-- `benchmark.yml` workflow — weekly + on-demand cold-start comparison between this action (Node20, ncc) and `yamatt/backblaze-b2-upload-action` (Docker). Renders the verdict to `$GITHUB_STEP_SUMMARY`.
+- `daily-smoke.yml` workflow: runs the most-used verbs end-to-end against a real B2 test bucket once a day. Catches B2 API drift or SDK regressions before user-reported issues.
+- `benchmark.yml` workflow: weekly + on-demand cold-start comparison between this action (Node20, ncc) and `yamatt/backblaze-b2-upload-action` (Docker). Renders the verdict to `$GITHUB_STEP_SUMMARY`.
 
 ### Deferred (not planned for v0.x)
 

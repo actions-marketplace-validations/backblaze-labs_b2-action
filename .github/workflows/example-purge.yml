@@ -1,0 +1,96 @@
+name: 'Example: purge (permanent wipe, all versions and hide markers)'
+
+# `purge` differs from `delete` in intent. `delete` walks current file
+# versions under a prefix and removes them. `purge` permanently wipes
+# everything: current versions, prior versions, and any hide markers
+# left from soft-deletes. Use when you want the prefix wholly gone, not
+# merely soft-emptied. Always supports `dry-run` because the failure
+# mode (purging the wrong prefix) is unrecoverable.
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  purge:
+    if: github.event_name == 'workflow_dispatch' || github.event_name == 'push' || github.event.pull_request.head.repo.fork == false
+    runs-on: ubuntu-latest
+    env:
+      PREFIX: examples/purge/${{ github.run_id }}/
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Stage payload tree
+        run: |
+          mkdir -p payload/sub
+          echo "a" > payload/a.txt
+          echo "b" > payload/b.txt
+          echo "c" > payload/sub/c.txt
+
+      - name: Upload tree
+        uses: ./
+        with:
+          action: upload
+          application-key-id: ${{ secrets.B2_APPLICATION_KEY_ID }}
+          application-key: ${{ secrets.B2_APPLICATION_KEY }}
+          bucket: ${{ secrets.B2_TEST_BUCKET }}
+          source: payload
+          destination: ${{ env.PREFIX }}
+
+      - name: Soft-delete one file via hide marker
+        # Adds a hide marker that `delete` would leave behind but `purge` removes.
+        uses: ./
+        with:
+          action: hide
+          application-key-id: ${{ secrets.B2_APPLICATION_KEY_ID }}
+          application-key: ${{ secrets.B2_APPLICATION_KEY }}
+          bucket: ${{ secrets.B2_TEST_BUCKET }}
+          source: ${{ env.PREFIX }}a.txt
+
+      - name: Dry-run purge first (preview)
+        id: dry
+        uses: ./
+        with:
+          action: purge
+          application-key-id: ${{ secrets.B2_APPLICATION_KEY_ID }}
+          application-key: ${{ secrets.B2_APPLICATION_KEY }}
+          bucket: ${{ secrets.B2_TEST_BUCKET }}
+          source: ${{ env.PREFIX }}
+          dry-run: true
+
+      - name: Dry-run should not have deleted anything
+        run: test "${{ steps.dry.outputs.files-deleted }}" = "0"
+
+      - name: Actual purge
+        id: purge
+        uses: ./
+        with:
+          action: purge
+          application-key-id: ${{ secrets.B2_APPLICATION_KEY_ID }}
+          application-key: ${{ secrets.B2_APPLICATION_KEY }}
+          bucket: ${{ secrets.B2_TEST_BUCKET }}
+          source: ${{ env.PREFIX }}
+
+      - name: Confirm at least the live files + 1 hide marker were removed
+        run: |
+          # 3 live + 1 hide marker = 4. Allow >= 4 because B2 may also have a
+          # prior version of the hidden file recorded.
+          test "${{ steps.purge.outputs.files-deleted }}" -ge 4
+
+      - name: Confirm prefix is empty
+        id: ls
+        uses: ./
+        with:
+          action: list
+          application-key-id: ${{ secrets.B2_APPLICATION_KEY_ID }}
+          application-key: ${{ secrets.B2_APPLICATION_KEY }}
+          bucket: ${{ secrets.B2_TEST_BUCKET }}
+          source: ${{ env.PREFIX }}
+
+      - name: Assert listing empty
+        run: test "${{ steps.ls.outputs.files-listed }}" = "0"

@@ -20,7 +20,7 @@ export interface PurgeResult {
  * implementation streams over `listFileVersions` and removes all versions,
  * but `purge` makes the wipe-the-prefix intent explicit and warns loudly.
  *
- * If `source` is empty or `/`, this purges the **entire bucket** — and
+ * If `source` is empty or `/`, this purges the **entire bucket**, and
  * we require `dry-run: false` to be set _intentionally_ to do so. (Default
  * behavior is to refuse a bucket-wide purge unless `source` is explicitly
  * an empty string in inputs, not undefined.)
