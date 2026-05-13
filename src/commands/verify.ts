@@ -3,7 +3,7 @@ import { stat } from 'node:fs/promises'
 import * as core from '@actions/core'
 import type { Bucket } from '@backblaze/b2-sdk'
 import { IncrementalSha1 } from '@backblaze/b2-sdk/streams'
-import type { ParsedInputs } from '../inputs.ts'
+import { type ParsedInputs, requireSource } from '../inputs.ts'
 
 export interface VerifyResult {
   fileName: string
@@ -32,10 +32,7 @@ export interface VerifyResult {
  * compare a known-good `expected-sha1` from your release manifest).
  */
 export async function verifyCommand(bucket: Bucket, inputs: ParsedInputs): Promise<VerifyResult> {
-  const source = inputs.source
-  if (source === undefined || source === '') {
-    throw new Error("'source' input is required for 'verify' action (the B2 file name)")
-  }
+  const source = requireSource(inputs.source, 'verify', 'the B2 file name')
 
   core.startGroup(`verify b2://${bucket.name}/${source}`)
   try {

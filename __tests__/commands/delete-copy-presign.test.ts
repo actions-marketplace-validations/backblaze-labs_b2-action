@@ -1,47 +1,22 @@
-import { mkdtemp, rm, writeFile } from 'node:fs/promises'
-import { tmpdir } from 'node:os'
+import { rm, writeFile } from 'node:fs/promises'
 import { join } from 'node:path'
-import { B2Client } from '@backblaze/b2-sdk'
-import { B2Simulator } from '@backblaze/b2-sdk/simulator'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import { copyCommand } from '../../src/commands/copy.ts'
 import { deleteCommand } from '../../src/commands/delete.ts'
 import { presignCommand } from '../../src/commands/presign.ts'
 import { uploadCommand } from '../../src/commands/upload.ts'
 import type { ParsedInputs } from '../../src/inputs.ts'
-import { makeInputs } from '../_helpers.ts'
-
-interface Fixture {
-  workDir: string
-  bucket: Awaited<ReturnType<B2Client['createBucket']>>
-  client: B2Client
-}
-
-async function makeFixture(): Promise<Fixture> {
-  const sim = new B2Simulator()
-  const client = new B2Client({
-    applicationKeyId: 'test-key-id',
-    applicationKey: 'test-key',
-    transport: sim.transport(),
-  })
-  await client.authorize()
-  const bucket = await client.createBucket({
-    bucketName: 'gh-action-misc',
-    bucketType: 'allPrivate',
-  })
-  const workDir = await mkdtemp(join(tmpdir(), 'b2-misc-'))
-  return { workDir, bucket, client }
-}
+import { type TestFixture, makeFixture, makeInputs } from '../_helpers.ts'
 
 function baseInputs(action: ParsedInputs['action']): ParsedInputs {
   return makeInputs(action, { bucket: 'gh-action-misc' })
 }
 
 describe('delete command', () => {
-  let fx: Fixture
+  let fx: TestFixture
 
   beforeEach(async () => {
-    fx = await makeFixture()
+    fx = await makeFixture('gh-action-misc')
   })
   afterEach(async () => {
     await rm(fx.workDir, { recursive: true, force: true })
@@ -110,10 +85,10 @@ describe('delete command', () => {
 })
 
 describe('copy command', () => {
-  let fx: Fixture
+  let fx: TestFixture
 
   beforeEach(async () => {
-    fx = await makeFixture()
+    fx = await makeFixture('gh-action-misc')
   })
   afterEach(async () => {
     await rm(fx.workDir, { recursive: true, force: true })
@@ -150,7 +125,7 @@ describe('copy command', () => {
         source: 'missing.txt',
         destination: 'wherever.txt',
       }),
-    ).rejects.toThrow(/Source file not found/)
+    ).rejects.toThrow(/File not found/)
   })
 
   it('errors when destination is missing', async () => {
@@ -164,10 +139,10 @@ describe('copy command', () => {
 })
 
 describe('presign command', () => {
-  let fx: Fixture
+  let fx: TestFixture
 
   beforeEach(async () => {
-    fx = await makeFixture()
+    fx = await makeFixture('gh-action-misc')
   })
   afterEach(async () => {
     await rm(fx.workDir, { recursive: true, force: true })

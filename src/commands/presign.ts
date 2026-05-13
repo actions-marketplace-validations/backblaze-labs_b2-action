@@ -1,7 +1,7 @@
 import * as core from '@actions/core'
 import type { B2Client, Bucket } from '@backblaze/b2-sdk'
 import { presignGetObjectUrl } from '@backblaze/b2-sdk/s3'
-import type { ParsedInputs } from '../inputs.ts'
+import { type ParsedInputs, requireSource } from '../inputs.ts'
 
 export interface PresignedFile {
   fileName: string
@@ -33,10 +33,7 @@ export async function presignCommand(
   bucket: Bucket,
   inputs: ParsedInputs,
 ): Promise<PresignResult> {
-  const source = inputs.source
-  if (source === undefined || source === '') {
-    throw new Error("'source' input is required for 'presign' action (the B2 file name or prefix)")
-  }
+  const source = requireSource(inputs.source, 'presign', 'the B2 file name or prefix')
 
   if (source.endsWith('/')) {
     return presignPrefix(client, bucket, inputs, source)

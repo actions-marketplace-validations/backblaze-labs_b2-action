@@ -1,6 +1,6 @@
 import * as core from '@actions/core'
 import type { Bucket } from '@backblaze/b2-sdk'
-import type { ParsedInputs } from '../inputs.ts'
+import { type ParsedInputs, requireSource } from '../inputs.ts'
 
 export interface UnhideResult {
   fileName: string
@@ -20,10 +20,7 @@ export interface UnhideResult {
  * recipe. We expose it here so workflow authors don't have to know that.
  */
 export async function unhideCommand(bucket: Bucket, inputs: ParsedInputs): Promise<UnhideResult> {
-  const source = inputs.source
-  if (source === undefined || source === '') {
-    throw new Error("'source' input is required for 'unhide' action (the B2 file name)")
-  }
+  const source = requireSource(inputs.source, 'unhide', 'the B2 file name')
 
   core.startGroup(`unhide b2://${bucket.name}/${source}`)
   try {

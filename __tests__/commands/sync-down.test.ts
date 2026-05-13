@@ -1,42 +1,18 @@
-import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
-import { tmpdir } from 'node:os'
+import { mkdir, readFile, rm, writeFile } from 'node:fs/promises'
 import { join } from 'node:path'
-import { B2Client } from '@backblaze/b2-sdk'
-import { B2Simulator } from '@backblaze/b2-sdk/simulator'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import { syncCommand } from '../../src/commands/sync.ts'
 import { uploadCommand } from '../../src/commands/upload.ts'
-import { makeInputs } from '../_helpers.ts'
-
-interface Fixture {
-  workDir: string
-  bucket: Awaited<ReturnType<B2Client['createBucket']>>
-}
-
-async function makeFixture(): Promise<Fixture> {
-  const sim = new B2Simulator()
-  const client = new B2Client({
-    applicationKeyId: 'test-key-id',
-    applicationKey: 'test-key',
-    transport: sim.transport(),
-  })
-  await client.authorize()
-  const bucket = await client.createBucket({
-    bucketName: 'gh-action-syncdown',
-    bucketType: 'allPrivate',
-  })
-  const workDir = await mkdtemp(join(tmpdir(), 'b2-syncdown-'))
-  return { workDir, bucket }
-}
+import { type TestFixture, makeFixture, makeInputs } from '../_helpers.ts'
 
 function inputs(over: Record<string, unknown> = {}) {
   return makeInputs('sync', { bucket: 'gh-action-syncdown', ...over })
 }
 
 describe('sync command (B2 → local)', () => {
-  let fx: Fixture
+  let fx: TestFixture
   beforeEach(async () => {
-    fx = await makeFixture()
+    fx = await makeFixture('gh-action-syncdown')
   })
   afterEach(async () => {
     await rm(fx.workDir, { recursive: true, force: true })

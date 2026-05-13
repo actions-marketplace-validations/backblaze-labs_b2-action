@@ -1,11 +1,12 @@
 import { createWriteStream } from 'node:fs'
 import { mkdir, stat } from 'node:fs/promises'
 import { dirname, join, posix, resolve } from 'node:path'
-import { Readable } from 'node:stream'
+import { Readable, Transform } from 'node:stream'
 import { pipeline } from 'node:stream/promises'
 import * as core from '@actions/core'
 import type { Bucket, SseCDownloadKey } from '@backblaze/b2-sdk'
-import type { ParsedInputs } from '../inputs.ts'
+import { type ParsedInputs, requireSource } from '../inputs.ts'
+import { makeProgressListener } from '../progress.ts'
 
 export interface DownloadedFile {
   fileName: string
@@ -34,10 +35,7 @@ export async function downloadCommand(
   bucket: Bucket,
   inputs: ParsedInputs,
 ): Promise<DownloadResult> {
-  const source = inputs.source
-  if (source === undefined) {
-    throw new Error("'source' input is required for 'download' action")
-  }
+  const source = requireSource(inputs.source, 'download')
   const isPrefix = source.endsWith('/')
 
   const sseDownload = sseFromInputs(inputs)
@@ -113,9 +111,30 @@ async function downloadOne(
   const size = result.headers.contentLength
   const sha1 = result.headers.contentSha1
 
+  // Wrap the body in a byte-counting Transform that synthesizes ProgressEvents
+  // for the shared progress listener. The SDK doesn't expose progress for
+  // single-shot downloads; we compute it here from the known content-length.
+  const onProgress = makeProgressListener(`download[${fileName}]`)
+  const startedAt = Date.now()
+  let bytesSeen = 0
+  const counter = new Transform({
+    transform(chunk: Buffer, _enc, cb) {
+      bytesSeen += chunk.length
+      onProgress({
+        bytesTransferred: bytesSeen,
+        totalBytes: size > 0 ? size : null,
+        partsCompleted: 0,
+        totalParts: null,
+        elapsedMs: Date.now() - startedAt,
+      })
+      cb(null, chunk)
+    },
+  })
+
   const writeStream = createWriteStream(localPath)
   await pipeline(
     Readable.fromWeb(result.body as unknown as Parameters<typeof Readable.fromWeb>[0]),
+    counter,
     writeStream,
   )
 

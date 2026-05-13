@@ -1,6 +1,6 @@
 import * as core from '@actions/core'
 import type { Bucket } from '@backblaze/b2-sdk'
-import type { ParsedInputs } from '../inputs.ts'
+import { type ParsedInputs, requireSource } from '../inputs.ts'
 
 export interface HeadResult {
   fileName: string
@@ -22,10 +22,7 @@ export interface HeadResult {
  * on them.
  */
 export async function headCommand(bucket: Bucket, inputs: ParsedInputs): Promise<HeadResult> {
-  const source = inputs.source
-  if (source === undefined || source === '') {
-    throw new Error("'source' input is required for 'head' action (the B2 file name)")
-  }
+  const source = requireSource(inputs.source, 'head', 'the B2 file name')
 
   core.startGroup(`head b2://${bucket.name}/${source}`)
   try {

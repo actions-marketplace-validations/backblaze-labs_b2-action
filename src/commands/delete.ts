@@ -1,6 +1,7 @@
 import * as core from '@actions/core'
 import type { Bucket } from '@backblaze/b2-sdk'
-import type { ParsedInputs } from '../inputs.ts'
+import { findFileByName } from '../client.ts'
+import { type ParsedInputs, requireSource } from '../inputs.ts'
 
 export interface DeletedFile {
   fileName: string
@@ -26,10 +27,7 @@ export interface DeleteResult {
  * would have been deleted.
  */
 export async function deleteCommand(bucket: Bucket, inputs: ParsedInputs): Promise<DeleteResult> {
-  const source = inputs.source
-  if (source === undefined || source === '') {
-    throw new Error("'source' input is required for 'delete' action")
-  }
+  const source = requireSource(inputs.source, 'delete')
   const isPrefix = source.endsWith('/')
 
   if (isPrefix) {
@@ -68,11 +66,7 @@ async function deletePrefix(
 }
 
 async function deleteOne(bucket: Bucket, fileName: string, dryRun: boolean): Promise<DeleteResult> {
-  const page = await bucket.listFileNames({ prefix: fileName, maxFileCount: 1 })
-  const hit = page.files.find((f) => f.fileName === fileName && f.action === 'upload')
-  if (!hit) {
-    throw new Error(`File not found in bucket "${bucket.name}": ${fileName}`)
-  }
+  const hit = await findFileByName(bucket, fileName)
 
   core.startGroup(`${dryRun ? 'dry-run' : 'delete'} b2://${bucket.name}/${fileName}`)
   try {

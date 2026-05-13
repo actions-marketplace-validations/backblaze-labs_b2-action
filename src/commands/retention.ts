@@ -1,6 +1,7 @@
 import * as core from '@actions/core'
 import type { Bucket } from '@backblaze/b2-sdk'
-import type { ParsedInputs } from '../inputs.ts'
+import { findFileByName } from '../client.ts'
+import { type ParsedInputs, requireSource } from '../inputs.ts'
 
 export interface RetentionResult {
   fileName: string
@@ -31,10 +32,7 @@ export async function retentionCommand(
   bucket: Bucket,
   inputs: ParsedInputs,
 ): Promise<RetentionResult> {
-  const source = inputs.source
-  if (source === undefined || source === '') {
-    throw new Error("'source' input is required for 'retention' action (the B2 file name)")
-  }
+  const source = requireSource(inputs.source, 'retention', 'the B2 file name')
 
   const mode = inputs.retentionMode
   const until = inputs.retentionUntil
@@ -53,11 +51,7 @@ export async function retentionCommand(
   }
 
   // Resolve the file version we're operating on.
-  const page = await bucket.listFileNames({ prefix: source, maxFileCount: 1 })
-  const hit = page.files.find((f) => f.fileName === source && f.action === 'upload')
-  if (!hit) {
-    throw new Error(`File not found in bucket "${bucket.name}": ${source}`)
-  }
+  const hit = await findFileByName(bucket, source)
 
   let appliedMode: RetentionResult['appliedMode']
   let retainUntilTimestamp: number | null | undefined

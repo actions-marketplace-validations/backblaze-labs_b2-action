@@ -1,7 +1,15 @@
+import pkg from '../package.json' with { type: 'json' }
+
 /**
- * Action version. Used to construct the User-Agent passed to B2Client so that
- * Backblaze server-side logs can identify traffic originating from this Action.
+ * Action version. Read directly from package.json so there is no
+ * second-source-of-truth to keep in sync — bumping `version` in package.json
+ * automatically propagates here, into the User-Agent header, and into the
+ * bundled `dist/index.js`.
  *
- * Bump in lockstep with `package.json` `version`.
+ * Works because:
+ *   - Node 22+ supports native JSON import attributes.
+ *   - ncc / webpack statically inlines the JSON at bundle time, so the
+ *     runtime artifact has the version baked in as a string literal.
+ *   - TypeScript's `resolveJsonModule` makes the import type-safe.
  */
-export const VERSION = '0.1.0'
+export const VERSION: string = pkg.version

@@ -90,12 +90,7 @@ export interface ParsedInputs {
  * in workflow logs.
  */
 export function parseInputs(): ParsedInputs {
-  const actionRaw = required('action').toLowerCase()
-  if (!isActionName(actionRaw)) {
-    throw new Error(
-      `Invalid 'action' input: "${actionRaw}". Must be one of: ${VALID_ACTIONS.join(', ')}`,
-    )
-  }
+  const action = parseEnum('action', required('action').toLowerCase(), VALID_ACTIONS)
 
   const applicationKeyId = resolveCredential('application-key-id', 'B2_APPLICATION_KEY_ID')
   const applicationKey = resolveCredential('application-key', 'B2_APPLICATION_KEY')
@@ -132,40 +127,34 @@ export function parseInputs(): ParsedInputs {
   const expectedSha1 = optional('expected-sha1')
   const retentionUntil = optional('retention-until')
 
-  const compareModeRaw = (core.getInput('compare-mode') || 'modtime').toLowerCase()
-  if (!isCompareMode(compareModeRaw)) {
-    throw new Error(
-      `Invalid 'compare-mode' input: "${compareModeRaw}". Must be one of: ${VALID_COMPARE.join(', ')}`,
-    )
-  }
-  const keepModeRaw = (core.getInput('keep-mode') || 'no-delete').toLowerCase()
-  if (!isKeepMode(keepModeRaw)) {
-    throw new Error(
-      `Invalid 'keep-mode' input: "${keepModeRaw}". Must be one of: ${VALID_KEEP.join(', ')}`,
-    )
-  }
-  const syncDirectionRaw = (core.getInput('direction') || 'auto').toLowerCase()
-  if (!isSyncDirection(syncDirectionRaw)) {
-    throw new Error(
-      `Invalid 'direction' input: "${syncDirectionRaw}". Must be one of: ${VALID_DIRECTION.join(', ')}`,
-    )
-  }
-
-  const retentionModeRaw = optional('retention-mode')?.toLowerCase()
-  if (retentionModeRaw !== undefined && !isRetentionMode(retentionModeRaw)) {
-    throw new Error(
-      `Invalid 'retention-mode' input: "${retentionModeRaw}". Must be one of: ${VALID_RETENTION_MODE.join(', ')}`,
-    )
-  }
-  const legalHoldRaw = optional('legal-hold')?.toLowerCase()
-  if (legalHoldRaw !== undefined && !isLegalHold(legalHoldRaw)) {
-    throw new Error(
-      `Invalid 'legal-hold' input: "${legalHoldRaw}". Must be one of: ${VALID_LEGAL_HOLD.join(', ')}`,
-    )
-  }
+  const compareMode = parseEnum(
+    'compare-mode',
+    (core.getInput('compare-mode') || 'modtime').toLowerCase(),
+    VALID_COMPARE,
+  )
+  const keepMode = parseEnum(
+    'keep-mode',
+    (core.getInput('keep-mode') || 'no-delete').toLowerCase(),
+    VALID_KEEP,
+  )
+  const syncDirection = parseEnum(
+    'direction',
+    (core.getInput('direction') || 'auto').toLowerCase(),
+    VALID_DIRECTION,
+  )
+  const retentionMode = parseOptionalEnum(
+    'retention-mode',
+    optional('retention-mode')?.toLowerCase(),
+    VALID_RETENTION_MODE,
+  )
+  const legalHold = parseOptionalEnum(
+    'legal-hold',
+    optional('legal-hold')?.toLowerCase(),
+    VALID_LEGAL_HOLD,
+  )
 
   return {
-    action: actionRaw,
+    action,
     applicationKeyId,
     applicationKey,
     bucket,
@@ -184,40 +173,61 @@ export function parseInputs(): ParsedInputs {
     failOnEmpty,
     sse,
     encryption,
-    compareMode: compareModeRaw,
-    keepMode: keepModeRaw,
-    syncDirection: syncDirectionRaw,
+    compareMode,
+    keepMode,
+    syncDirection,
     maxResults,
     expectedSha1,
-    retentionMode: retentionModeRaw,
+    retentionMode,
     retentionUntil,
-    legalHold: legalHoldRaw,
+    legalHold,
     bypassGovernance,
   }
 }
 
-function isCompareMode(value: string): value is CompareMode {
-  return (VALID_COMPARE as readonly string[]).includes(value)
+/**
+ * Validate that `inputs.source` is set and non-empty, returning the value.
+ * Throws a uniform error message naming the verb so the workflow log surfaces
+ * exactly what's missing. Commands that allow an empty-string source for
+ * special semantics (e.g. `purge` with explicit whole-bucket scope) should
+ * not use this helper.
+ */
+export function requireSource(
+  source: string | undefined,
+  verb: string,
+  description?: string,
+): string {
+  if (source === undefined || source === '') {
+    const tail = description !== undefined ? ` (${description})` : ''
+    throw new Error(`'source' input is required for '${verb}' action${tail}`)
+  }
+  return source
 }
 
-function isKeepMode(value: string): value is KeepMode {
-  return (VALID_KEEP as readonly string[]).includes(value)
+/**
+ * Validate that `raw` is one of `valid`, narrowing the return type.
+ *
+ * Replaces the previous pattern of one type-guard + one throw per enum:
+ *
+ *   const x = parseEnum('compare-mode', raw, VALID_COMPARE)
+ *
+ * Throws a uniform error message that lists the legal values.
+ */
+function parseEnum<T extends string>(name: string, raw: string, valid: readonly T[]): T {
+  if ((valid as readonly string[]).includes(raw)) return raw as T
+  throw new Error(`Invalid '${name}' input: "${raw}". Must be one of: ${valid.join(', ')}`)
 }
 
-function isSyncDirection(value: string): value is SyncDirection {
-  return (VALID_DIRECTION as readonly string[]).includes(value)
-}
-
-function isRetentionMode(value: string): value is RetentionMode {
-  return (VALID_RETENTION_MODE as readonly string[]).includes(value)
-}
-
-function isLegalHold(value: string): value is LegalHold {
-  return (VALID_LEGAL_HOLD as readonly string[]).includes(value)
-}
-
-function isActionName(value: string): value is ActionName {
-  return (VALID_ACTIONS as readonly string[]).includes(value)
+/**
+ * Like {@link parseEnum} but passes through `undefined`. Used for inputs that
+ * are optional but, when set, must be one of a known set.
+ */
+function parseOptionalEnum<T extends string>(
+  name: string,
+  raw: string | undefined,
+  valid: readonly T[],
+): T | undefined {
+  return raw === undefined ? undefined : parseEnum(name, raw, valid)
 }
 
 function required(name: string): string {

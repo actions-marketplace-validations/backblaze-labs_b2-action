@@ -61394,7 +61394,18 @@ class Semaphore {
 
 //# sourceMappingURL=concurrency.js.map
 
+;// CONCATENATED MODULE: ../b2-typescript-sdk/dist/util/best-effort.js
+async function bestEffort(fn) {
+  try {
+    await fn();
+  } catch {
+  }
+}
+
+//# sourceMappingURL=best-effort.js.map
+
 ;// CONCATENATED MODULE: ../b2-typescript-sdk/dist/copy/large.js
+
 
 async function copyLargeFile(raw, accountInfo, options) {
   const recommendedPartSize = accountInfo.getRecommendedPartSize();
@@ -61460,12 +61471,11 @@ async function copyLargeFile(raw, accountInfo, options) {
       partSha1Array: partSha1s
     });
   } catch (err) {
-    try {
-      await raw.cancelLargeFile(accountInfo.getApiUrl(), accountInfo.getAuthToken(), {
+    await bestEffort(
+      () => raw.cancelLargeFile(accountInfo.getApiUrl(), accountInfo.getAuthToken(), {
         fileId: largeFileId
-      });
-    } catch {
-    }
+      })
+    );
     throw err;
   }
 }
@@ -61908,6 +61918,7 @@ async function collectPartSha1s(raw, accountInfo, fileId) {
 
 
 
+
 async function uploadLargeFile(raw, accountInfo, options) {
   const recommendedPartSize = accountInfo.getRecommendedPartSize();
   const minPartSize = accountInfo.getAbsoluteMinimumPartSize();
@@ -62026,12 +62037,11 @@ async function uploadLargeFile(raw, accountInfo, options) {
     });
     return result;
   } catch (err) {
-    try {
-      await raw.cancelLargeFile(accountInfo.getApiUrl(), accountInfo.getAuthToken(), {
+    await bestEffort(
+      () => raw.cancelLargeFile(accountInfo.getApiUrl(), accountInfo.getAuthToken(), {
         fileId: largeFileId
-      });
-    } catch {
-    }
+      })
+    );
     throw err;
   }
 }
@@ -62093,6 +62103,7 @@ async function uploadSmallFile(raw, accountInfo, options) {
 //# sourceMappingURL=single.js.map
 
 ;// CONCATENATED MODULE: ../b2-typescript-sdk/dist/upload/stream.js
+
 
 
 
@@ -62246,26 +62257,26 @@ function createWriteStream(raw, accountInfo, options) {
         );
         resolveDone(result);
       } catch (err) {
-        if (largeFileId !== null) {
-          try {
-            await raw.cancelLargeFile(accountInfo.getApiUrl(), accountInfo.getAuthToken(), {
-              fileId: largeFileId
-            });
-          } catch {
-          }
+        const fileIdToCancel = largeFileId;
+        if (fileIdToCancel !== null) {
+          await bestEffort(
+            () => raw.cancelLargeFile(accountInfo.getApiUrl(), accountInfo.getAuthToken(), {
+              fileId: fileIdToCancel
+            })
+          );
         }
         rejectDone(err);
         throw err;
       }
     },
     async abort(reason) {
-      if (largeFileId !== null) {
-        try {
-          await raw.cancelLargeFile(accountInfo.getApiUrl(), accountInfo.getAuthToken(), {
-            fileId: largeFileId
-          });
-        } catch {
-        }
+      const fileIdToCancel = largeFileId;
+      if (fileIdToCancel !== null) {
+        await bestEffort(
+          () => raw.cancelLargeFile(accountInfo.getApiUrl(), accountInfo.getAuthToken(), {
+            fileId: fileIdToCancel
+          })
+        );
       }
       rejectDone(reason instanceof Error ? reason : new Error(String(reason)));
     }
@@ -62466,6 +62477,12 @@ class B2Object {
 
 ;// CONCATENATED MODULE: ../b2-typescript-sdk/dist/types/ids.js
 function accountId(raw) {
+  return raw;
+}
+function bucketId(raw) {
+  return raw;
+}
+function fileId(raw) {
   return raw;
 }
 
@@ -64577,14 +64594,23 @@ class B2Client {
 
 //# sourceMappingURL=client.js.map
 
+;// CONCATENATED MODULE: ./package.json
+const package_namespaceObject = {"rE":"0.1.0"};
 ;// CONCATENATED MODULE: ./src/version.ts
+
 /**
- * Action version. Used to construct the User-Agent passed to B2Client so that
- * Backblaze server-side logs can identify traffic originating from this Action.
+ * Action version. Read directly from package.json so there is no
+ * second-source-of-truth to keep in sync — bumping `version` in package.json
+ * automatically propagates here, into the User-Agent header, and into the
+ * bundled `dist/index.js`.
  *
- * Bump in lockstep with `package.json` `version`.
+ * Works because:
+ *   - Node 22+ supports native JSON import attributes.
+ *   - ncc / webpack statically inlines the JSON at bundle time, so the
+ *     runtime artifact has the version baked in as a string literal.
+ *   - TypeScript's `resolveJsonModule` makes the import type-safe.
  */
-const version_VERSION = '0.1.0';
+const version_VERSION = package_namespaceObject.rE;
 
 ;// CONCATENATED MODULE: ./src/client.ts
 
@@ -64631,8 +64657,260 @@ async function getBucket(authorized) {
     }
     return bucket;
 }
+/**
+ * Look up the most-recent visible (`action: 'upload'`) version of a file by
+ * its exact name. Throws if no upload version exists (hidden / deleted /
+ * never existed). Used by `copy`, `delete`, and `retention` to resolve a
+ * file name to a `fileId` before operating on it.
+ *
+ * @param bucket - The bucket to search.
+ * @param fileName - Exact file name (path) to look up.
+ * @param bucketDisplayName - Optional label for the error message; defaults
+ *   to `bucket.name`. Used when looking up in a source bucket distinct from
+ *   the action's destination bucket (cross-bucket copy).
+ */
+async function findFileByName(bucket, fileName, bucketDisplayName) {
+    const page = await bucket.listFileNames({ prefix: fileName, maxFileCount: 1 });
+    const hit = page.files.find((f) => f.fileName === fileName && f.action === 'upload');
+    if (!hit) {
+        throw new Error(`File not found in bucket "${bucketDisplayName ?? bucket.name}": ${fileName}`);
+    }
+    return hit;
+}
+
+// EXTERNAL MODULE: external "node:buffer"
+var external_node_buffer_ = __nccwpck_require__(4573);
+// EXTERNAL MODULE: external "node:crypto"
+var external_node_crypto_ = __nccwpck_require__(7598);
+;// CONCATENATED MODULE: ./src/sse.ts
+
+
+
+/**
+ * Parse the `sse` input into an SDK {@link EncryptionSetting}.
+ *
+ * Accepted forms:
+ *   - `undefined` / empty → no encryption setting passed (B2 still applies any
+ *      bucket-default SSE-B2; we just don't override it).
+ *   - `"B2"` (case-insensitive) → SSE-B2 with the B2-managed key (no cost).
+ *   - `"C:<base64-32-byte-key>"` → SSE-C with a customer-provided key. We
+ *      compute the required base64 MD5 internally so the workflow author
+ *      doesn't have to.
+ *
+ * The action runs in Node only, so we use `node:crypto.createHash('md5')`
+ * directly rather than the SDK's isomorphic key wrapper. We deliberately do
+ * NOT log the key bytes; the only place they ever go is into the
+ * `customerKey` field of the SDK setting which the SDK marks as a secret in
+ * any error / debug output.
+ */
+function parseSse(raw) {
+    if (raw === undefined || raw === '')
+        return undefined;
+    const normalized = raw.trim();
+    if (normalized.toUpperCase() === 'B2')
+        return SSE_B2;
+    if (normalized.startsWith('C:') || normalized.startsWith('c:')) {
+        const base64Key = normalized.slice(2).trim();
+        if (base64Key === '') {
+            throw new Error("SSE-C key is empty. Use 'C:<base64-encoded-32-byte-key>'.");
+        }
+        let keyBytes;
+        try {
+            keyBytes = external_node_buffer_.Buffer.from(base64Key, 'base64');
+            /* v8 ignore next 3 -- Node's Buffer.from with 'base64' silently drops invalid chars rather than throwing; the catch is defensive in case the behavior tightens in a future Node version */
+        }
+        catch (err) {
+            throw new Error(`SSE-C key is not valid base64: ${err.message}`);
+        }
+        if (keyBytes.byteLength !== 32) {
+            throw new Error(`SSE-C key must decode to exactly 32 bytes (256 bits); got ${keyBytes.byteLength}.`);
+        }
+        const customerKey = keyBytes.toString('base64');
+        const customerKeyMd5 = (0,external_node_crypto_.createHash)('md5').update(keyBytes).digest('base64');
+        return sseCustomer(customerKey, customerKeyMd5);
+    }
+    throw new Error(`Invalid 'sse' input: "${raw}". Expected "B2" or "C:<base64-32-byte-key>".`);
+}
+
+;// CONCATENATED MODULE: ./src/inputs.ts
+
+
+const VALID_ACTIONS = [
+    'upload',
+    'download',
+    'sync',
+    'copy',
+    'delete',
+    'presign',
+    'list',
+    'hide',
+    'unhide',
+    'verify',
+    'retention',
+    'head',
+    'purge',
+];
+const VALID_COMPARE = ['modtime', 'size', 'none'];
+const VALID_KEEP = ['no-delete', 'delete', 'keep-days'];
+const VALID_DIRECTION = ['auto', 'up', 'down'];
+const VALID_RETENTION_MODE = ['compliance', 'governance', 'none'];
+const VALID_LEGAL_HOLD = ['on', 'off'];
+/**
+ * Parse and validate inputs.
+ *
+ * Credentials lookup order:
+ *
+ *   1. `application-key-id` / `application-key` action inputs
+ *   2. `B2_APPLICATION_KEY_ID` / `B2_APPLICATION_KEY` env vars — the official
+ *      contract used by the Backblaze b2 CLI and the @backblaze/b2-sdk.
+ *
+ * The credential value, once resolved, is immediately masked via `core.setSecret`
+ * so any accidental echo (including from a misbehaving sub-process) is redacted
+ * in workflow logs.
+ */
+function parseInputs() {
+    const action = parseEnum('action', required('action').toLowerCase(), VALID_ACTIONS);
+    const applicationKeyId = resolveCredential('application-key-id', 'B2_APPLICATION_KEY_ID');
+    const applicationKey = resolveCredential('application-key', 'B2_APPLICATION_KEY');
+    core.setSecret(applicationKey);
+    const bucket = required('bucket');
+    const sourceBucket = optional('source-bucket');
+    const source = optional('source');
+    const destination = optional('destination');
+    const include = splitCsv(optional('include'));
+    const exclude = splitCsv(optional('exclude'));
+    const concurrency = parsePositiveInt('concurrency', core.getInput('concurrency') || '4');
+    const partSizeInput = optional('part-size');
+    const partSize = partSizeInput !== undefined ? parsePositiveInt('part-size', partSizeInput) : undefined;
+    const resume = parseBool('resume', core.getInput('resume') || 'true');
+    const dryRun = parseBool('dry-run', core.getInput('dry-run') || 'false');
+    const failOnEmpty = parseBool('fail-on-empty', core.getInput('fail-on-empty') || 'true');
+    const bypassGovernance = parseBool('bypass-governance', core.getInput('bypass-governance') || 'false');
+    const presignTtlSeconds = parsePositiveInt('presign-ttl', core.getInput('presign-ttl') || '3600');
+    const maxResults = parsePositiveInt('max-results', core.getInput('max-results') || '1000');
+    const contentType = optional('content-type');
+    const endpoint = optional('endpoint');
+    const sse = optional('sse');
+    const encryption = parseSse(sse);
+    const expectedSha1 = optional('expected-sha1');
+    const retentionUntil = optional('retention-until');
+    const compareMode = parseEnum('compare-mode', (core.getInput('compare-mode') || 'modtime').toLowerCase(), VALID_COMPARE);
+    const keepMode = parseEnum('keep-mode', (core.getInput('keep-mode') || 'no-delete').toLowerCase(), VALID_KEEP);
+    const syncDirection = parseEnum('direction', (core.getInput('direction') || 'auto').toLowerCase(), VALID_DIRECTION);
+    const retentionMode = parseOptionalEnum('retention-mode', optional('retention-mode')?.toLowerCase(), VALID_RETENTION_MODE);
+    const legalHold = parseOptionalEnum('legal-hold', optional('legal-hold')?.toLowerCase(), VALID_LEGAL_HOLD);
+    return {
+        action,
+        applicationKeyId,
+        applicationKey,
+        bucket,
+        sourceBucket,
+        source,
+        destination,
+        include,
+        exclude,
+        concurrency,
+        partSize,
+        resume,
+        contentType,
+        dryRun,
+        presignTtlSeconds,
+        endpoint,
+        failOnEmpty,
+        sse,
+        encryption,
+        compareMode,
+        keepMode,
+        syncDirection,
+        maxResults,
+        expectedSha1,
+        retentionMode,
+        retentionUntil,
+        legalHold,
+        bypassGovernance,
+    };
+}
+/**
+ * Validate that `inputs.source` is set and non-empty, returning the value.
+ * Throws a uniform error message naming the verb so the workflow log surfaces
+ * exactly what's missing. Commands that allow an empty-string source for
+ * special semantics (e.g. `purge` with explicit whole-bucket scope) should
+ * not use this helper.
+ */
+function requireSource(source, verb, description) {
+    if (source === undefined || source === '') {
+        const tail = description !== undefined ? ` (${description})` : '';
+        throw new Error(`'source' input is required for '${verb}' action${tail}`);
+    }
+    return source;
+}
+/**
+ * Validate that `raw` is one of `valid`, narrowing the return type.
+ *
+ * Replaces the previous pattern of one type-guard + one throw per enum:
+ *
+ *   const x = parseEnum('compare-mode', raw, VALID_COMPARE)
+ *
+ * Throws a uniform error message that lists the legal values.
+ */
+function parseEnum(name, raw, valid) {
+    if (valid.includes(raw))
+        return raw;
+    throw new Error(`Invalid '${name}' input: "${raw}". Must be one of: ${valid.join(', ')}`);
+}
+/**
+ * Like {@link parseEnum} but passes through `undefined`. Used for inputs that
+ * are optional but, when set, must be one of a known set.
+ */
+function parseOptionalEnum(name, raw, valid) {
+    return raw === undefined ? undefined : parseEnum(name, raw, valid);
+}
+function required(name) {
+    const v = core.getInput(name, { required: true });
+    if (!v)
+        throw new Error(`Missing required input: ${name}`);
+    return v;
+}
+function optional(name) {
+    const v = core.getInput(name);
+    return v === '' ? undefined : v;
+}
+function resolveCredential(inputName, envName) {
+    const fromInput = optional(inputName);
+    if (fromInput !== undefined)
+        return fromInput;
+    const fromEnv = process.env[envName];
+    if (fromEnv !== undefined && fromEnv !== '')
+        return fromEnv;
+    throw new Error(`Missing credential: set input '${inputName}' or env var '${envName}'`);
+}
+function splitCsv(value) {
+    if (value === undefined)
+        return [];
+    return value
+        .split(',')
+        .map((s) => s.trim())
+        .filter((s) => s.length > 0);
+}
+function parseBool(name, raw) {
+    const v = raw.trim().toLowerCase();
+    if (v === 'true' || v === '1' || v === 'yes')
+        return true;
+    if (v === 'false' || v === '0' || v === 'no')
+        return false;
+    throw new Error(`Invalid boolean for '${name}': "${raw}"`);
+}
+function parsePositiveInt(name, raw) {
+    const n = Number(raw);
+    if (!Number.isInteger(n) || n <= 0) {
+        throw new Error(`Invalid positive integer for '${name}': "${raw}"`);
+    }
+    return n;
+}
 
 ;// CONCATENATED MODULE: ./src/commands/copy.ts
+
+
 
 /**
  * Server-side copy of one B2 object to a new name, within the same bucket or
@@ -64647,11 +64925,8 @@ async function getBucket(authorized) {
  * permission on the source bucket and write permission on the destination.
  */
 async function copyCommand(client, destinationBucket, inputs) {
-    const source = inputs.source;
+    const source = requireSource(inputs.source, 'copy', 'the source B2 file name');
     const destination = inputs.destination;
-    if (source === undefined || source === '') {
-        throw new Error("'source' input is required for 'copy' action (the source B2 file name)");
-    }
     if (destination === undefined || destination === '') {
         throw new Error("'destination' input is required for 'copy' action (the destination B2 file name)");
     }
@@ -64662,11 +64937,7 @@ async function copyCommand(client, destinationBucket, inputs) {
     if (!sourceBucket) {
         throw new Error(`Source bucket "${sourceBucketName}" not found, or key lacks listBuckets.`);
     }
-    const page = await sourceBucket.listFileNames({ prefix: source, maxFileCount: 1 });
-    const hit = page.files.find((f) => f.fileName === source && f.action === 'upload');
-    if (!hit) {
-        throw new Error(`Source file not found in bucket "${sourceBucketName}": ${source}`);
-    }
+    const hit = await findFileByName(sourceBucket, source, sourceBucketName);
     core.startGroup(`copy b2://${sourceBucketName}/${source} → b2://${destinationBucket.name}/${destination}`);
     try {
         const recommendedPartSize = client.accountInfo.getRecommendedPartSize();
@@ -64700,6 +64971,8 @@ async function copyCommand(client, destinationBucket, inputs) {
 
 ;// CONCATENATED MODULE: ./src/commands/delete.ts
 
+
+
 /**
  * Delete files from B2.
  *
@@ -64713,10 +64986,7 @@ async function copyCommand(client, destinationBucket, inputs) {
  * would have been deleted.
  */
 async function deleteCommand(bucket, inputs) {
-    const source = inputs.source;
-    if (source === undefined || source === '') {
-        throw new Error("'source' input is required for 'delete' action");
-    }
+    const source = requireSource(inputs.source, 'delete');
     const isPrefix = source.endsWith('/');
     if (isPrefix) {
         return deletePrefix(bucket, source, inputs.dryRun);
@@ -64749,11 +65019,7 @@ async function deletePrefix(bucket, prefix, dryRun) {
     return { files, errors };
 }
 async function deleteOne(bucket, fileName, dryRun) {
-    const page = await bucket.listFileNames({ prefix: fileName, maxFileCount: 1 });
-    const hit = page.files.find((f) => f.fileName === fileName && f.action === 'upload');
-    if (!hit) {
-        throw new Error(`File not found in bucket "${bucket.name}": ${fileName}`);
-    }
+    const hit = await findFileByName(bucket, fileName);
     core.startGroup(`${dryRun ? 'dry-run' : 'delete'} b2://${bucket.name}/${fileName}`);
     try {
         if (dryRun) {
@@ -64785,7 +65051,52 @@ var external_node_path_ = __nccwpck_require__(6760);
 var external_node_stream_ = __nccwpck_require__(7075);
 ;// CONCATENATED MODULE: external "node:stream/promises"
 const external_node_stream_promises_namespaceObject = __WEBPACK_EXTERNAL_createRequire(import.meta.url)("node:stream/promises");
+;// CONCATENATED MODULE: ./src/progress.ts
+
+/**
+ * Build a progress listener that throttles output to one update per
+ * `intervalMs` (default 1s) so a long-running upload doesn't flood the
+ * workflow log with thousands of lines. The first event and the final
+ * event are always emitted.
+ */
+function makeProgressListener(label, intervalMs = 1000) {
+    let lastEmit = 0;
+    let lastBytes = 0;
+    let lastTime = Date.now();
+    return (event) => {
+        const now = Date.now();
+        const isFirst = lastEmit === 0;
+        const isFinal = event.totalBytes !== null && event.bytesTransferred >= event.totalBytes;
+        const due = now - lastEmit >= intervalMs;
+        if (!isFirst && !isFinal && !due)
+            return;
+        const elapsedMs = Math.max(1, now - lastTime);
+        const deltaBytes = event.bytesTransferred - lastBytes;
+        const mbps = (deltaBytes / 1024 / 1024) * (1000 / elapsedMs);
+        const pct = event.totalBytes !== null && event.totalBytes > 0
+            ? `${Math.round((event.bytesTransferred / event.totalBytes) * 100)}%`
+            : '?%';
+        const parts = event.totalParts !== null ? ` (${event.partsCompleted ?? 0}/${event.totalParts} parts)` : '';
+        const totalSuffix = event.totalBytes !== null ? ` / ${formatBytes(event.totalBytes)}` : '';
+        core.info(`${label} ${pct}${parts} ${formatBytes(event.bytesTransferred)}${totalSuffix} @ ${mbps.toFixed(2)} MB/s`);
+        lastEmit = now;
+        lastBytes = event.bytesTransferred;
+        lastTime = now;
+    };
+}
+function formatBytes(n) {
+    if (n < 1024)
+        return `${n}B`;
+    if (n < 1024 * 1024)
+        return `${(n / 1024).toFixed(1)}KB`;
+    if (n < 1024 * 1024 * 1024)
+        return `${(n / 1024 / 1024).toFixed(1)}MB`;
+    return `${(n / 1024 / 1024 / 1024).toFixed(2)}GB`;
+}
+
 ;// CONCATENATED MODULE: ./src/commands/download.ts
+
+
 
 
 
@@ -64804,10 +65115,7 @@ const external_node_stream_promises_namespaceObject = __WEBPACK_EXTERNAL_createR
  *     If unset, the file's basename is used in the current working directory.
  */
 async function downloadCommand(bucket, inputs) {
-    const source = inputs.source;
-    if (source === undefined) {
-        throw new Error("'source' input is required for 'download' action");
-    }
+    const source = requireSource(inputs.source, 'download');
     const isPrefix = source.endsWith('/');
     const sseDownload = sseFromInputs(inputs);
     if (isPrefix) {
@@ -64867,8 +65175,27 @@ async function downloadOne(bucket, fileName, destination, sseDownload) {
     });
     const size = result.headers.contentLength;
     const sha1 = result.headers.contentSha1;
+    // Wrap the body in a byte-counting Transform that synthesizes ProgressEvents
+    // for the shared progress listener. The SDK doesn't expose progress for
+    // single-shot downloads; we compute it here from the known content-length.
+    const onProgress = makeProgressListener(`download[${fileName}]`);
+    const startedAt = Date.now();
+    let bytesSeen = 0;
+    const counter = new external_node_stream_.Transform({
+        transform(chunk, _enc, cb) {
+            bytesSeen += chunk.length;
+            onProgress({
+                bytesTransferred: bytesSeen,
+                totalBytes: size > 0 ? size : null,
+                partsCompleted: 0,
+                totalParts: null,
+                elapsedMs: Date.now() - startedAt,
+            });
+            cb(null, chunk);
+        },
+    });
     const writeStream = (0,external_node_fs_namespaceObject.createWriteStream)(localPath);
-    await (0,external_node_stream_promises_namespaceObject.pipeline)(external_node_stream_.Readable.fromWeb(result.body), writeStream);
+    await (0,external_node_stream_promises_namespaceObject.pipeline)(external_node_stream_.Readable.fromWeb(result.body), counter, writeStream);
     core.info(`  wrote ${size} bytes to ${localPath} (sha1=${sha1 ?? 'multipart'})`);
     return { fileName, localPath, size, contentSha1: sha1 };
 }
@@ -64897,6 +65224,7 @@ async function tryStat(path) {
 
 ;// CONCATENATED MODULE: ./src/commands/head.ts
 
+
 /**
  * HEAD-only metadata probe. Fetches the headers of an object without
  * downloading the body. Useful for cheap "does this exist and what's its
@@ -64907,10 +65235,7 @@ async function tryStat(path) {
  * on them.
  */
 async function headCommand(bucket, inputs) {
-    const source = inputs.source;
-    if (source === undefined || source === '') {
-        throw new Error("'source' input is required for 'head' action (the B2 file name)");
-    }
+    const source = requireSource(inputs.source, 'head', 'the B2 file name');
     core.startGroup(`head b2://${bucket.name}/${source}`);
     try {
         const result = await bucket.download(source, { method: 'HEAD' });
@@ -64941,6 +65266,7 @@ async function headCommand(bucket, inputs) {
 
 ;// CONCATENATED MODULE: ./src/commands/hide.ts
 
+
 /**
  * Hide a file in B2 (creates a "hide marker" file version that masks the
  * previous version from `listFileNames` and downloads-by-name).
@@ -64953,10 +65279,7 @@ async function headCommand(bucket, inputs) {
  * with versions if you need to discover it).
  */
 async function hideCommand(bucket, inputs) {
-    const source = inputs.source;
-    if (source === undefined || source === '') {
-        throw new Error("'source' input is required for 'hide' action (the B2 file name)");
-    }
+    const source = requireSource(inputs.source, 'hide', 'the B2 file name');
     core.startGroup(`hide b2://${bucket.name}/${source}`);
     try {
         const result = await bucket.hideFile(source);
@@ -65050,6 +65373,7 @@ function presignGetObjectUrl(downloadUrl, bucketName, fileName, authorizationTok
 ;// CONCATENATED MODULE: ./src/commands/presign.ts
 
 
+
 /**
  * Generate a presigned download URL for one B2 file or every file under a
  * prefix.
@@ -65066,10 +65390,7 @@ function presignGetObjectUrl(downloadUrl, bucketName, fileName, authorizationTok
  * for the most common one-file workflow.
  */
 async function presignCommand(client, bucket, inputs) {
-    const source = inputs.source;
-    if (source === undefined || source === '') {
-        throw new Error("'source' input is required for 'presign' action (the B2 file name or prefix)");
-    }
+    const source = requireSource(inputs.source, 'presign', 'the B2 file name or prefix');
     if (source.endsWith('/')) {
         return presignPrefix(client, bucket, inputs, source);
     }
@@ -65190,6 +65511,8 @@ async function purgeCommand(bucket, inputs) {
 
 ;// CONCATENATED MODULE: ./src/commands/retention.ts
 
+
+
 /**
  * Apply Object Lock retention settings and/or a legal hold to a specific
  * file version.
@@ -65208,10 +65531,7 @@ async function purgeCommand(bucket, inputs) {
  * The target file version is resolved by name (latest visible version).
  */
 async function retentionCommand(bucket, inputs) {
-    const source = inputs.source;
-    if (source === undefined || source === '') {
-        throw new Error("'source' input is required for 'retention' action (the B2 file name)");
-    }
+    const source = requireSource(inputs.source, 'retention', 'the B2 file name');
     const mode = inputs.retentionMode;
     const until = inputs.retentionUntil;
     const legalHold = inputs.legalHold;
@@ -65224,11 +65544,7 @@ async function retentionCommand(bucket, inputs) {
         }
     }
     // Resolve the file version we're operating on.
-    const page = await bucket.listFileNames({ prefix: source, maxFileCount: 1 });
-    const hit = page.files.find((f) => f.fileName === source && f.action === 'upload');
-    if (!hit) {
-        throw new Error(`File not found in bucket "${bucket.name}": ${source}`);
-    }
+    const hit = await findFileByName(bucket, source);
     let appliedMode;
     let retainUntilTimestamp;
     let appliedLegalHold;
@@ -66029,6 +66345,7 @@ class B2Folder {
 
 
 
+
 /**
  * Sync a local directory to / from a B2 bucket prefix.
  *
@@ -66041,10 +66358,7 @@ class B2Folder {
  * relay to the workflow log (per-file) and aggregate into a typed result.
  */
 async function syncCommand(bucket, inputs) {
-    const source = inputs.source;
-    if (source === undefined || source === '') {
-        throw new Error("'source' input is required for 'sync' action");
-    }
+    const source = requireSource(inputs.source, 'sync');
     const direction = await sync_resolveDirection(inputs.syncDirection, source);
     const compareMode = inputs.compareMode;
     const keepMode = inputs.keepMode;
@@ -66172,6 +66486,7 @@ async function sync_tryStat(path) {
 
 ;// CONCATENATED MODULE: ./src/commands/unhide.ts
 
+
 /**
  * Restore visibility of a file previously hidden by the `hide` command.
  *
@@ -66184,10 +66499,7 @@ async function sync_tryStat(path) {
  * recipe. We expose it here so workflow authors don't have to know that.
  */
 async function unhideCommand(bucket, inputs) {
-    const source = inputs.source;
-    if (source === undefined || source === '') {
-        throw new Error("'source' input is required for 'unhide' action (the B2 file name)");
-    }
+    const source = requireSource(inputs.source, 'unhide', 'the B2 file name');
     core.startGroup(`unhide b2://${bucket.name}/${source}`);
     try {
         const marker = await bucket.unhide(source);
@@ -66205,50 +66517,8 @@ async function unhideCommand(bucket, inputs) {
 
 // EXTERNAL MODULE: ./node_modules/.pnpm/@actions+glob@0.5.1/node_modules/@actions/glob/lib/glob.js
 var glob = __nccwpck_require__(3313);
-;// CONCATENATED MODULE: ./src/progress.ts
-
-/**
- * Build a progress listener that throttles output to one update per
- * `intervalMs` (default 1s) so a long-running upload doesn't flood the
- * workflow log with thousands of lines. The first event and the final
- * event are always emitted.
- */
-function makeProgressListener(label, intervalMs = 1000) {
-    let lastEmit = 0;
-    let lastBytes = 0;
-    let lastTime = Date.now();
-    return (event) => {
-        const now = Date.now();
-        const isFirst = lastEmit === 0;
-        const isFinal = event.totalBytes !== null && event.bytesTransferred >= event.totalBytes;
-        const due = now - lastEmit >= intervalMs;
-        if (!isFirst && !isFinal && !due)
-            return;
-        const elapsedMs = Math.max(1, now - lastTime);
-        const deltaBytes = event.bytesTransferred - lastBytes;
-        const mbps = (deltaBytes / 1024 / 1024) * (1000 / elapsedMs);
-        const pct = event.totalBytes !== null && event.totalBytes > 0
-            ? `${Math.round((event.bytesTransferred / event.totalBytes) * 100)}%`
-            : '?%';
-        const parts = event.totalParts !== null ? ` (${event.partsCompleted ?? 0}/${event.totalParts} parts)` : '';
-        const totalSuffix = event.totalBytes !== null ? ` / ${formatBytes(event.totalBytes)}` : '';
-        core.info(`${label} ${pct}${parts} ${formatBytes(event.bytesTransferred)}${totalSuffix} @ ${mbps.toFixed(2)} MB/s`);
-        lastEmit = now;
-        lastBytes = event.bytesTransferred;
-        lastTime = now;
-    };
-}
-function formatBytes(n) {
-    if (n < 1024)
-        return `${n}B`;
-    if (n < 1024 * 1024)
-        return `${(n / 1024).toFixed(1)}KB`;
-    if (n < 1024 * 1024 * 1024)
-        return `${(n / 1024 / 1024).toFixed(1)}MB`;
-    return `${(n / 1024 / 1024 / 1024).toFixed(2)}GB`;
-}
-
 ;// CONCATENATED MODULE: ./src/commands/upload.ts
+
 
 
 
@@ -66274,10 +66544,7 @@ function formatBytes(n) {
  * size and parallelizes parts up to `concurrency`.
  */
 async function uploadCommand(bucket, inputs) {
-    const source = inputs.source;
-    if (source === undefined) {
-        throw new Error("'source' input is required for 'upload' action");
-    }
+    const source = requireSource(inputs.source, 'upload');
     const files = await resolveFiles(source, inputs.include, inputs.exclude);
     if (files.length === 0) {
         if (inputs.failOnEmpty) {
@@ -66384,6 +66651,7 @@ async function upload_tryStat(path) {
 
 
 
+
 /**
  * Verify that a B2 object matches a local file (or an expected SHA-1) without
  * transferring the body.
@@ -66402,10 +66670,7 @@ async function upload_tryStat(path) {
  * compare a known-good `expected-sha1` from your release manifest).
  */
 async function verifyCommand(bucket, inputs) {
-    const source = inputs.source;
-    if (source === undefined || source === '') {
-        throw new Error("'source' input is required for 'verify' action (the B2 file name)");
-    }
+    const source = requireSource(inputs.source, 'verify', 'the B2 file name');
     core.startGroup(`verify b2://${bucket.name}/${source}`);
     try {
         const head = await bucket.download(source, { method: 'HEAD' });
@@ -66467,237 +66732,6 @@ async function sha1OfFile(path) {
         await hasher.update(chunk);
     }
     return hasher.digest();
-}
-
-// EXTERNAL MODULE: external "node:buffer"
-var external_node_buffer_ = __nccwpck_require__(4573);
-// EXTERNAL MODULE: external "node:crypto"
-var external_node_crypto_ = __nccwpck_require__(7598);
-;// CONCATENATED MODULE: ./src/sse.ts
-
-
-
-/**
- * Parse the `sse` input into an SDK {@link EncryptionSetting}.
- *
- * Accepted forms:
- *   - `undefined` / empty → no encryption setting passed (B2 still applies any
- *      bucket-default SSE-B2; we just don't override it).
- *   - `"B2"` (case-insensitive) → SSE-B2 with the B2-managed key (no cost).
- *   - `"C:<base64-32-byte-key>"` → SSE-C with a customer-provided key. We
- *      compute the required base64 MD5 internally so the workflow author
- *      doesn't have to.
- *
- * The action runs in Node only, so we use `node:crypto.createHash('md5')`
- * directly rather than the SDK's isomorphic key wrapper. We deliberately do
- * NOT log the key bytes; the only place they ever go is into the
- * `customerKey` field of the SDK setting which the SDK marks as a secret in
- * any error / debug output.
- */
-function parseSse(raw) {
-    if (raw === undefined || raw === '')
-        return undefined;
-    const normalized = raw.trim();
-    if (normalized.toUpperCase() === 'B2')
-        return SSE_B2;
-    if (normalized.startsWith('C:') || normalized.startsWith('c:')) {
-        const base64Key = normalized.slice(2).trim();
-        if (base64Key === '') {
-            throw new Error("SSE-C key is empty. Use 'C:<base64-encoded-32-byte-key>'.");
-        }
-        let keyBytes;
-        try {
-            keyBytes = external_node_buffer_.Buffer.from(base64Key, 'base64');
-            /* v8 ignore next 3 -- Node's Buffer.from with 'base64' silently drops invalid chars rather than throwing; the catch is defensive in case the behavior tightens in a future Node version */
-        }
-        catch (err) {
-            throw new Error(`SSE-C key is not valid base64: ${err.message}`);
-        }
-        if (keyBytes.byteLength !== 32) {
-            throw new Error(`SSE-C key must decode to exactly 32 bytes (256 bits); got ${keyBytes.byteLength}.`);
-        }
-        const customerKey = keyBytes.toString('base64');
-        const customerKeyMd5 = (0,external_node_crypto_.createHash)('md5').update(keyBytes).digest('base64');
-        return sseCustomer(customerKey, customerKeyMd5);
-    }
-    throw new Error(`Invalid 'sse' input: "${raw}". Expected "B2" or "C:<base64-32-byte-key>".`);
-}
-
-;// CONCATENATED MODULE: ./src/inputs.ts
-
-
-const VALID_ACTIONS = [
-    'upload',
-    'download',
-    'sync',
-    'copy',
-    'delete',
-    'presign',
-    'list',
-    'hide',
-    'unhide',
-    'verify',
-    'retention',
-    'head',
-    'purge',
-];
-const VALID_COMPARE = ['modtime', 'size', 'none'];
-const VALID_KEEP = ['no-delete', 'delete', 'keep-days'];
-const VALID_DIRECTION = ['auto', 'up', 'down'];
-const VALID_RETENTION_MODE = ['compliance', 'governance', 'none'];
-const VALID_LEGAL_HOLD = ['on', 'off'];
-/**
- * Parse and validate inputs.
- *
- * Credentials lookup order:
- *
- *   1. `application-key-id` / `application-key` action inputs
- *   2. `B2_APPLICATION_KEY_ID` / `B2_APPLICATION_KEY` env vars — the official
- *      contract used by the Backblaze b2 CLI and the @backblaze/b2-sdk.
- *
- * The credential value, once resolved, is immediately masked via `core.setSecret`
- * so any accidental echo (including from a misbehaving sub-process) is redacted
- * in workflow logs.
- */
-function parseInputs() {
-    const actionRaw = required('action').toLowerCase();
-    if (!isActionName(actionRaw)) {
-        throw new Error(`Invalid 'action' input: "${actionRaw}". Must be one of: ${VALID_ACTIONS.join(', ')}`);
-    }
-    const applicationKeyId = resolveCredential('application-key-id', 'B2_APPLICATION_KEY_ID');
-    const applicationKey = resolveCredential('application-key', 'B2_APPLICATION_KEY');
-    core.setSecret(applicationKey);
-    const bucket = required('bucket');
-    const sourceBucket = optional('source-bucket');
-    const source = optional('source');
-    const destination = optional('destination');
-    const include = splitCsv(optional('include'));
-    const exclude = splitCsv(optional('exclude'));
-    const concurrency = parsePositiveInt('concurrency', core.getInput('concurrency') || '4');
-    const partSizeInput = optional('part-size');
-    const partSize = partSizeInput !== undefined ? parsePositiveInt('part-size', partSizeInput) : undefined;
-    const resume = parseBool('resume', core.getInput('resume') || 'true');
-    const dryRun = parseBool('dry-run', core.getInput('dry-run') || 'false');
-    const failOnEmpty = parseBool('fail-on-empty', core.getInput('fail-on-empty') || 'true');
-    const bypassGovernance = parseBool('bypass-governance', core.getInput('bypass-governance') || 'false');
-    const presignTtlSeconds = parsePositiveInt('presign-ttl', core.getInput('presign-ttl') || '3600');
-    const maxResults = parsePositiveInt('max-results', core.getInput('max-results') || '1000');
-    const contentType = optional('content-type');
-    const endpoint = optional('endpoint');
-    const sse = optional('sse');
-    const encryption = parseSse(sse);
-    const expectedSha1 = optional('expected-sha1');
-    const retentionUntil = optional('retention-until');
-    const compareModeRaw = (core.getInput('compare-mode') || 'modtime').toLowerCase();
-    if (!isCompareMode(compareModeRaw)) {
-        throw new Error(`Invalid 'compare-mode' input: "${compareModeRaw}". Must be one of: ${VALID_COMPARE.join(', ')}`);
-    }
-    const keepModeRaw = (core.getInput('keep-mode') || 'no-delete').toLowerCase();
-    if (!isKeepMode(keepModeRaw)) {
-        throw new Error(`Invalid 'keep-mode' input: "${keepModeRaw}". Must be one of: ${VALID_KEEP.join(', ')}`);
-    }
-    const syncDirectionRaw = (core.getInput('direction') || 'auto').toLowerCase();
-    if (!isSyncDirection(syncDirectionRaw)) {
-        throw new Error(`Invalid 'direction' input: "${syncDirectionRaw}". Must be one of: ${VALID_DIRECTION.join(', ')}`);
-    }
-    const retentionModeRaw = optional('retention-mode')?.toLowerCase();
-    if (retentionModeRaw !== undefined && !isRetentionMode(retentionModeRaw)) {
-        throw new Error(`Invalid 'retention-mode' input: "${retentionModeRaw}". Must be one of: ${VALID_RETENTION_MODE.join(', ')}`);
-    }
-    const legalHoldRaw = optional('legal-hold')?.toLowerCase();
-    if (legalHoldRaw !== undefined && !isLegalHold(legalHoldRaw)) {
-        throw new Error(`Invalid 'legal-hold' input: "${legalHoldRaw}". Must be one of: ${VALID_LEGAL_HOLD.join(', ')}`);
-    }
-    return {
-        action: actionRaw,
-        applicationKeyId,
-        applicationKey,
-        bucket,
-        sourceBucket,
-        source,
-        destination,
-        include,
-        exclude,
-        concurrency,
-        partSize,
-        resume,
-        contentType,
-        dryRun,
-        presignTtlSeconds,
-        endpoint,
-        failOnEmpty,
-        sse,
-        encryption,
-        compareMode: compareModeRaw,
-        keepMode: keepModeRaw,
-        syncDirection: syncDirectionRaw,
-        maxResults,
-        expectedSha1,
-        retentionMode: retentionModeRaw,
-        retentionUntil,
-        legalHold: legalHoldRaw,
-        bypassGovernance,
-    };
-}
-function isCompareMode(value) {
-    return VALID_COMPARE.includes(value);
-}
-function isKeepMode(value) {
-    return VALID_KEEP.includes(value);
-}
-function isSyncDirection(value) {
-    return VALID_DIRECTION.includes(value);
-}
-function isRetentionMode(value) {
-    return VALID_RETENTION_MODE.includes(value);
-}
-function isLegalHold(value) {
-    return VALID_LEGAL_HOLD.includes(value);
-}
-function isActionName(value) {
-    return VALID_ACTIONS.includes(value);
-}
-function required(name) {
-    const v = core.getInput(name, { required: true });
-    if (!v)
-        throw new Error(`Missing required input: ${name}`);
-    return v;
-}
-function optional(name) {
-    const v = core.getInput(name);
-    return v === '' ? undefined : v;
-}
-function resolveCredential(inputName, envName) {
-    const fromInput = optional(inputName);
-    if (fromInput !== undefined)
-        return fromInput;
-    const fromEnv = process.env[envName];
-    if (fromEnv !== undefined && fromEnv !== '')
-        return fromEnv;
-    throw new Error(`Missing credential: set input '${inputName}' or env var '${envName}'`);
-}
-function splitCsv(value) {
-    if (value === undefined)
-        return [];
-    return value
-        .split(',')
-        .map((s) => s.trim())
-        .filter((s) => s.length > 0);
-}
-function parseBool(name, raw) {
-    const v = raw.trim().toLowerCase();
-    if (v === 'true' || v === '1' || v === 'yes')
-        return true;
-    if (v === 'false' || v === '0' || v === 'no')
-        return false;
-    throw new Error(`Invalid boolean for '${name}': "${raw}"`);
-}
-function parsePositiveInt(name, raw) {
-    const n = Number(raw);
-    if (!Number.isInteger(n) || n <= 0) {
-        throw new Error(`Invalid positive integer for '${name}': "${raw}"`);
-    }
-    return n;
 }
 
 ;// CONCATENATED MODULE: ./src/summary.ts

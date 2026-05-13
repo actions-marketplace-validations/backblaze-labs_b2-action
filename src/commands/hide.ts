@@ -1,6 +1,6 @@
 import * as core from '@actions/core'
 import type { Bucket } from '@backblaze/b2-sdk'
-import type { ParsedInputs } from '../inputs.ts'
+import { type ParsedInputs, requireSource } from '../inputs.ts'
 
 export interface HideResult {
   fileName: string
@@ -19,10 +19,7 @@ export interface HideResult {
  * with versions if you need to discover it).
  */
 export async function hideCommand(bucket: Bucket, inputs: ParsedInputs): Promise<HideResult> {
-  const source = inputs.source
-  if (source === undefined || source === '') {
-    throw new Error("'source' input is required for 'hide' action (the B2 file name)")
-  }
+  const source = requireSource(inputs.source, 'hide', 'the B2 file name')
 
   core.startGroup(`hide b2://${bucket.name}/${source}`)
   try {

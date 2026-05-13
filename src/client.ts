@@ -1,5 +1,6 @@
 import * as core from '@actions/core'
-import { B2Client, type HttpTransport } from '@backblaze/b2-sdk'
+import { B2Client, type Bucket, type HttpTransport } from '@backblaze/b2-sdk'
+import type { FileVersion } from '@backblaze/b2-sdk'
 import { VERSION } from './version.ts'
 
 export interface AuthorizedClient {
@@ -61,4 +62,29 @@ export async function getBucket(authorized: AuthorizedClient) {
     )
   }
   return bucket
+}
+
+/**
+ * Look up the most-recent visible (`action: 'upload'`) version of a file by
+ * its exact name. Throws if no upload version exists (hidden / deleted /
+ * never existed). Used by `copy`, `delete`, and `retention` to resolve a
+ * file name to a `fileId` before operating on it.
+ *
+ * @param bucket - The bucket to search.
+ * @param fileName - Exact file name (path) to look up.
+ * @param bucketDisplayName - Optional label for the error message; defaults
+ *   to `bucket.name`. Used when looking up in a source bucket distinct from
+ *   the action's destination bucket (cross-bucket copy).
+ */
+export async function findFileByName(
+  bucket: Bucket,
+  fileName: string,
+  bucketDisplayName?: string,
+): Promise<FileVersion> {
+  const page = await bucket.listFileNames({ prefix: fileName, maxFileCount: 1 })
+  const hit = page.files.find((f) => f.fileName === fileName && f.action === 'upload')
+  if (!hit) {
+    throw new Error(`File not found in bucket "${bucketDisplayName ?? bucket.name}": ${fileName}`)
+  }
+  return hit
 }

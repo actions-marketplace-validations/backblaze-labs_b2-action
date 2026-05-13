@@ -1,3 +1,8 @@
+import { mkdtemp } from 'node:fs/promises'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
+import { B2Client, type Bucket } from '@backblaze/b2-sdk'
+import { B2Simulator } from '@backblaze/b2-sdk/simulator'
 import type { ActionName, ParsedInputs } from '../src/inputs.ts'
 
 /**
@@ -37,4 +42,35 @@ export function makeInputs(action: ActionName, override: Partial<ParsedInputs> =
     bypassGovernance: false,
     ...override,
   }
+}
+
+/** The standard fixture every command test sets up. */
+export interface TestFixture {
+  workDir: string
+  bucket: Bucket
+  client: B2Client
+}
+
+/**
+ * Build a fresh simulator-backed B2Client + bucket + temp workspace dir.
+ * Every command test uses this; centralizing it here means changing the
+ * simulator setup is one file, not 9.
+ *
+ * Pass a `bucketName` to disambiguate parallel tests so they don't collide
+ * on the simulator's globally-unique bucket-name space. Defaults to
+ * `gh-action-test`.
+ *
+ * The caller is responsible for `rm`-ing `workDir` in their `afterEach`.
+ */
+export async function makeFixture(bucketName = 'gh-action-test'): Promise<TestFixture> {
+  const sim = new B2Simulator()
+  const client = new B2Client({
+    applicationKeyId: 'test-key-id',
+    applicationKey: 'test-key',
+    transport: sim.transport(),
+  })
+  await client.authorize()
+  const bucket = await client.createBucket({ bucketName, bucketType: 'allPrivate' })
+  const workDir = await mkdtemp(join(tmpdir(), 'b2-test-'))
+  return { workDir, bucket, client }
 }

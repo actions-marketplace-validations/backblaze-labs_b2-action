@@ -6,7 +6,7 @@ import * as core from '@actions/core'
 import * as glob from '@actions/glob'
 import type { Bucket } from '@backblaze/b2-sdk'
 import { StreamSource } from '@backblaze/b2-sdk/streams'
-import type { ParsedInputs } from '../inputs.ts'
+import { type ParsedInputs, requireSource } from '../inputs.ts'
 import { makeProgressListener } from '../progress.ts'
 
 export interface UploadedFile {
@@ -39,10 +39,7 @@ export interface UploadResult {
  * size and parallelizes parts up to `concurrency`.
  */
 export async function uploadCommand(bucket: Bucket, inputs: ParsedInputs): Promise<UploadResult> {
-  const source = inputs.source
-  if (source === undefined) {
-    throw new Error("'source' input is required for 'upload' action")
-  }
+  const source = requireSource(inputs.source, 'upload')
 
   const files = await resolveFiles(source, inputs.include, inputs.exclude)
   if (files.length === 0) {

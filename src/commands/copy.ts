@@ -1,6 +1,7 @@
 import * as core from '@actions/core'
 import type { B2Client, Bucket } from '@backblaze/b2-sdk'
-import type { ParsedInputs } from '../inputs.ts'
+import { findFileByName } from '../client.ts'
+import { type ParsedInputs, requireSource } from '../inputs.ts'
 
 export interface CopyResult {
   sourceBucket: string
@@ -28,11 +29,8 @@ export async function copyCommand(
   destinationBucket: Bucket,
   inputs: ParsedInputs,
 ): Promise<CopyResult> {
-  const source = inputs.source
+  const source = requireSource(inputs.source, 'copy', 'the source B2 file name')
   const destination = inputs.destination
-  if (source === undefined || source === '') {
-    throw new Error("'source' input is required for 'copy' action (the source B2 file name)")
-  }
   if (destination === undefined || destination === '') {
     throw new Error(
       "'destination' input is required for 'copy' action (the destination B2 file name)",
@@ -48,11 +46,7 @@ export async function copyCommand(
     throw new Error(`Source bucket "${sourceBucketName}" not found, or key lacks listBuckets.`)
   }
 
-  const page = await sourceBucket.listFileNames({ prefix: source, maxFileCount: 1 })
-  const hit = page.files.find((f) => f.fileName === source && f.action === 'upload')
-  if (!hit) {
-    throw new Error(`Source file not found in bucket "${sourceBucketName}": ${source}`)
-  }
+  const hit = await findFileByName(sourceBucket, source, sourceBucketName)
 
   core.startGroup(
     `copy b2://${sourceBucketName}/${source} → b2://${destinationBucket.name}/${destination}`,

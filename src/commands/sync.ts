@@ -10,7 +10,7 @@ import type {
   SynchronizerDownConfig,
   SynchronizerUpConfig,
 } from '@backblaze/b2-sdk/sync'
-import type { ParsedInputs } from '../inputs.ts'
+import { type ParsedInputs, requireSource } from '../inputs.ts'
 
 export interface SyncResult {
   events: SyncEvent[]
@@ -35,10 +35,7 @@ export interface SyncResult {
  * relay to the workflow log (per-file) and aggregate into a typed result.
  */
 export async function syncCommand(bucket: Bucket, inputs: ParsedInputs): Promise<SyncResult> {
-  const source = inputs.source
-  if (source === undefined || source === '') {
-    throw new Error("'source' input is required for 'sync' action")
-  }
+  const source = requireSource(inputs.source, 'sync')
 
   const direction = await resolveDirection(inputs.syncDirection, source)
   const compareMode = inputs.compareMode
