@@ -53,6 +53,7 @@ The Backblaze B2 GitHub Action. TypeScript-native, built on the official [`@back
   - [Verify SHA-1 without downloading](#verify-sha-1-without-downloading)
   - [Presign a download URL](#presign-a-download-url)
   - [Server-side encryption](#server-side-encryption)
+    - [Generating an SSE-C key](#generating-an-sse-c-key)
   - [Object Lock retention + legal hold](#object-lock-retention--legal-hold)
   - [Chain outputs](#chain-outputs)
 - [Inputs (full reference)](#inputs-full-reference)
@@ -265,6 +266,25 @@ For one self-contained example per verb (each is also a live integration test), 
     destination: secret.tar.gz
     sse: C:${{ secrets.B2_SSE_C_KEY_B64 }}
 ```
+
+#### Generating an SSE-C key
+
+The `sse: C:<value>` input expects a **base64-encoded 32-byte (256-bit) key**. Generate one with:
+
+```bash
+openssl rand -base64 32
+```
+
+That outputs ~44 characters (e.g. `JXqRk7TZUyDhPmlAv9pn0WzgQGkBNyfwHJtoMSCRXNc=`). Paste the value into a GitHub repository secret (`Settings → Secrets and variables → Actions`) — convention is `B2_SSE_C_KEY_B64`.
+
+A few things to know before you commit to SSE-C:
+
+- **You own the key, Backblaze does not.** B2 never stores it. **Lose the key, lose the data** — no recovery.
+- **The same key must be supplied at download time** as was used at upload. The action's `download` verb takes the same `sse: C:<key>` input.
+- **Rotating the key invalidates any existing SSE-C objects** encrypted with the old value. You'd need to download-then-reupload everything with the new key.
+- **The action auto-masks the key** in workflow logs via `::add-mask::`, but that masking does not survive copy-paste. Keep secrets out of bug reports.
+
+If you don't need customer-managed keys, **`sse: B2`** (SSE-B2, B2-managed) is the simpler choice and has zero key-loss risk.
 
 ### Object Lock retention + legal hold
 
