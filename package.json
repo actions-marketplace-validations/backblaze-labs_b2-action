@@ -26,20 +26,20 @@
     "prepare": "husky"
   },
   "dependencies": {
-    "@actions/core": "^1.11.1",
-    "@actions/glob": "^0.5.0",
+    "@actions/core": "^3.0.1",
+    "@actions/glob": "^0.7.0",
     "@backblaze/b2-sdk": "link:../b2-typescript-sdk"
   },
   "devDependencies": {
-    "@biomejs/biome": "^1.9.0",
-    "@types/node": "^20.14.0",
+    "@biomejs/biome": "^2.4.15",
+    "@types/node": "^25.7.0",
     "@vercel/ncc": "^0.38.3",
-    "@vitest/coverage-v8": "^3.1.0",
+    "@vitest/coverage-v8": "^4.1.6",
     "husky": "^9.1.7",
     "markdownlint-cli2": "^0.22.0",
     "typedoc": "^0.28.0",
-    "typescript": "^5.7.0",
-    "vitest": "^3.1.0"
+    "typescript": "^6.0.3",
+    "vitest": "^4.1.6"
   },
   "keywords": [
     "backblaze",

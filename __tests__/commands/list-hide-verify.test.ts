@@ -6,7 +6,7 @@ import { listCommand } from '../../src/commands/list.ts'
 import { unhideCommand } from '../../src/commands/unhide.ts'
 import { uploadCommand } from '../../src/commands/upload.ts'
 import { verifyCommand } from '../../src/commands/verify.ts'
-import { type TestFixture, makeFixture, makeInputs } from '../_helpers.ts'
+import { makeFixture, makeInputs, type TestFixture } from '../_helpers.ts'
 
 function inputs(action: Parameters<typeof makeInputs>[0], over: Record<string, unknown> = {}) {
   return makeInputs(action, { bucket: 'gh-action-listhide', ...over })

@@ -1,7 +1,7 @@
 import { Buffer } from 'node:buffer'
 import { createHash } from 'node:crypto'
-import { SSE_B2, sseCustomer } from '@backblaze/b2-sdk'
 import type { EncryptionSetting } from '@backblaze/b2-sdk'
+import { SSE_B2, sseCustomer } from '@backblaze/b2-sdk'
 
 /**
  * Parse the `sse` input into an SDK {@link EncryptionSetting}.

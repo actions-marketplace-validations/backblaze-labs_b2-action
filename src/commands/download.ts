@@ -76,7 +76,7 @@ async function downloadPrefix(
 
   const files: DownloadedFile[] = []
   let total = 0
-  let startFileName: string | undefined = undefined
+  let startFileName: string | undefined
 
   for (;;) {
     const page = await bucket.listFileNames({

@@ -3,7 +3,7 @@ import { join } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import { syncCommand } from '../../src/commands/sync.ts'
 import { uploadCommand } from '../../src/commands/upload.ts'
-import { type TestFixture, boundInputs, makeFixture, makeInputs } from '../_helpers.ts'
+import { boundInputs, makeFixture, makeInputs, type TestFixture } from '../_helpers.ts'
 
 describe('sync command (B2 → local)', () => {
   let fx: TestFixture

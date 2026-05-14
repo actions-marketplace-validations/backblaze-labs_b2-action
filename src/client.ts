@@ -1,6 +1,6 @@
 import * as core from '@actions/core'
-import { B2Client, type Bucket, type HttpTransport } from '@backblaze/b2-sdk'
 import type { FileVersion } from '@backblaze/b2-sdk'
+import { B2Client, type Bucket, type HttpTransport } from '@backblaze/b2-sdk'
 import { VERSION } from './version.ts'
 
 /**

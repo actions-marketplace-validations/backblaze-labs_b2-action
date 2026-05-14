@@ -3,7 +3,7 @@ import { join } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import { syncCommand } from '../../src/commands/sync.ts'
 import type { ParsedInputs } from '../../src/inputs.ts'
-import { type TestFixture, makeFixture, makeInputs } from '../_helpers.ts'
+import { makeFixture, makeInputs, type TestFixture } from '../_helpers.ts'
 
 function baseInputs(): ParsedInputs {
   return makeInputs('sync', { bucket: 'gh-action-sync' })

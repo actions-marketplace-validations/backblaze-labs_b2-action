@@ -14,7 +14,6 @@
 import { mkdir, mkdtemp, rm, symlink, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import * as core from '@actions/core'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { copyCommand } from '../src/commands/copy.ts'
 import { deleteCommand } from '../src/commands/delete.ts'
@@ -25,7 +24,7 @@ import { listCommand } from '../src/commands/list.ts'
 import { presignCommand } from '../src/commands/presign.ts'
 import { purgeCommand } from '../src/commands/purge.ts'
 import { retentionCommand } from '../src/commands/retention.ts'
-import { type SyncEventCounters, processSyncEvent, syncCommand } from '../src/commands/sync.ts'
+import { processSyncEvent, type SyncEventCounters, syncCommand } from '../src/commands/sync.ts'
 import { unhideCommand } from '../src/commands/unhide.ts'
 import { uploadCommand } from '../src/commands/upload.ts'
 import { verifyCommand } from '../src/commands/verify.ts'
@@ -33,14 +32,15 @@ import { parseInputs } from '../src/inputs.ts'
 import { makeProgressListener } from '../src/progress.ts'
 import { writeStepSummary } from '../src/summary.ts'
 import {
+  captureStdout,
   MULTIPART_PART_SIZE,
-  type TestFixture,
   makeFixture,
   makeInputs,
   makeMultipartFixture,
   resetInputEnv,
   seedFile,
   setInput,
+  type TestFixture,
 } from './_helpers.ts'
 
 // =========================================================================
@@ -1120,12 +1120,13 @@ describe('progress listener: emits totalParts on multipart uploads', () => {
     const local = join(fx.workDir, 'multi.bin')
     await writeFile(local, 'x'.repeat(MULTIPART_PART_SIZE * 3))
 
-    const infoSpy = vi.spyOn(core, 'info')
-    try {
-      // 0ms throttle: every progress event emits, so the multipart suffix is
-      // captured even on a fast in-memory upload that would otherwise debounce
-      // to one event total. We don't change the production default; this only
-      // widens the test's observation window.
+    // 0ms throttle: every progress event emits, so the multipart suffix is
+    // captured even on a fast in-memory upload that would otherwise debounce
+    // to one event total. We don't change the production default; this only
+    // widens the test's observation window. Capture stdout (where
+    // `core.info` writes) directly: vitest 4 disallows spying on ESM
+    // module exports.
+    const captured = await captureStdout(async () => {
       const onProgress = makeProgressListener('mp-test', 0)
       const { readFile } = await import('node:fs/promises')
       const { BufferSource } = await import('@backblaze/b2-sdk/streams')
@@ -1136,12 +1137,8 @@ describe('progress listener: emits totalParts on multipart uploads', () => {
         concurrency: 1,
         onProgress,
       })
-
-      const partsSuffix = infoSpy.mock.calls.find((c) => /\(\d+\/\d+ parts\)/.test(String(c[0])))
-      expect(partsSuffix).toBeDefined()
-    } finally {
-      infoSpy.mockRestore()
-    }
+    })
+    expect(captured).toMatch(/\(\d+\/\d+ parts\)/)
   })
 })
 
@@ -1684,27 +1681,28 @@ describe('processSyncEvent: handles every SyncEvent variant', () => {
     expect(c.skipped).toBe(1)
   })
 
-  it('error increments errors and warns with message', () => {
+  it('error increments errors and warns with message', async () => {
     const c = freshCounters()
-    const warnSpy = vi.spyOn(core, 'warning')
-    try {
+    const captured = await captureStdout(() => {
       processSyncEvent({ type: 'error', path: 'e.txt', size: 0, message: 'boom' }, c)
-      expect(c.errors).toBe(1)
-      expect(warnSpy).toHaveBeenCalledWith(expect.stringContaining('boom'))
-    } finally {
-      warnSpy.mockRestore()
-    }
+    })
+    expect(c.errors).toBe(1)
+    expect(captured).toContain('::warning::')
+    expect(captured).toContain('boom')
   })
 
-  it.each(['upload-start', 'compare', 'download-start', 'copy-start', 'copy-done'] as const)(
-    'informational event %s is a no-op',
-    (type) => {
-      const before = freshCounters()
-      const c = freshCounters()
-      processSyncEvent({ type, path: 'x.txt', size: 0 }, c)
-      expect(c).toEqual(before)
-    },
-  )
+  it.each([
+    'upload-start',
+    'compare',
+    'download-start',
+    'copy-start',
+    'copy-done',
+  ] as const)('informational event %s is a no-op', (type) => {
+    const before = freshCounters()
+    const c = freshCounters()
+    processSyncEvent({ type, path: 'x.txt', size: 0 }, c)
+    expect(c).toEqual(before)
+  })
 })
 
 // =========================================================================
@@ -1765,16 +1763,11 @@ describe('summary: appendFile error logs a warning instead of throwing', () => {
   })
 
   it('warns instead of throwing when the summary path is unwritable', async () => {
-    const warnSpy = vi.spyOn(core, 'warning')
-    try {
+    const captured = await captureStdout(async () => {
       await writeStepSummary({ title: 'will-fail', rows: [{ fileName: 'x.txt' }] })
-      const warningCall = warnSpy.mock.calls.find((c) =>
-        String(c[0]).includes('Failed to write step summary'),
-      )
-      expect(warningCall).toBeDefined()
-    } finally {
-      warnSpy.mockRestore()
-    }
+    })
+    expect(captured).toContain('::warning::')
+    expect(captured).toContain('Failed to write step summary')
   })
 })
 

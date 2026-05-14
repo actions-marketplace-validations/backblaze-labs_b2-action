@@ -2,7 +2,6 @@ import { mkdir, stat } from 'node:fs/promises'
 import { resolve } from 'node:path'
 import * as core from '@actions/core'
 import type { Bucket } from '@backblaze/b2-sdk'
-import { B2Folder, LocalFolder, synchronize } from '@backblaze/b2-sdk/sync'
 import type {
   CompareMode,
   KeepMode,
@@ -10,6 +9,7 @@ import type {
   SynchronizerDownConfig,
   SynchronizerUpConfig,
 } from '@backblaze/b2-sdk/sync'
+import { B2Folder, LocalFolder, synchronize } from '@backblaze/b2-sdk/sync'
 import { type ParsedInputs, requireSource } from '../inputs.ts'
 
 /**

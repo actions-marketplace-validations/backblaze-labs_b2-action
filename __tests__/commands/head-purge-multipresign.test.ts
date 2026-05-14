@@ -5,7 +5,7 @@ import { headCommand } from '../../src/commands/head.ts'
 import { presignCommand } from '../../src/commands/presign.ts'
 import { purgeCommand } from '../../src/commands/purge.ts'
 import { uploadCommand } from '../../src/commands/upload.ts'
-import { type TestFixture, makeFixture, makeInputs } from '../_helpers.ts'
+import { makeFixture, makeInputs, type TestFixture } from '../_helpers.ts'
 
 function inputs(action: Parameters<typeof makeInputs>[0], over: Record<string, unknown> = {}) {
   return makeInputs(action, { bucket: 'gh-action-hpx', ...over })

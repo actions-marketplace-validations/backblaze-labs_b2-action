@@ -6,7 +6,7 @@ import { deleteCommand } from '../../src/commands/delete.ts'
 import { presignCommand } from '../../src/commands/presign.ts'
 import { uploadCommand } from '../../src/commands/upload.ts'
 import type { ParsedInputs } from '../../src/inputs.ts'
-import { type TestFixture, makeFixture, makeInputs } from '../_helpers.ts'
+import { makeFixture, makeInputs, type TestFixture } from '../_helpers.ts'
 
 function baseInputs(action: ParsedInputs['action']): ParsedInputs {
   return makeInputs(action, { bucket: 'gh-action-misc' })

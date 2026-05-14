@@ -1,5 +1,4 @@
-import { writeFile } from 'node:fs/promises'
-import { mkdtemp } from 'node:fs/promises'
+import { mkdtemp, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { B2Client, type Bucket } from '@backblaze/b2-sdk'
@@ -188,4 +187,26 @@ export async function seedFiles(fx: TestFixture, entries: Record<string, string>
   for (const [key, body] of Object.entries(entries)) {
     await seedFile(fx, key, body)
   }
+}
+
+/**
+ * Capture everything `@actions/core` writes during `fn` by intercepting
+ * `process.stdout.write`. Returns the concatenated output. Used to verify
+ * `core.info` / `core.warning` / `core.error` / `core.setSecret` calls
+ * without spying on the module namespace (vitest 4 disallows mutating ESM
+ * namespaces, so the old `vi.spyOn(core, 'info')` no longer works).
+ */
+export async function captureStdout(fn: () => Promise<void> | void): Promise<string> {
+  const chunks: string[] = []
+  const orig = process.stdout.write.bind(process.stdout)
+  process.stdout.write = ((data: unknown) => {
+    chunks.push(typeof data === 'string' ? data : Buffer.from(data as Uint8Array).toString())
+    return true
+  }) as typeof process.stdout.write
+  try {
+    await fn()
+  } finally {
+    process.stdout.write = orig
+  }
+  return chunks.join('')
 }
