@@ -1615,10 +1615,17 @@ describe('download: walks pagination past the 1000-file page boundary', () => {
     fx = await makeFixture('gh-action-dl-real-pagination')
   })
   afterEach(async () => {
-    await rm(fx.workDir, { recursive: true, force: true })
+    // Windows: file handles linger briefly after the last write completes,
+    // so a bare rm can race with the OS and throw ENOTEMPTY. Retry a few
+    // times with a short backoff before giving up.
+    await rm(fx.workDir, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 })
   })
 
-  it('downloads files split across two pages', async () => {
+  // 1001 file uploads + 1001 sequential downloads. Easily fits under the
+  // default 30 s timeout on Linux/macOS but Windows-runner fs throughput is
+  // ~5x slower and routinely needs north of 30 s for the download walk; bump
+  // the per-test budget so we don't flake there.
+  it('downloads files split across two pages', { timeout: 90_000 }, async () => {
     const { BufferSource } = await import('@backblaze/b2-sdk/streams')
     // 1001 tiny uploads: enough to force a second listFileNames page.
     // Parallelized via Promise.all; simulator is in-memory and serializes
