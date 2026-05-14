@@ -40,7 +40,7 @@ Nothing has been released yet. The first tagged release will be `0.1.0`; everyth
 - CI workflow with six jobs: `test` (Ubuntu / macOS / Windows matrix), `lint` (Biome `--error-on-warnings`), `coverage`, `build-and-check-dist` (with a 4 MiB bundle-size budget), `actionlint`, and `self-smoke` (offline bundle invocation).
 - Tag-driven release workflow (`.github/workflows/release.yml`) that runs the full gate, cuts a GitHub Release, and moves the floating major tag (`v0`, `v1`, …) to track the latest minor/patch.
 - Dependabot config for weekly npm + github-actions updates.
-- Ten example workflows under `.github/workflows/example-*.yml` that double as live integration tests against a real B2 test bucket. See [.github/workflows/README.md](.github/workflows/README.md) for the catalogue. There is no separate `integration.yml`; the examples *are* the integration suite.
+- Twelve example workflows under `.github/workflows/example-*.yml` that double as live integration tests against a real B2 test bucket. See [.github/workflows/README.md](.github/workflows/README.md) for the catalogue. There is no separate `integration.yml`; the examples *are* the integration suite.
 
 ### Added: community files
 

@@ -35,7 +35,7 @@ pnpm verify-dist # build, then `git diff --exit-code dist/`: must be clean befor
 
 `src/main.ts` is the entrypoint. It:
 
-1. Calls `parseInputs()` (`src/inputs.ts`) which reads `INPUT_*` env vars via `@actions/core`, validates them, applies the credential-fallback chain (input → `B2_APPLICATION_KEY_ID` → `B2_APPKEY_ID`), and masks the secret value.
+1. Calls `parseInputs()` (`src/inputs.ts`) which reads `INPUT_*` env vars via `@actions/core`, validates them, applies the credential-fallback chain (`application-key-id` input → `B2_APPLICATION_KEY_ID` env var; same for the secret), and masks the secret value.
 2. Calls `buildClient(...)` (`src/client.ts`) which constructs a `B2Client` with `userAgent: 'b2-github-action/<version>'`, authorizes, and masks the resulting auth token.
 3. Dispatches on `inputs.action` to a command module under `src/commands/`. Each command returns a structured result.
 4. Maps the result onto `core.setOutput(...)` calls.

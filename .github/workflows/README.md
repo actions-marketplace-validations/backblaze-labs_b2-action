@@ -5,7 +5,7 @@ This folder contains:
 - **`ci.yml`**: runs on every PR: typecheck, lint, vitest (Ubuntu / macOS / Windows), coverage gate, build, `dist/` freshness, bundle-size budget, actionlint, offline self-smoke.
 - **`release.yml`**: fires on `v*` tags: full gate + GitHub Release + floats the major-version tag (`v0`, `v1`, …).
 - **`daily-smoke.yml`**: 03:13 UTC cron: real-B2 end-to-end smoke against the test bucket.
-- **`example-*.yml`**: ten **example workflows that are also the integration test suite**. See the table below.
+- **`example-*.yml`**: twelve **example workflows that are also the integration test suite**. See the table below.
 
 ## Example workflows (= integration test suite)
 
