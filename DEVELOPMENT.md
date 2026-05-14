@@ -71,7 +71,8 @@ pnpm test           # vitest run: drives against the SDK's in-memory B2Simulator
 pnpm test:coverage  # same + the 95/85/100/95 coverage gate
 pnpm build          # ncc build src/main.ts -o dist
 pnpm actionlint     # validate every workflow under .github/workflows/
-pnpm all            # lint + typecheck + test + build
+pnpm spellcheck     # cspell across src/, __tests__/, *.md, *.yml, action.yml
+pnpm all            # lint + typecheck + test + build + spellcheck
 pnpm verify-dist    # build, then `git diff --exit-code dist/` (must be clean)
 pnpm docs           # typedoc (strict): generates docs/ for GitHub Pages
 pnpm docs:watch     # typedoc in watch mode for local authoring
@@ -87,10 +88,10 @@ Requirements: Node 24+, pnpm 10+. The Action runs on Node 24 in the GitHub Actio
 
 | Hook | What it runs | Triggers on |
 | --- | --- | --- |
-| `pre-commit` | `pnpm lint` + `pnpm typecheck`. If `src/`, `package.json`, `tsconfig.json`, or `pnpm-lock.yaml` are staged: also `pnpm build` + a `dist/` freshness check that refuses the commit when rebuilt `dist/` differs from staged. If `.github/workflows/` or `.github/actions/` are staged: also `pnpm actionlint`. | Every `git commit` |
-| `pre-push` | `pnpm test` + `pnpm test:coverage`. | Every `git push` |
+| `pre-commit` | `pnpm lint` + `pnpm typecheck` + `pnpm test` + `pnpm build` + `dist/` freshness check + `pnpm actionlint` + `pnpm spellcheck`. Every check, every commit, no path-gating. | Every `git commit` |
+| `pre-push` | `pnpm test:coverage` (subsumes plain `test`, so we don't double-run). | Every `git push` |
 
-The split keeps `pre-commit` under ~3 s on a clean repo by deferring the slower test run to `pre-push`. Skip either hook with `--no-verify` if you need to; the same checks run in CI.
+Pre-commit runs everything because earlier path-gating turned out to be a foot-gun (a workflow tweak alongside a `src/` change could slip past actionlint). On a clean repo this takes ~5 s. Skip either hook with `--no-verify` if you need to; the same checks run in CI.
 
 `actionlint` is fetched into `node_modules/.cache/actionlint/` on first use and cached after. Override the version with `ACTIONLINT_VERSION=1.7.x pnpm actionlint`.
 
@@ -119,6 +120,7 @@ Every PR runs:
 | `sync-check` ([docs-lint.yml](./.github/workflows/docs-lint.yml)) | every input/output in `action.yml` also appears in the README reference tables. Drift fails CI. |
 | `markdownlint` ([docs-lint.yml](./.github/workflows/docs-lint.yml)) | prose-style consistency across `**/*.md`. Config in [`.markdownlint-cli2.jsonc`](./.markdownlint-cli2.jsonc). |
 | `link-check` ([docs-lint.yml](./.github/workflows/docs-lint.yml)) | lychee runs in `--offline` mode against `**/*.md`; catches broken relative paths and anchor fragments. External URLs are not pinged. |
+| `spellcheck` ([docs-lint.yml](./.github/workflows/docs-lint.yml)) | cspell across `**/*.ts`, `**/*.md`, `**/*.yml`, `action.yml`. Config in [`cspell.json`](./cspell.json); domain-specific words live in [`.cspell/project-words.txt`](./.cspell/project-words.txt). Add a word there when cspell flags a deliberate identifier. |
 | `docs` ([docs.yml](./.github/workflows/docs.yml)) | TypeDoc with `treatWarningsAsErrors: true`; every export must have JSDoc. Published to GitHub Pages on push to `main`. |
 
 Plus, the [example workflows](./.github/workflows/README.md) are the integration test suite: they run against a real B2 test bucket on every PR (skipping forks because secrets aren't available there). The bucket itself is set up as described in the next section.

@@ -33,4 +33,7 @@ fi
 echo "▸ actionlint"
 pnpm --silent actionlint
 
+echo "▸ cspell"
+pnpm --silent spellcheck
+
 echo "✓ pre-commit OK"

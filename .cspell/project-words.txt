@@ -1,0 +1,116 @@
+# Project-specific allowlist for cspell. One word per line, case-insensitive.
+# Add words here when cspell flags a domain term, library name, or identifier
+# that's deliberate and not a typo.
+
+# Backblaze / B2 product terminology
+backblaze
+b2api
+b2sim
+presign
+presigned
+presigns
+unhide
+unhides
+modtime
+
+# Server-side encryption
+sse
+ssec
+sseb2
+keymd
+
+# Build / tooling
+biome
+biomejs
+ncc
+vercel
+typedoc
+markdownlint
+markdownlintignore
+actionlint
+lychee
+cspell
+dependabot
+husky
+esbuild
+codeowners
+
+# Node / runtime / fs
+fsevents
+posix
+multipart
+resumability
+inlines
+mbps
+
+# GitHub Actions ecosystem
+softprops
+lycheeverse
+streetsidesoftware
+prerelease
+workflow_dispatch
+checkout
+ncconfig
+nvmrc
+
+# Test helpers and bucket fixture names
+vitest
+vitests
+spyon
+listhide
+syncdown
+xcopy
+
+# Security and concurrency jargon
+toctou
+boto
+akia
+millis
+lockdown
+unwritable
+unparseable
+globber
+unmask
+backoff
+retryable
+idempotency
+idempotent
+ratelimit
+ratelimited
+
+# B2 SDK / response shape
+filename
+filenames
+fileid
+fileids
+checksum
+checksums
+sha1
+sha256
+crc32
+md5
+
+# Crypto / encoding
+aes256
+base64
+hexdigest
+
+# Test-only path identifiers
+somedir
+
+# Hook / lifecycle script naming
+preinstall
+postinstall
+precommit
+prepush
+
+# Codex / macOS dev env
+darwin
+codex
+
+# GitHub usernames referenced in README "other actions" section
+pigri
+yamatt
+sksat
+sylwit
+andromidasj

@@ -1,9 +1,10 @@
 name: Docs lint
 
-# Three integrity checks for the documentation surface:
+# Four integrity checks for the documentation + prose surface:
 #   1. `action.yml` <> README.md sync (every input/output appears in both).
 #   2. markdownlint-cli2 for prose style consistency.
 #   3. lychee for broken markdown links (offline + fragment-aware).
+#   4. cspell for spelling across source, markdown, and workflow YAML.
 #
 # Cheap and fast. Runs on every PR + every push to main.
 
@@ -13,7 +14,12 @@ on:
   pull_request:
     paths:
       - '**/*.md'
+      - '**/*.ts'
+      - '**/*.yml'
+      - '**/*.yaml'
       - 'action.yml'
+      - 'cspell.json'
+      - '.cspell/**'
       - 'scripts/check-action-yml-vs-readme.mjs'
       - '.markdownlint-cli2.jsonc'
       - '.github/workflows/docs-lint.yml'
@@ -63,3 +69,20 @@ jobs:
           # page got reorganized.
           args: --offline --include-fragments --no-progress --verbose '**/*.md'
           fail: true
+
+  spellcheck:
+    name: cspell
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+      - uses: pnpm/action-setup@v6
+        with:
+          version: 11
+      - uses: actions/setup-node@v6
+        with:
+          node-version: 24
+          cache: pnpm
+      # cspell is self-contained: it does not need the sibling SDK or any
+      # of our runtime deps. Install only what's required to keep the job
+      # fast and avoid cloning the b2-typescript-sdk sibling.
+      - run: pnpm dlx cspell@9 --no-progress --no-must-find-files

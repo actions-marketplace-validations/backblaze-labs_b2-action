@@ -15,7 +15,7 @@
     "lint": "biome check --error-on-warnings .",
     "lint:fix": "biome check --write .",
     "typecheck": "tsc --noEmit",
-    "all": "pnpm lint && pnpm typecheck && pnpm test && pnpm build",
+    "all": "pnpm lint && pnpm typecheck && pnpm test && pnpm build && pnpm spellcheck",
     "verify-dist": "pnpm build && git diff --exit-code dist",
     "actionlint": "bash scripts/actionlint.sh",
     "docs": "typedoc",
@@ -23,6 +23,7 @@
     "docs:check-action-yml": "node scripts/check-action-yml-vs-readme.mjs",
     "docs:lint": "markdownlint-cli2",
     "docs:links": "lychee --no-progress --offline --include-fragments '**/*.md'",
+    "spellcheck": "cspell --no-progress --no-must-find-files",
     "prepare": "husky"
   },
   "dependencies": {
@@ -35,6 +36,7 @@
     "@types/node": "^25.7.0",
     "@vercel/ncc": "^0.38.3",
     "@vitest/coverage-v8": "^4.1.6",
+    "cspell": "^9.4.1",
     "husky": "^9.1.7",
     "markdownlint-cli2": "^0.22.0",
     "typedoc": "^0.28.0",
