@@ -55,7 +55,6 @@ __tests__/
   ci.yml                # lint, typecheck, test, coverage, build, dist freshness, actionlint, smoke
   release.yml           # tag-driven: gate + GitHub Release + floating major-tag move
   daily-smoke.yml       # 03:13 UTC: real-B2 end-to-end against the test bucket
-  benchmark.yml         # weekly: this action vs Docker comparison
   example-*.yml         # 10 copy-paste workflows that double as integration tests
 action.yml         # Marketplace manifest (inputs, outputs, branding)
 dist/index.js      # ncc-bundled entrypoint (committed; CI fails if stale)
@@ -126,7 +125,7 @@ Plus, the [example workflows](./.github/workflows/README.md) are the integration
 
 ## Test bucket setup
 
-The example workflows + `daily-smoke.yml` + `benchmark.yml` all hit a real B2 bucket. The upstream project uses:
+The example workflows + `daily-smoke.yml` all hit a real B2 bucket. The upstream project uses:
 
 | Purpose | Bucket name | Required? |
 | --- | --- | --- |
@@ -209,8 +208,7 @@ Only two workflows need this: the ones that actually run `pnpm install` and `pnp
 | `ci.yml` | Yes (every job: test, coverage, lint, build-and-check-dist) |
 | `release.yml` | Yes |
 | `daily-smoke.yml` | No: `actions/checkout` + `uses: ./` is enough; the action reads from committed `dist/`. |
-| `benchmark.yml` | No: same reason as daily-smoke. |
-| All 10 `example-*.yml` | No: same reason. |
+| All 10 `example-*.yml` | No: same reason as daily-smoke. |
 
 ### What the PAT needs
 

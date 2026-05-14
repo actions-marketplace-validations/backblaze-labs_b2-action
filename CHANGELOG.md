@@ -57,7 +57,6 @@ Nothing has been released yet. The first tagged release will be `0.1.0`; everyth
 ### Added: operational
 
 - `daily-smoke.yml` workflow: runs the most-used verbs end-to-end against a real B2 test bucket once a day. Catches B2 API drift or SDK regressions before user-reported issues.
-- `benchmark.yml` workflow: weekly + on-demand cold-start comparison between this action (Node20, ncc) and `yamatt/backblaze-b2-upload-action` (Docker). Renders the verdict to `$GITHUB_STEP_SUMMARY`.
 
 ### Deferred (not planned for v0.x)
 
