@@ -1909,32 +1909,40 @@ describe('download: cleans up partial file on pipeline error', () => {
     await rm(fx.workDir, { recursive: true, force: true })
   })
 
-  it('unlinks the destination file if the pipeline throws', async () => {
-    // Make `bucket.download` succeed (so we enter the try block) but force
-    // the pipeline to fail when it tries to write. Pre-create the
-    // destination directory as read-only: `mkdir` (recursive) is a no-op
-    // because the directory exists, then `createWriteStream` opens the
-    // file path inside it, but the actual write syscall fails with EACCES.
-    // That hits the catch block and the action's best-effort unlink.
-    await seedFile(fx, 'will-fail.txt', 'payload')
-    const { chmod } = await import('node:fs/promises')
-    const destDir = join(fx.workDir, 'ro-dir')
-    await mkdir(destDir, { recursive: true })
-    const dest = join(destDir, 'out.txt')
-    await chmod(destDir, 0o555) // read+execute, no write
+  // Skipped on Windows: NTFS doesn't honor POSIX mode bits the way
+  // chmod(0o555) implies, so the directory stays writable and the test
+  // can't force the pipeline to throw. The unlink-on-error branch is
+  // covered on the Linux/macOS legs of the matrix (and by the coverage
+  // gate, which only runs on Linux).
+  it.skipIf(process.platform === 'win32')(
+    'unlinks the destination file if the pipeline throws',
+    async () => {
+      // Make `bucket.download` succeed (so we enter the try block) but force
+      // the pipeline to fail when it tries to write. Pre-create the
+      // destination directory as read-only: `mkdir` (recursive) is a no-op
+      // because the directory exists, then `createWriteStream` opens the
+      // file path inside it, but the actual write syscall fails with EACCES.
+      // That hits the catch block and the action's best-effort unlink.
+      await seedFile(fx, 'will-fail.txt', 'payload')
+      const { chmod } = await import('node:fs/promises')
+      const destDir = join(fx.workDir, 'ro-dir')
+      await mkdir(destDir, { recursive: true })
+      const dest = join(destDir, 'out.txt')
+      await chmod(destDir, 0o555) // read+execute, no write
 
-    try {
-      await expect(
-        downloadCommand(
-          fx.bucket,
-          makeInputs('download', fx, { source: 'will-fail.txt', destination: dest }),
-        ),
-      ).rejects.toThrow(/EACCES|EPERM|permission denied/i)
-    } finally {
-      // Restore mode so afterEach's `rm` can clean up.
-      await chmod(destDir, 0o755)
-    }
-  })
+      try {
+        await expect(
+          downloadCommand(
+            fx.bucket,
+            makeInputs('download', fx, { source: 'will-fail.txt', destination: dest }),
+          ),
+        ).rejects.toThrow(/EACCES|EPERM|permission denied/i)
+      } finally {
+        // Restore mode so afterEach's `rm` can clean up.
+        await chmod(destDir, 0o755)
+      }
+    },
+  )
 })
 
 // =========================================================================
