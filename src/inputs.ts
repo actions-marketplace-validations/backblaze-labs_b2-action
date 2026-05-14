@@ -68,7 +68,7 @@ const VALID_LEGAL_HOLD: readonly LegalHold[] = ['on', 'off']
 export interface ParsedInputs {
   /** Which verb to dispatch to. */
   action: ActionName
-  /** B2 application key ID. */
+  /** B2 application key ID. Masked at parse time via `core.setSecret` (defense in depth). */
   applicationKeyId: string
   /** B2 application key (the secret). Masked at parse time via `core.setSecret`. */
   applicationKey: string
@@ -149,6 +149,11 @@ export function parseInputs(): ParsedInputs {
 
   const applicationKeyId = resolveCredential('application-key-id', 'B2_APPLICATION_KEY_ID')
   const applicationKey = resolveCredential('application-key', 'B2_APPLICATION_KEY')
+  // The keyId is identifying (not the secret half of the HMAC pair), but mask
+  // it anyway for defense in depth: the canonical AWS analogue mask AKIA-style
+  // IDs in CI logs, and masking costs nothing in debuggability since the user
+  // already knows which key they passed.
+  core.setSecret(applicationKeyId)
   core.setSecret(applicationKey)
 
   const bucket = required('bucket')

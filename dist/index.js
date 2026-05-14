@@ -35352,6 +35352,11 @@ function parseInputs() {
     const action = parseEnum('action', required('action').toLowerCase(), VALID_ACTIONS);
     const applicationKeyId = resolveCredential('application-key-id', 'B2_APPLICATION_KEY_ID');
     const applicationKey = resolveCredential('application-key', 'B2_APPLICATION_KEY');
+    // The keyId is identifying (not the secret half of the HMAC pair), but mask
+    // it anyway for defense in depth: the canonical AWS analogue mask AKIA-style
+    // IDs in CI logs, and masking costs nothing in debuggability since the user
+    // already knows which key they passed.
+    core_setSecret(applicationKeyId);
     core_setSecret(applicationKey);
     const bucket = required('bucket');
     const sourceBucket = optional('source-bucket');

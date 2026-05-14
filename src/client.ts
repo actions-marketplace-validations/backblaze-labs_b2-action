@@ -18,7 +18,7 @@ export interface AuthorizedClient {
 
 /** Inputs to {@link buildClient}. */
 export interface BuildClientOptions {
-  /** B2 application key ID. */
+  /** B2 application key ID. Masked via `core.setSecret` by the dispatcher (defense in depth). */
   applicationKeyId: string
   /** B2 application key (the secret). Masked via `core.setSecret` by the dispatcher. */
   applicationKey: string
