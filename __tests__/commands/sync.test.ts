@@ -1,7 +1,8 @@
 import { mkdir, rm, writeFile } from 'node:fs/promises'
 import { join } from 'node:path'
+import type { SyncEvent } from '@backblaze/b2-sdk/sync'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
-import { syncCommand } from '../../src/commands/sync.ts'
+import { summarizeSyncErrors, syncCommand } from '../../src/commands/sync.ts'
 import type { ParsedInputs } from '../../src/inputs.ts'
 import { makeFixture, makeInputs, type TestFixture } from '../_helpers.ts'
 
@@ -89,5 +90,34 @@ describe('sync command (local → B2)', () => {
         syncDirection: 'up',
       }),
     ).rejects.toThrow(/existing local directory/)
+  })
+})
+
+describe('summarizeSyncErrors', () => {
+  it('returns an empty string when no events are errors', () => {
+    const events: SyncEvent[] = [
+      { type: 'upload-done', path: 'a.txt', size: 1 },
+      { type: 'skip', path: 'b.txt', size: 0, message: 'identical' },
+    ]
+    expect(summarizeSyncErrors(events)).toBe('')
+  })
+
+  it('samples the first N error events with path and message', () => {
+    const events: SyncEvent[] = [
+      { type: 'error', path: 'one.txt', message: 'permission denied', size: 0 },
+      { type: 'error', path: 'two.txt', message: 'EACCES', size: 0 },
+    ]
+    expect(summarizeSyncErrors(events)).toBe('one.txt: permission denied; two.txt: EACCES')
+  })
+
+  it('elides extra errors past the limit with a "+N more" suffix', () => {
+    const events: SyncEvent[] = [
+      { type: 'error', path: 'a', message: 'm1', size: 0 },
+      { type: 'error', path: 'b', message: 'm2', size: 0 },
+      { type: 'error', path: 'c', message: 'm3', size: 0 },
+      { type: 'error', path: 'd', message: 'm4', size: 0 },
+      { type: 'error', path: 'e', message: 'm5', size: 0 },
+    ]
+    expect(summarizeSyncErrors(events, 2)).toBe('a: m1; b: m2; +3 more')
   })
 })

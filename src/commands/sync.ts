@@ -87,6 +87,26 @@ export function processSyncEvent(event: SyncEvent, counters: SyncEventCounters):
   }
 }
 
+/**
+ * Build a one-line summary of the first few sync errors for the dispatcher's
+ * top-level failure message. Without this, a sync that fails on three files
+ * surfaces only `Sync completed with 3 error(s)` to the user, who then has to
+ * dig into the (possibly collapsed) per-file warnings or parse `summary-json`.
+ * Including a sample makes the failure message itself diagnose-able.
+ */
+export function summarizeSyncErrors(events: SyncEvent[], limit = 3): string {
+  const errors = events.filter(
+    (e): e is Extract<SyncEvent, { type: 'error' }> => e.type === 'error',
+  )
+  if (errors.length === 0) return ''
+  const head = errors
+    .slice(0, limit)
+    .map((e) => `${e.path}: ${e.message}`)
+    .join('; ')
+  const tail = errors.length > limit ? `; +${errors.length - limit} more` : ''
+  return `${head}${tail}`
+}
+
 /** Result of {@link syncCommand}: per-event log plus aggregate counters. */
 export interface SyncResult {
   /** Per-file events emitted by the SDK's `synchronize()` (upload-done, download-done, skip, delete-*, hide, error). */

@@ -37071,6 +37071,24 @@ function processSyncEvent(event, counters) {
     }
 }
 /**
+ * Build a one-line summary of the first few sync errors for the dispatcher's
+ * top-level failure message. Without this, a sync that fails on three files
+ * surfaces only `Sync completed with 3 error(s)` to the user, who then has to
+ * dig into the (possibly collapsed) per-file warnings or parse `summary-json`.
+ * Including a sample makes the failure message itself diagnose-able.
+ */
+function summarizeSyncErrors(events, limit = 3) {
+    const errors = events.filter((e) => e.type === 'error');
+    if (errors.length === 0)
+        return '';
+    const head = errors
+        .slice(0, limit)
+        .map((e) => `${e.path}: ${e.message}`)
+        .join('; ');
+    const tail = errors.length > limit ? `; +${errors.length - limit} more` : '';
+    return `${head}${tail}`;
+}
+/**
  * Sync a local directory to / from a B2 bucket prefix.
  *
  * Direction is determined by the `direction` input (`up` = local → B2,
@@ -40969,7 +40987,8 @@ async function run() {
                 setOutput('bytes-transferred', String(result.bytesTransferred));
                 setOutput('summary-json', JSON.stringify(result.events));
                 if (result.errors > 0) {
-                    throw new Error(`Sync completed with ${result.errors} error(s)`);
+                    const sample = summarizeSyncErrors(result.events);
+                    throw new Error(`Sync completed with ${result.errors} error(s): ${sample}`);
                 }
                 const syncTitlePrefix = inputs.dryRun
                     ? 'Backblaze B2: sync (dry-run)'

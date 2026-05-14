@@ -9,7 +9,7 @@ import { listCommand } from './commands/list.ts'
 import { presignCommand } from './commands/presign.ts'
 import { purgeCommand } from './commands/purge.ts'
 import { retentionCommand } from './commands/retention.ts'
-import { syncCommand } from './commands/sync.ts'
+import { summarizeSyncErrors, syncCommand } from './commands/sync.ts'
 import { unhideCommand } from './commands/unhide.ts'
 import { uploadCommand } from './commands/upload.ts'
 import { verifyCommand } from './commands/verify.ts'
@@ -109,7 +109,8 @@ export async function run(): Promise<void> {
         core.setOutput('bytes-transferred', String(result.bytesTransferred))
         core.setOutput('summary-json', JSON.stringify(result.events))
         if (result.errors > 0) {
-          throw new Error(`Sync completed with ${result.errors} error(s)`)
+          const sample = summarizeSyncErrors(result.events)
+          throw new Error(`Sync completed with ${result.errors} error(s): ${sample}`)
         }
         const syncTitlePrefix = inputs.dryRun
           ? 'Backblaze B2: sync (dry-run)'
