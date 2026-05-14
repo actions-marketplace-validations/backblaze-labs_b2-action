@@ -64,12 +64,18 @@ jobs:
         run: |
           TAG=${REF#v}
           PKG_VERSION=$(node -p "require('./package.json').version")
-          SRC_VERSION=$(node -p "require('./dist/index.js'); 'baked'")
           if [ "$TAG" != "$PKG_VERSION" ]; then
             echo "::error::Tag '$REF' (-> $TAG) does not match package.json version '$PKG_VERSION'. Bump version before tagging."
             exit 1
           fi
-          echo "Tag $REF matches package.json version $PKG_VERSION ($SRC_VERSION)."
+          # End-to-end check: the User-Agent string baked into the bundle must
+          # carry the same version. `ncc` statically inlines `pkg.version` via
+          # the JSON import in src/version.ts, so a stale build fails here.
+          if ! grep -q "b2-github-action/${PKG_VERSION}" dist/index.js; then
+            echo "::error::dist/index.js does not contain 'b2-github-action/${PKG_VERSION}'. Run 'pnpm build' and commit the result before tagging."
+            exit 1
+          fi
+          echo "Tag $REF matches package.json version $PKG_VERSION and is baked into dist/index.js."
 
       - name: Identify pre-release
         id: prerelease

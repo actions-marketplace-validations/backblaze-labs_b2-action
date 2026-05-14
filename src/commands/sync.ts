@@ -1,4 +1,4 @@
-import { mkdir, stat } from 'node:fs/promises'
+import { mkdir } from 'node:fs/promises'
 import { resolve } from 'node:path'
 import * as core from '@actions/core'
 import type { Bucket } from '@backblaze/b2-sdk'
@@ -10,6 +10,7 @@ import type {
   SynchronizerUpConfig,
 } from '@backblaze/b2-sdk/sync'
 import { B2Folder, LocalFolder, synchronize } from '@backblaze/b2-sdk/sync'
+import { tryStat } from '../fs.ts'
 import { type ParsedInputs, requireSource } from '../inputs.ts'
 
 /**
@@ -226,14 +227,6 @@ async function buildConfig(
     dest: new LocalFolder(resolve(localDest)),
     bucket,
     options,
-  }
-}
-
-async function tryStat(path: string) {
-  try {
-    return await stat(path)
-  } catch {
-    return undefined
   }
 }
 

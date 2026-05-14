@@ -6,6 +6,7 @@ import * as core from '@actions/core'
 import * as glob from '@actions/glob'
 import type { Bucket } from '@backblaze/b2-sdk'
 import { StreamSource } from '@backblaze/b2-sdk/streams'
+import { tryStat } from '../fs.ts'
 import { type ParsedInputs, requireSource } from '../inputs.ts'
 import { makeProgressListener } from '../progress.ts'
 
@@ -195,13 +196,5 @@ async function uploadOne(
     fileId: result.fileId,
     size,
     contentSha1: sha1,
-  }
-}
-
-async function tryStat(path: string) {
-  try {
-    return await stat(path)
-  } catch {
-    return undefined
   }
 }

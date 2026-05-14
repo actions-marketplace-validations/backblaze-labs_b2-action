@@ -1929,7 +1929,7 @@ describe('download: cleans up partial file on pipeline error', () => {
           fx.bucket,
           makeInputs('download', fx, { source: 'will-fail.txt', destination: dest }),
         ),
-      ).rejects.toThrow()
+      ).rejects.toThrow(/EACCES|EPERM|permission denied/i)
     } finally {
       // Restore mode so afterEach's `rm` can clean up.
       await chmod(destDir, 0o755)

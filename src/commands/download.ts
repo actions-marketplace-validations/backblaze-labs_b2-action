@@ -1,10 +1,11 @@
 import { createWriteStream } from 'node:fs'
-import { mkdir, stat, unlink } from 'node:fs/promises'
+import { mkdir, unlink } from 'node:fs/promises'
 import { dirname, join, posix, resolve } from 'node:path'
 import { Readable, Transform } from 'node:stream'
 import { pipeline } from 'node:stream/promises'
 import * as core from '@actions/core'
 import type { Bucket, SseCDownloadKey } from '@backblaze/b2-sdk'
+import { tryStat } from '../fs.ts'
 import { type ParsedInputs, requireSource } from '../inputs.ts'
 import { makeProgressListener } from '../progress.ts'
 
@@ -199,12 +200,4 @@ async function resolveLocalPath(
     return resolve(destination, tail)
   }
   return resolve(destination)
-}
-
-async function tryStat(path: string) {
-  try {
-    return await stat(path)
-  } catch {
-    return undefined
-  }
 }

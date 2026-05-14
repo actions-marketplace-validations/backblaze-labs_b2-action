@@ -33147,7 +33147,7 @@ class Bucket {
             type: "error",
             fileName: version.fileName,
             fileId: version.fileId,
-            message: err instanceof Error ? err.message : String(err)
+            message: toError(err).message
           };
         }
       }
@@ -35636,6 +35636,23 @@ var external_node_path_ = __nccwpck_require__(6760);
 var external_node_stream_ = __nccwpck_require__(7075);
 ;// CONCATENATED MODULE: external "node:stream/promises"
 const external_node_stream_promises_namespaceObject = __WEBPACK_EXTERNAL_createRequire(import.meta.url)("node:stream/promises");
+;// CONCATENATED MODULE: ./src/fs.ts
+
+/**
+ * `stat(path)` that returns `undefined` instead of throwing on ENOENT/EACCES
+ * etc. Used at filesystem boundaries where the caller wants to distinguish
+ * "doesn't exist / not readable" from "exists with shape X" without juggling
+ * try/catch at every call site.
+ */
+async function tryStat(path) {
+    try {
+        return await (0,promises_.stat)(path);
+    }
+    catch {
+        return undefined;
+    }
+}
+
 ;// CONCATENATED MODULE: ./src/format.ts
 /**
  * Format a byte count with KB/MB/GB suffixes.
@@ -35689,6 +35706,7 @@ function makeProgressListener(label, intervalMs = 1000) {
 }
 
 ;// CONCATENATED MODULE: ./src/commands/download.ts
+
 
 
 
@@ -35837,14 +35855,6 @@ async function resolveLocalPath(fileName, destination) {
         return (0,external_node_path_.resolve)(destination, tail);
     }
     return (0,external_node_path_.resolve)(destination);
-}
-async function tryStat(path) {
-    try {
-        return await (0,promises_.stat)(path);
-    }
-    catch {
-        return undefined;
-    }
 }
 
 ;// CONCATENATED MODULE: ./src/commands/head.ts
@@ -36993,6 +37003,7 @@ class B2Folder {
 
 
 
+
 /**
  * Apply one `SyncEvent` from the SDK's `synchronize()` stream to the running
  * counters and emit the corresponding log line. The action's `syncCommand`
@@ -37101,7 +37112,7 @@ async function sync_resolveDirection(requested, source) {
         return 'local-to-b2';
     if (requested === 'down')
         return 'b2-to-local';
-    const localStat = await sync_tryStat(source);
+    const localStat = await tryStat(source);
     return localStat?.isDirectory() ? 'local-to-b2' : 'b2-to-local';
 }
 async function buildConfig(bucket, source, inputs, direction, signal) {
@@ -37117,7 +37128,7 @@ async function buildConfig(bucket, source, inputs, direction, signal) {
         ...(signal !== undefined ? { signal } : {}),
     };
     if (direction === 'local-to-b2') {
-        const stats = await sync_tryStat(source);
+        const stats = await tryStat(source);
         if (!stats?.isDirectory()) {
             throw new Error(`'sync' up requires 'source' to be an existing local directory: ${source}`);
         }
@@ -37139,14 +37150,6 @@ async function buildConfig(bucket, source, inputs, direction, signal) {
         bucket,
         options,
     };
-}
-async function sync_tryStat(path) {
-    try {
-        return await (0,promises_.stat)(path);
-    }
-    catch {
-        return undefined;
-    }
 }
 
 ;// CONCATENATED MODULE: ./src/commands/unhide.ts
@@ -40580,6 +40583,7 @@ function glob_hashFiles(patterns_1) {
 
 
 
+
 /**
  * Upload one or more files to B2.
  *
@@ -40626,7 +40630,7 @@ async function uploadCommand(bucket, inputs, signal) {
     return { files: uploaded, bytesTransferred: totalBytes };
 }
 async function resolveFiles(source, include, exclude) {
-    const explicitFile = await upload_tryStat(source);
+    const explicitFile = await tryStat(source);
     const looksLikeGlob = /[*?[\]]/.test(source);
     if (explicitFile?.isFile() && !looksLikeGlob && include.length === 0) {
         return [{ localPath: (0,external_node_path_.resolve)(source), fileName: (0,external_node_path_.basename)(source) }];
@@ -40650,7 +40654,7 @@ async function resolveFiles(source, include, exclude) {
     const root = explicitFile?.isDirectory() ? (0,external_node_path_.resolve)(source) : process.cwd();
     const out = [];
     for (const m of matches) {
-        const s = await upload_tryStat(m);
+        const s = await tryStat(m);
         // Filesystem boundary: skip entries that aren't readable files (broken
         // symlinks, races where a file is unlinked between glob and stat, etc.).
         if (!s?.isFile())
@@ -40710,14 +40714,6 @@ async function uploadOne(bucket, localPath, fileName, inputs, signal) {
         size,
         contentSha1: sha1,
     };
-}
-async function upload_tryStat(path) {
-    try {
-        return await (0,promises_.stat)(path);
-    }
-    catch {
-        return undefined;
-    }
 }
 
 ;// CONCATENATED MODULE: ./src/commands/verify.ts
