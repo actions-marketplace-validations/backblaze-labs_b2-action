@@ -43,16 +43,11 @@ export async function verifyCommand(bucket: Bucket, inputs: ParsedInputs): Promi
 
   core.startGroup(`verify b2://${bucket.name}/${source}`)
   try {
-    const head = await bucket.download(source, { method: 'HEAD' })
-    const remoteSize = head.headers.contentLength
-    const remoteSha1 = head.headers.contentSha1
-    // Drain the (empty) HEAD body to free the underlying response.
-    try {
-      await head.body.cancel()
-      /* v8 ignore next 3 -- defensive: SDK's HEAD response body sometimes has nothing to cancel */
-    } catch {
-      // Ignored: HEAD responses may have no body to cancel.
-    }
+    // `bucket.head` returns only the parsed response headers; no body to
+    // drain. The SDK normalizes multipart `'none'` to `null` at the boundary.
+    const { headers } = await bucket.head(source)
+    const remoteSize = headers.contentLength
+    const remoteSha1 = headers.contentSha1
 
     let localSha1: string | null = null
     let expected: string | null = inputs.expectedSha1 ?? null

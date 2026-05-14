@@ -12,6 +12,80 @@ import type {
 } from '@backblaze/b2-sdk/sync'
 import { type ParsedInputs, requireSource } from '../inputs.ts'
 
+/**
+ * Mutable counter bag fed by {@link processSyncEvent} as the action consumes
+ * the SDK's `synchronize()` event stream. Exposed alongside the processor so
+ * unit tests can drive each SyncEvent variant deterministically (notably the
+ * `copy-start` / `copy-done` events that only fire in b2-to-b2 sync, which
+ * the action's input surface doesn't currently expose).
+ */
+export interface SyncEventCounters {
+  /** Count of files uploaded. */
+  uploaded: number
+  /** Count of files downloaded. */
+  downloaded: number
+  /** Count of files removed (delete-remote, delete-local, or hide). */
+  deleted: number
+  /** Count of files left unchanged. */
+  skipped: number
+  /** Count of per-file errors. */
+  errors: number
+  /** Total bytes transferred (upload + download). */
+  bytesTransferred: number
+}
+
+/**
+ * Apply one `SyncEvent` from the SDK's `synchronize()` stream to the running
+ * counters and emit the corresponding log line. The action's `syncCommand`
+ * calls this in a loop; the function is exported (and the {@link SyncEventCounters}
+ * type with it) so tests can exercise every event variant independently,
+ * including the `copy-*` events that require b2-to-b2 sync to fire from the
+ * real engine.
+ *
+ * Informational lifecycle events (`upload-start`, `compare`, etc.) are
+ * deliberate no-ops; listing them explicitly keeps the switch exhaustive
+ * so TypeScript errors if the SDK adds a new variant.
+ */
+export function processSyncEvent(event: SyncEvent, counters: SyncEventCounters): void {
+  switch (event.type) {
+    case 'upload-done':
+      counters.uploaded++
+      counters.bytesTransferred += event.size
+      core.info(`  ↑ ${event.path} (${event.size}B)`)
+      return
+    case 'download-done':
+      counters.downloaded++
+      counters.bytesTransferred += event.size
+      core.info(`  ↓ ${event.path} (${event.size}B)`)
+      return
+    case 'delete-remote':
+      counters.deleted++
+      core.info(`  − ${event.path}`)
+      return
+    case 'delete-local':
+      counters.deleted++
+      core.info(`  − (local) ${event.path}`)
+      return
+    case 'hide':
+      counters.deleted++
+      core.info(`  ⌀ ${event.path} (hidden)`)
+      return
+    case 'skip':
+      counters.skipped++
+      return
+    case 'error':
+      counters.errors++
+      core.warning(`  ! ${event.path}: ${event.message}`)
+      return
+    case 'upload-start':
+    case 'compare':
+    case 'download-start':
+    case 'copy-start':
+    case 'copy-done':
+      return
+  }
+}
+
 /** Result of {@link syncCommand}: per-event log plus aggregate counters. */
 export interface SyncResult {
   /** Per-file events emitted by the SDK's `synchronize()` (upload-done, download-done, skip, delete-*, hide, error). */
@@ -60,57 +134,25 @@ export async function syncCommand(bucket: Bucket, inputs: ParsedInputs): Promise
   )
 
   const events: SyncEvent[] = []
-  let uploaded = 0
-  let downloaded = 0
-  let deleted = 0
-  let skipped = 0
-  let errors = 0
-  let bytesTransferred = 0
+  const counters: SyncEventCounters = {
+    uploaded: 0,
+    downloaded: 0,
+    deleted: 0,
+    skipped: 0,
+    errors: 0,
+    bytesTransferred: 0,
+  }
 
   try {
     for await (const event of synchronize(config)) {
       events.push(event)
-      switch (event.type) {
-        case 'upload-done':
-          uploaded++
-          bytesTransferred += event.size
-          core.info(`  ↑ ${event.path} (${event.size}B)`)
-          break
-        case 'download-done':
-          downloaded++
-          bytesTransferred += event.size
-          core.info(`  ↓ ${event.path} (${event.size}B)`)
-          break
-        case 'delete-remote':
-          deleted++
-          core.info(`  − ${event.path}`)
-          break
-        case 'delete-local':
-          deleted++
-          core.info(`  − (local) ${event.path}`)
-          break
-        case 'hide':
-          deleted++
-          core.info(`  ⌀ ${event.path} (hidden)`)
-          break
-        case 'skip':
-          skipped++
-          break
-        case 'error':
-          errors++
-          core.warning(`  ! ${event.path}: ${event.message}`)
-          break
-        case 'upload-start':
-        case 'compare':
-        case 'download-start':
-        case 'copy-start':
-        case 'copy-done':
-          break
-      }
+      processSyncEvent(event, counters)
     }
   } finally {
     core.endGroup()
   }
+
+  const { uploaded, downloaded, deleted, skipped, errors, bytesTransferred } = counters
 
   core.info(
     `sync done [${direction}]: ${uploaded} uploaded, ${downloaded} downloaded, ${deleted} removed, ${skipped} unchanged, ${errors} errors`,

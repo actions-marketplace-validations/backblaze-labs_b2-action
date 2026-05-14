@@ -61370,9 +61370,21 @@ function largeFileId(raw) {
 
 ;// CONCATENATED MODULE: ../b2-typescript-sdk/dist/upload/concurrency.js
 class Semaphore {
-  /** @param limit - Maximum number of concurrent acquisitions. */
+  /**
+   * @param limit - Maximum number of concurrent acquisitions. Must be a
+   *   positive integer; values `<= 0` would create a semaphore that
+   *   never lets anything through (all `acquire()` calls would queue
+   *   forever), so the constructor throws fast instead.
+   *
+   * @throws `RangeError` when `limit` is not a positive integer.
+   */
   constructor(limit) {
     this.limit = limit;
+    if (!Number.isInteger(limit) || limit <= 0) {
+      throw new RangeError(
+        `Semaphore limit must be a positive integer; received ${limit}. A non-positive limit produces a deadlocked semaphore — fail fast at construction instead.`
+      );
+    }
   }
   current = 0;
   queue = [];
@@ -61627,6 +61639,7 @@ function normalizeFileVersionListSha1(resp) {
 
 
 
+
 async function downloadById(raw, accountInfo, options) {
   const resp = await raw.downloadFileById(
     accountInfo.getDownloadUrl(),
@@ -61655,6 +61668,33 @@ async function downloadByName(raw, accountInfo, options) {
     headers,
     body: instrumentProgress(resp.body ?? emptyStream(), headers.contentLength, options.onProgress)
   };
+}
+async function headById(raw, accountInfo, options) {
+  const resp = await raw.downloadFileById(
+    accountInfo.getDownloadUrl(),
+    accountInfo.getAuthToken(),
+    options.fileId,
+    { ...toRawDownloadOptions(options), method: "HEAD" }
+  );
+  if (resp.body !== null) {
+    const body = resp.body;
+    await bestEffort(() => body.cancel());
+  }
+  return { headers: extractDownloadHeaders(resp.headers) };
+}
+async function headByName(raw, accountInfo, options) {
+  const resp = await raw.downloadFileByName(
+    accountInfo.getDownloadUrl(),
+    accountInfo.getAuthToken(),
+    options.bucketName,
+    options.fileName,
+    { ...toRawDownloadOptions(options), method: "HEAD" }
+  );
+  if (resp.body !== null) {
+    const body = resp.body;
+    await bestEffort(() => body.cancel());
+  }
+  return { headers: extractDownloadHeaders(resp.headers) };
 }
 function toRawDownloadOptions(options) {
   return {
@@ -61745,12 +61785,12 @@ function sleep(ms, signal) {
 ;// CONCATENATED MODULE: ../b2-typescript-sdk/dist/download/parallel.js
 
 
-
 function createParallelDownloadStream(raw, accountInfo, options) {
   const rangeSize = options.rangeSize ?? 10 * 1024 * 1024;
   const concurrency = options.concurrency ?? DEFAULT_TRANSFER_CONCURRENCY;
   const totalSize = options.totalSize;
   const retryOptions = { ...DEFAULT_RETRY_OPTIONS, maxRetries: options.maxRetries ?? 5 };
+  const abort = options.signal;
   const ranges = [];
   let offset = 0;
   let index = 0;
@@ -61760,47 +61800,79 @@ function createParallelDownloadStream(raw, accountInfo, options) {
     offset = end + 1;
     index++;
   }
-  const chunks = new Array(ranges.length).fill(null);
+  const windowSize = concurrency * 2;
+  const inflight = /* @__PURE__ */ new Map();
+  const buffer = /* @__PURE__ */ new Map();
+  let nextToSchedule = 0;
   let nextToEmit = 0;
-  let fetchStarted = false;
-  return new ReadableStream({
-    async start(controller) {
-      if (fetchStarted) return;
-      fetchStarted = true;
-      const sem = new Semaphore(concurrency);
-      const abort = options.signal;
-      try {
-        const tasks = ranges.map(async (range) => {
-          await sem.acquire();
-          try {
-            abort?.throwIfAborted();
-            const data = await fetchRangeWithRetry(
-              raw,
-              accountInfo,
-              options.fileId,
-              range.start,
-              range.end,
-              retryOptions,
-              abort
-            );
-            chunks[range.index] = data;
-            for (let chunk = chunks[nextToEmit]; nextToEmit < chunks.length && chunk != null; chunk = chunks[++nextToEmit]) {
-              controller.enqueue(chunk);
-              chunks[nextToEmit] = null;
-            }
-          } finally {
-            sem.release();
-          }
-        });
-        await Promise.all(tasks);
-        for (let chunk = chunks[nextToEmit]; nextToEmit < chunks.length && chunk != null; chunk = chunks[++nextToEmit]) {
-          controller.enqueue(chunk);
-          chunks[nextToEmit] = null;
+  let firstError = null;
+  function scheduleNext() {
+    while (firstError === null && // Honour abort here so a completed range that triggers a top-up
+    // doesn't queue one final fetch after the caller aborted. Without
+    // this gate, one extra range request fires post-abort before the
+    // `pull()` loop notices.
+    abort?.aborted !== true && nextToSchedule < ranges.length && inflight.size + buffer.size < windowSize) {
+      const range = ranges[nextToSchedule];
+      if (range === void 0) break;
+      const idx = nextToSchedule;
+      nextToSchedule++;
+      const task = (async () => {
+        try {
+          const data = await fetchRangeWithRetry(
+            raw,
+            accountInfo,
+            options.fileId,
+            range.start,
+            range.end,
+            retryOptions,
+            abort
+          );
+          buffer.set(idx, data);
+        } catch (err) {
+          if (firstError === null) firstError = err;
+        } finally {
+          inflight.delete(idx);
         }
-        controller.close();
+      })();
+      inflight.set(idx, task);
+    }
+  }
+  return new ReadableStream({
+    start(controller) {
+      try {
+        abort?.throwIfAborted();
+        scheduleNext();
       } catch (err) {
         controller.error(err);
       }
+    },
+    async pull(controller) {
+      try {
+        while (!buffer.has(nextToEmit)) {
+          abort?.throwIfAborted();
+          if (firstError !== null) throw firstError;
+          if (inflight.size === 0) {
+            controller.close();
+            return;
+          }
+          await Promise.race(inflight.values());
+        }
+        const data = buffer.get(nextToEmit);
+        if (data !== void 0) {
+          buffer.delete(nextToEmit);
+          nextToEmit++;
+          controller.enqueue(data);
+        }
+        scheduleNext();
+        if (nextToEmit >= ranges.length && buffer.size === 0 && inflight.size === 0 && firstError === null) {
+          controller.close();
+        }
+      } catch (err) {
+        controller.error(err);
+      }
+    },
+    cancel() {
+      buffer.clear();
     }
   });
 }
@@ -61834,21 +61906,25 @@ async function fetchRangeWithRetry(raw, accountInfo, fileId, start, end, retryOp
 }
 async function readAll(stream) {
   const reader = stream.getReader();
-  const parts = [];
-  let total = 0;
-  while (true) {
-    const { done, value } = await reader.read();
-    if (done) break;
-    parts.push(value);
-    total += value.byteLength;
+  try {
+    const parts = [];
+    let total = 0;
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      parts.push(value);
+      total += value.byteLength;
+    }
+    const result = new Uint8Array(total);
+    let offset = 0;
+    for (const part of parts) {
+      result.set(part, offset);
+      offset += part.byteLength;
+    }
+    return result;
+  } finally {
+    reader.releaseLock();
   }
-  const result = new Uint8Array(total);
-  let offset = 0;
-  for (const part of parts) {
-    result.set(part, offset);
-    offset += part.byteLength;
-  }
-  return result;
 }
 
 //# sourceMappingURL=parallel.js.map
@@ -62519,12 +62595,19 @@ class B2Object {
   async upload(options) {
     const recommendedPartSize = this.client.accountInfo.getRecommendedPartSize();
     const isLarge = options.source.size > recommendedPartSize;
-    const baseOpts = {
+    if (isLarge) {
+      return uploadLargeFile(this.client.raw, this.client.accountInfo, {
+        bucketId: this.bucket.id,
+        fileName: this.fileName,
+        ...options
+      });
+    }
+    const { resume: _resume, resumeFileId: _resumeFileId, ...smallOptions } = options;
+    return uploadSmallFile(this.client.raw, this.client.accountInfo, {
       bucketId: this.bucket.id,
       fileName: this.fileName,
-      ...options
-    };
-    return isLarge ? uploadLargeFile(this.client.raw, this.client.accountInfo, baseOpts) : uploadSmallFile(this.client.raw, this.client.accountInfo, baseOpts);
+      ...smallOptions
+    });
   }
   /**
    * Downloads this file by name. Pass `method: 'HEAD'` to fetch only the
@@ -62541,6 +62624,24 @@ class B2Object {
     });
   }
   /**
+   * Fetches response headers for this file via HTTP HEAD. Returns a
+   * body-less result so callers never have to drain the (logically
+   * empty) HEAD body themselves.
+   *
+   * @param options - Optional range, SSE-C decryption, response-header
+   *   overrides, and abort signal. Same shape as {@link B2Object.download}'s
+   *   options minus `method` (always HEAD) and `onProgress` (no body).
+   *
+   * @returns Parsed download headers (content type, SHA-1, file info, etc.).
+   */
+  async head(options) {
+    return headByName(this.client.raw, this.client.accountInfo, {
+      bucketName: this.bucket.name,
+      fileName: this.fileName,
+      ...options
+    });
+  }
+  /**
    * Downloads a specific version of this file by ID. Pass `method: 'HEAD'`
    * to fetch only the response headers (file metadata) without streaming the body.
    * @param fileId - The file version ID to download.
@@ -62550,6 +62651,23 @@ class B2Object {
    */
   async downloadById(fileId, options) {
     return downloadById(this.client.raw, this.client.accountInfo, {
+      fileId,
+      ...options
+    });
+  }
+  /**
+   * Fetches response headers for a specific version of this file by ID
+   * via HTTP HEAD. Returns a body-less result so callers never have to
+   * drain the (logically empty) HEAD body themselves.
+   *
+   * @param fileId - The file version ID to inspect.
+   * @param options - Optional range, SSE-C decryption, response-header
+   *   overrides, and abort signal.
+   *
+   * @returns Parsed download headers.
+   */
+  async headById(fileId, options) {
+    return headById(this.client.raw, this.client.accountInfo, {
       fileId,
       ...options
     });
@@ -62731,9 +62849,10 @@ class Bucket {
         ...options
       });
     }
+    const { resume: _resume, resumeFileId: _resumeFileId, ...smallOptions } = options;
     return uploadSmallFile(this.client.raw, this.client.accountInfo, {
       bucketId: this.id,
-      ...options
+      ...smallOptions
     });
   }
   /**
@@ -62753,6 +62872,35 @@ class Bucket {
     });
   }
   /**
+   * Fetches the response headers (file metadata) for a file via HTTP
+   * HEAD. Returns a body-less result so callers never have to drain
+   * the (logically empty) HEAD body themselves.
+   *
+   * Use this for metadata-only checks like "does this file exist", "what
+   * is its current SHA-1", "what is its Content-Length". For full file
+   * retrieval use {@link Bucket.download}.
+   *
+   * @param fileName - The file name (path) to inspect.
+   * @param options - Optional range, SSE-C decryption, response-header
+   *   overrides, and abort signal. Same shape as {@link Bucket.download}'s
+   *   options minus `method` (always HEAD) and `onProgress` (no body).
+   *
+   * @returns Parsed download headers (content type, SHA-1, file info, etc.).
+   *
+   * @example
+   * ```ts
+   * const { headers } = await bucket.head('photos/2026/sunset.jpg')
+   * console.log(headers.contentLength, headers.contentSha1)
+   * ```
+   */
+  async head(fileName, options) {
+    return headByName(this.client.raw, this.client.accountInfo, {
+      bucketName: this.name,
+      fileName,
+      ...options
+    });
+  }
+  /**
    * Lists file names in this bucket (most recent versions only).
    * @param options - Optional filtering and pagination settings.
    *
@@ -62765,7 +62913,7 @@ class Bucket {
       {
         bucketId: this.id,
         ...options?.startFileName !== void 0 ? { startFileName: options.startFileName } : {},
-        ...options?.maxFileCount !== void 0 ? { maxFileCount: options.maxFileCount } : {},
+        ...options?.pageSize !== void 0 ? { maxFileCount: options.pageSize } : {},
         ...options?.prefix !== void 0 ? { prefix: options.prefix } : {},
         ...options?.delimiter !== void 0 ? { delimiter: options.delimiter } : {}
       }
@@ -62781,7 +62929,14 @@ class Bucket {
     return this.client.raw.listFileVersions(
       this.client.accountInfo.getApiUrl(),
       this.client.accountInfo.getAuthToken(),
-      { bucketId: this.id, ...options }
+      {
+        bucketId: this.id,
+        ...options?.startFileName !== void 0 ? { startFileName: options.startFileName } : {},
+        ...options?.startFileId !== void 0 ? { startFileId: options.startFileId } : {},
+        ...options?.pageSize !== void 0 ? { maxFileCount: options.pageSize } : {},
+        ...options?.prefix !== void 0 ? { prefix: options.prefix } : {},
+        ...options?.delimiter !== void 0 ? { delimiter: options.delimiter } : {}
+      }
     );
   }
   /**
@@ -62809,7 +62964,7 @@ class Bucket {
     return paginateItems(
       async (cursor) => {
         const resp = await this.listFileNames({
-          maxFileCount: options?.pageSize ?? 1e3,
+          pageSize: options?.pageSize ?? 1e3,
           ...cursor !== void 0 ? { startFileName: cursor } : {},
           ...options?.prefix !== void 0 ? { prefix: options.prefix } : {},
           ...options?.delimiter !== void 0 ? { delimiter: options.delimiter } : {}
@@ -62840,7 +62995,7 @@ class Bucket {
     return paginateItems(
       async (cursor) => {
         const resp = await this.listFileVersions({
-          maxFileCount: options?.pageSize ?? 1e3,
+          pageSize: options?.pageSize ?? 1e3,
           ...cursor !== void 0 ? { startFileName: cursor.fileName } : {},
           ...cursor?.fileId !== void 0 ? { startFileId: cursor.fileId } : {},
           ...options?.prefix !== void 0 ? { prefix: options.prefix } : {},
@@ -62870,7 +63025,7 @@ class Bucket {
     return paginateItems(
       async (cursor) => {
         const resp = await this.listUnfinishedLargeFiles({
-          maxFileCount: options?.pageSize ?? 100,
+          pageSize: options?.pageSize ?? 100,
           ...cursor !== void 0 ? { startFileId: cursor } : {},
           ...options?.namePrefix !== void 0 ? { namePrefix: options.namePrefix } : {}
         });
@@ -62917,7 +63072,7 @@ class Bucket {
    * @returns The latest {@link FileVersion}, or `null` if not found.
    */
   async getFileInfoByName(fileName) {
-    const resp = await this.listFileNames({ prefix: fileName, maxFileCount: 1 });
+    const resp = await this.listFileNames({ prefix: fileName, pageSize: 1 });
     const match = resp.files.find((f) => f.fileName === fileName);
     if (!match || match.action === "hide") return null;
     return match;
@@ -62931,7 +63086,7 @@ class Bucket {
    * @returns The deleted hide marker version, or `null` if nothing was hidden.
    */
   async unhideFile(fileName) {
-    const resp = await this.listFileVersions({ prefix: fileName, maxFileCount: 100 });
+    const resp = await this.listFileVersions({ prefix: fileName, pageSize: 100 });
     const versions = resp.files.filter((f) => f.fileName === fileName);
     if (versions.length === 0) return null;
     const latest = versions[0];
@@ -63006,7 +63161,7 @@ class Bucket {
         bucketId: this.id,
         ...options?.namePrefix !== void 0 ? { namePrefix: options.namePrefix } : {},
         ...options?.startFileId !== void 0 ? { startFileId: options.startFileId } : {},
-        ...options?.maxFileCount !== void 0 ? { maxFileCount: options.maxFileCount } : {}
+        ...options?.pageSize !== void 0 ? { maxFileCount: options.pageSize } : {}
       }
     );
   }
@@ -63014,23 +63169,36 @@ class Bucket {
    * Deletes many file versions with bounded concurrency. Errors from individual
    * deletes are collected and returned rather than thrown, so partial success
    * does not abort the run.
+   *
+   * When `options.signal` is supplied and aborted, in-flight deletes
+   * complete (they're already on the wire), but no new deletes start
+   * after the abort fires. Subsequent targets are short-circuited to an
+   * error entry so the result tally reflects what actually happened.
    * @param targets - File versions to delete.
-   * @param options - Optional concurrency override. Defaults to the
-   *   SDK-wide bulk-metadata concurrency setting (currently 10, higher
-   *   than the transfer-concurrency default because each task is a
-   *   single tiny API round-trip).
+   * @param options - Optional concurrency override and abort signal.
+   *   Concurrency defaults to the SDK-wide bulk-metadata setting
+   *   (currently 10, higher than transfer concurrency because each
+   *   task is a single tiny API round-trip).
    *
    * @returns A summary of successes and per-target errors.
    */
   async deleteMany(targets, options) {
     const concurrency = options?.concurrency ?? DEFAULT_BULK_CONCURRENCY;
     const sem = new Semaphore(concurrency);
+    const signal = options?.signal;
     let deleted = 0;
     const errors = [];
     await Promise.all(
       targets.map(async (target) => {
         await sem.acquire();
         try {
+          if (signal?.aborted) {
+            errors.push({
+              target,
+              error: signal.reason instanceof Error ? signal.reason : new Error(String(signal.reason ?? "aborted"))
+            });
+            return;
+          }
           await this.deleteFileVersion(target.fileName, target.fileId);
           deleted++;
         } catch (err) {
@@ -63061,7 +63229,7 @@ class Bucket {
     let startFileId;
     while (true) {
       const page = await this.listFileVersions({
-        maxFileCount: pageSize,
+        pageSize,
         ...options?.prefix !== void 0 ? { prefix: options.prefix } : {},
         ...startFileName !== void 0 ? { startFileName } : {},
         ...startFileId !== void 0 ? { startFileId } : {}
@@ -63878,7 +64046,7 @@ class RetryTransport {
   inner;
   /** Resolved retry options (defaults merged with user overrides). */
   options;
-  /** Optional callback to refresh auth credentials on 401. */
+  /** Optional callback to refresh auth credentials on 401 — returns the fresh token. */
   onReauth;
   /** Sleep implementation used between retries; injectable for tests. */
   sleepImpl;
@@ -63895,11 +64063,14 @@ class RetryTransport {
   /**
    * Sends the request with automatic retry on transient failures.
    * On expired auth tokens, calls {@link RetryTransportOptions.onReauth} and retries.
-   * @param request - The HTTP request to execute.
+   * @param originalRequest - The HTTP request to execute. The caller's
+   *   reference is not mutated; on reauth, a copy with a refreshed
+   *   Authorization header is sent.
    *
    * @returns The HTTP response.
    */
-  async send(request) {
+  async send(originalRequest) {
+    let request = originalRequest;
     let lastError;
     for (let attempt = 0; attempt <= this.options.maxRetries; attempt++) {
       if (attempt > 0 && lastError) {
@@ -63930,7 +64101,11 @@ class RetryTransport {
           ...requestId !== void 0 ? { requestId } : {}
         });
         if (error instanceof ExpiredAuthTokenError && this.onReauth) {
-          await this.onReauth();
+          const freshToken = await this.onReauth();
+          request = {
+            ...request,
+            headers: { ...request.headers ?? {}, Authorization: freshToken }
+          };
           continue;
         }
         if (!error.retryable || attempt === this.options.maxRetries) {
@@ -64650,9 +64825,17 @@ class B2Client {
     }
     return auth;
   }
+  /**
+   * Refresh credentials after a 401. Returns the fresh auth token so
+   * {@link RetryTransport} can rewrite the in-flight request's
+   * Authorization header before retrying.
+   *
+   * @returns The fresh authorization token.
+   */
   async reauthorize() {
     this.accountInfo.clear();
-    await this.authorize();
+    const auth = await this.authorize();
+    return auth.authorizationToken;
   }
   /**
    * Creates a new B2 bucket.
@@ -64732,7 +64915,8 @@ class B2Client {
   async listKeys(options) {
     return this.raw.listKeys(this.accountInfo.getApiUrl(), this.accountInfo.getAuthToken(), {
       accountId: accountId(this.accountInfo.getAccountId()),
-      ...options
+      ...options?.pageSize !== void 0 ? { maxKeyCount: options.pageSize } : {},
+      ...options?.startApplicationKeyId !== void 0 ? { startApplicationKeyId: options.startApplicationKeyId } : {}
     });
   }
   /**
@@ -64755,7 +64939,7 @@ class B2Client {
     return paginateItems(
       async (cursor) => {
         const resp = await this.listKeys({
-          maxKeyCount: options?.pageSize ?? 1e3,
+          pageSize: options?.pageSize ?? 1e3,
           ...cursor !== void 0 ? { startApplicationKeyId: cursor } : {}
         });
         return { page: resp, nextCursor: resp.nextApplicationKeyId ?? void 0 };
@@ -64874,7 +65058,7 @@ async function getBucket(authorized) {
  *   the action's destination bucket (cross-bucket copy).
  */
 async function findFileByName(bucket, fileName, bucketDisplayName) {
-    const page = await bucket.listFileNames({ prefix: fileName, maxFileCount: 1 });
+    const page = await bucket.listFileNames({ prefix: fileName, pageSize: 1 });
     const hit = page.files.find((f) => f.fileName === fileName && f.action === 'upload');
     if (!hit) {
         throw new Error(`File not found in bucket "${bucketDisplayName ?? bucket.name}": ${fileName}`);
@@ -64918,14 +65102,10 @@ function parseSse(raw) {
         if (base64Key === '') {
             throw new Error("SSE-C key is empty. Use 'C:<base64-encoded-32-byte-key>'.");
         }
-        let keyBytes;
-        try {
-            keyBytes = external_node_buffer_.Buffer.from(base64Key, 'base64');
-            /* v8 ignore next 3 -- Node's Buffer.from with 'base64' silently drops invalid chars rather than throwing; the catch is defensive in case the behavior tightens in a future Node version */
-        }
-        catch (err) {
-            throw new Error(`SSE-C key is not valid base64: ${err.message}`);
-        }
+        // Node's `Buffer.from(str, 'base64')` silently drops invalid chars rather
+        // than throwing; malformed keys surface as wrong-length output and get
+        // caught by the byteLength check below.
+        const keyBytes = external_node_buffer_.Buffer.from(base64Key, 'base64');
         if (keyBytes.byteLength !== 32) {
             throw new Error(`SSE-C key must decode to exactly 32 bytes (256 bits); got ${keyBytes.byteLength}.`);
         }
@@ -65356,13 +65536,16 @@ async function downloadPrefix(bucket, prefix, destinationDir, sseDownload) {
     for (;;) {
         const page = await bucket.listFileNames({
             prefix,
-            maxFileCount: 1000,
+            pageSize: 1000,
             ...(startFileName !== undefined ? { startFileName } : {}),
         });
         for (const f of page.files) {
             if (f.action !== 'upload')
                 continue;
-            const relName = f.fileName.startsWith(prefix) ? f.fileName.slice(prefix.length) : f.fileName;
+            // `listFileNames({ prefix })` returns files matching `prefix` per the
+            // SDK / B2 contract, so the slice is always safe. Empty `prefix`
+            // leaves the name unchanged.
+            const relName = f.fileName.slice(prefix.length);
             const localPath = (0,external_node_path_.join)(destRoot, ...relName.split(external_node_path_.posix.sep));
             core.startGroup(`download b2://${bucket.name}/${f.fileName} → ${localPath}`);
             try {
@@ -65374,12 +65557,13 @@ async function downloadPrefix(bucket, prefix, destinationDir, sseDownload) {
                 core.endGroup();
             }
         }
-        if (page.nextFileName === null || page.nextFileName === undefined)
+        // SDK contract: `nextFileName` is `string | null` per `ListFileNamesResponse`.
+        // The "not null" arm fires for prefixes with >1000 files (covered by
+        // the real-pagination test in coverage-stress).
+        if (page.nextFileName === null)
             break;
-        /* v8 ignore start -- known coverage gap: real B2 pagination path. Fires when >1000 files share the prefix. Documented in DEVELOPMENT.md "Known coverage gaps"; not exercised because seeding 1001 files would dominate suite runtime. */
         startFileName = page.nextFileName;
     }
-    /* v8 ignore stop */
     return { files, bytesTransferred: total };
 }
 async function downloadOne(bucket, fileName, destination, sseDownload) {
@@ -65398,10 +65582,13 @@ async function downloadOne(bucket, fileName, destination, sseDownload) {
     let bytesSeen = 0;
     const counter = new external_node_stream_.Transform({
         transform(chunk, _enc, cb) {
+            // The transform only runs when the body has bytes to push; for a zero-
+            // length response Node's stream pipeline closes without invoking it,
+            // so `size` is provably > 0 here.
             bytesSeen += chunk.length;
             onProgress({
                 bytesTransferred: bytesSeen,
-                totalBytes: size > 0 ? size : null,
+                totalBytes: size,
                 partsCompleted: 0,
                 totalParts: null,
                 elapsedMs: Date.now() - startedAt,
@@ -65415,7 +65602,12 @@ async function downloadOne(bucket, fileName, destination, sseDownload) {
     return { fileName, localPath, size, contentSha1: sha1 };
 }
 async function resolveLocalPath(fileName, destination) {
-    const tail = fileName.split(external_node_path_.posix.sep).pop() ?? fileName;
+    // `fileName` is always non-empty (validated by `requireSource` in the
+    // dispatcher), so `String.split` returns at least one element and `pop`
+    // never returns undefined. The non-null assertion encodes that invariant
+    // without a defensive fallback that v8 would flag as a dead branch.
+    // biome-ignore lint/style/noNonNullAssertion: split on a non-empty string never returns an empty array.
+    const tail = fileName.split(external_node_path_.posix.sep).pop();
     if (destination === undefined || destination === '') {
         return (0,external_node_path_.resolve)(tail);
     }
@@ -65453,17 +65645,9 @@ async function headCommand(bucket, inputs) {
     const source = requireSource(inputs.source, 'head', 'the B2 file name');
     core.startGroup(`head b2://${bucket.name}/${source}`);
     try {
-        const result = await bucket.download(source, { method: 'HEAD' });
-        // Drain any (empty) HEAD body so the underlying response can be released.
-        try {
-            await result.body.cancel();
-            /* v8 ignore next 3 -- defensive: SDK's HEAD response body sometimes has nothing to cancel */
-        }
-        catch {
-            // Ignored: HEAD responses may have no body to cancel.
-        }
-        const h = result.headers;
-        // SDK normalizes multipart `'none'` to `null` at the boundary.
+        // `bucket.head` returns only the parsed response headers; no body to
+        // drain. The SDK normalizes multipart `'none'` to `null` at the boundary.
+        const { headers: h } = await bucket.head(source);
         core.info(`  size=${h.contentLength} type=${h.contentType} sha1=${h.contentSha1 ?? 'multipart'}`);
         return {
             fileName: h.fileName,
@@ -65533,7 +65717,7 @@ async function listCommand(bucket, inputs) {
             const pageSize = Math.min(1000, remaining);
             const page = await bucket.listFileNames({
                 prefix,
-                maxFileCount: pageSize,
+                pageSize,
                 ...(startFileName !== undefined ? { startFileName } : {}),
             });
             for (const f of page.files) {
@@ -65573,8 +65757,8 @@ function createS3ClientConfig(config) {
     endpoint: s3Url,
     region,
     credentials: {
-      accessKeyId: config.accountInfo.getAccountId(),
-      secretAccessKey: config.accountInfo.getAuthToken()
+      accessKeyId: config.applicationKeyId,
+      secretAccessKey: config.applicationKey
     },
     forcePathStyle: true
   };
@@ -65627,7 +65811,7 @@ async function presignPrefix(client, bucket, inputs, prefix) {
             const remaining = inputs.maxResults - files.length;
             const page = await bucket.listFileNames({
                 prefix,
-                maxFileCount: Math.min(1000, remaining),
+                pageSize: Math.min(1000, remaining),
                 ...(startFileName !== undefined ? { startFileName } : {}),
             });
             for (const f of page.files) {
@@ -65767,9 +65951,19 @@ async function retentionCommand(bucket, inputs) {
     core.startGroup(`retention b2://${bucket.name}/${source}`);
     try {
         if (mode !== undefined) {
-            const retainUntilMillis = mode === 'none' ? null : until !== undefined ? Date.parse(until) : null;
-            if (mode !== 'none' && (retainUntilMillis === null || Number.isNaN(retainUntilMillis))) {
-                throw new Error(`'retention-until' is not a valid ISO 8601 timestamp: "${until}"`);
+            // Resolve the retention expiration. The guard at the top of this
+            // function already enforced `until !== undefined` for non-`none`
+            // modes, so we only handle the two remaining branches here.
+            let retainUntilMillis;
+            if (mode === 'none') {
+                retainUntilMillis = null;
+            }
+            else {
+                const parsed = Date.parse(until);
+                if (Number.isNaN(parsed)) {
+                    throw new Error(`'retention-until' is not a valid ISO 8601 timestamp: "${until}"`);
+                }
+                retainUntilMillis = parsed;
             }
             const result = await bucket.updateFileRetention(source, hit.fileId, {
                 mode: mode === 'none' ? null : mode,
@@ -65930,21 +66124,25 @@ class StreamSource {
    */
   async toArrayBuffer() {
     const reader = this.stream().getReader();
-    const chunks = [];
-    let totalLen = 0;
-    while (true) {
-      const { done, value } = await reader.read();
-      if (done) break;
-      chunks.push(value);
-      totalLen += value.byteLength;
+    try {
+      const chunks = [];
+      let totalLen = 0;
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        chunks.push(value);
+        totalLen += value.byteLength;
+      }
+      const result = new Uint8Array(totalLen);
+      let offset = 0;
+      for (const chunk of chunks) {
+        result.set(chunk, offset);
+        offset += chunk.byteLength;
+      }
+      return result.buffer;
+    } finally {
+      reader.releaseLock();
     }
-    const result = new Uint8Array(totalLen);
-    let offset = 0;
-    for (const chunk of chunks) {
-      result.set(chunk, offset);
-      offset += chunk.byteLength;
-    }
-    return result.buffer;
   }
 }
 function toContentSource(input, size) {
@@ -66374,19 +66572,24 @@ function createActionFactory(config) {
       return new DownloadAction(source.relativePath, source.size, async (relPath) => {
         const result = await bucket.download(source.selectedVersion.fileName);
         const reader = result.body.getReader();
-        const chunks = [];
-        while (true) {
-          const { done, value } = await reader.read();
-          if (done) break;
-          chunks.push(value);
-        }
-        let total = 0;
-        for (const c of chunks) total += c.byteLength;
-        const combined = new Uint8Array(total);
-        let offset = 0;
-        for (const c of chunks) {
-          combined.set(c, offset);
-          offset += c.byteLength;
+        let combined;
+        try {
+          const chunks = [];
+          while (true) {
+            const { done, value } = await reader.read();
+            if (done) break;
+            chunks.push(value);
+          }
+          let total = 0;
+          for (const c of chunks) total += c.byteLength;
+          combined = new Uint8Array(total);
+          let offset = 0;
+          for (const c of chunks) {
+            combined.set(c, offset);
+            offset += c.byteLength;
+          }
+        } finally {
+          reader.releaseLock();
         }
         const { mkdir, writeFile } = await Promise.resolve(/* import() */).then(__nccwpck_require__.t.bind(__nccwpck_require__, 1455, 19));
         const { dirname, join } = await Promise.resolve(/* import() */).then(__nccwpck_require__.t.bind(__nccwpck_require__, 6760, 19));
@@ -66416,11 +66619,12 @@ function createActionFactory(config) {
     deleteRemote(path) {
       const bucket = upConfig.bucket ?? downConfig.bucket;
       assertBucket(bucket, "delete");
+      const b2FileName = path.selectedVersion.fileName;
       return new DeleteRemoteAction(
         path.relativePath,
         path.selectedVersion.fileId,
-        async (fileId$1, fileName) => {
-          await bucket.deleteFileVersion(fileName, fileId(fileId$1));
+        async (fileId$1) => {
+          await bucket.deleteFileVersion(b2FileName, fileId(fileId$1));
         }
       );
     },
@@ -66583,6 +66787,57 @@ class B2Folder {
 
 
 /**
+ * Apply one `SyncEvent` from the SDK's `synchronize()` stream to the running
+ * counters and emit the corresponding log line. The action's `syncCommand`
+ * calls this in a loop; the function is exported (and the {@link SyncEventCounters}
+ * type with it) so tests can exercise every event variant independently,
+ * including the `copy-*` events that require b2-to-b2 sync to fire from the
+ * real engine.
+ *
+ * Informational lifecycle events (`upload-start`, `compare`, etc.) are
+ * deliberate no-ops; listing them explicitly keeps the switch exhaustive
+ * so TypeScript errors if the SDK adds a new variant.
+ */
+function processSyncEvent(event, counters) {
+    switch (event.type) {
+        case 'upload-done':
+            counters.uploaded++;
+            counters.bytesTransferred += event.size;
+            core.info(`  ↑ ${event.path} (${event.size}B)`);
+            return;
+        case 'download-done':
+            counters.downloaded++;
+            counters.bytesTransferred += event.size;
+            core.info(`  ↓ ${event.path} (${event.size}B)`);
+            return;
+        case 'delete-remote':
+            counters.deleted++;
+            core.info(`  − ${event.path}`);
+            return;
+        case 'delete-local':
+            counters.deleted++;
+            core.info(`  − (local) ${event.path}`);
+            return;
+        case 'hide':
+            counters.deleted++;
+            core.info(`  ⌀ ${event.path} (hidden)`);
+            return;
+        case 'skip':
+            counters.skipped++;
+            return;
+        case 'error':
+            counters.errors++;
+            core.warning(`  ! ${event.path}: ${event.message}`);
+            return;
+        case 'upload-start':
+        case 'compare':
+        case 'download-start':
+        case 'copy-start':
+        case 'copy-done':
+            return;
+    }
+}
+/**
  * Sync a local directory to / from a B2 bucket prefix.
  *
  * Direction is determined by the `direction` input (`up` = local → B2,
@@ -66604,57 +66859,24 @@ async function syncCommand(bucket, inputs) {
         `→ ${direction === 'local-to-b2' ? `b2://${bucket.name}/${inputs.destination ?? ''}` : (inputs.destination ?? '.')} ` +
         `(compare=${compareMode}, keep=${keepMode}${dryRun ? ', dry-run' : ''})`);
     const events = [];
-    let uploaded = 0;
-    let downloaded = 0;
-    let deleted = 0;
-    let skipped = 0;
-    let errors = 0;
-    let bytesTransferred = 0;
+    const counters = {
+        uploaded: 0,
+        downloaded: 0,
+        deleted: 0,
+        skipped: 0,
+        errors: 0,
+        bytesTransferred: 0,
+    };
     try {
         for await (const event of synchronize(config)) {
             events.push(event);
-            switch (event.type) {
-                case 'upload-done':
-                    uploaded++;
-                    bytesTransferred += event.size;
-                    core.info(`  ↑ ${event.path} (${event.size}B)`);
-                    break;
-                case 'download-done':
-                    downloaded++;
-                    bytesTransferred += event.size;
-                    core.info(`  ↓ ${event.path} (${event.size}B)`);
-                    break;
-                case 'delete-remote':
-                    deleted++;
-                    core.info(`  − ${event.path}`);
-                    break;
-                case 'delete-local':
-                    deleted++;
-                    core.info(`  − (local) ${event.path}`);
-                    break;
-                case 'hide':
-                    deleted++;
-                    core.info(`  ⌀ ${event.path} (hidden)`);
-                    break;
-                case 'skip':
-                    skipped++;
-                    break;
-                case 'error':
-                    errors++;
-                    core.warning(`  ! ${event.path}: ${event.message}`);
-                    break;
-                case 'upload-start':
-                case 'compare':
-                case 'download-start':
-                case 'copy-start':
-                case 'copy-done':
-                    break;
-            }
+            processSyncEvent(event, counters);
         }
     }
     finally {
         core.endGroup();
     }
+    const { uploaded, downloaded, deleted, skipped, errors, bytesTransferred } = counters;
     core.info(`sync done [${direction}]: ${uploaded} uploaded, ${downloaded} downloaded, ${deleted} removed, ${skipped} unchanged, ${errors} errors`);
     return {
         events,
@@ -66826,9 +67048,8 @@ async function resolveFiles(source, include, exclude) {
     const out = [];
     for (const m of matches) {
         const s = await upload_tryStat(m);
-        // Filesystem boundary: the globber lists what's there at glob time; the
-        // file may be unlinked, renamed, or become a permission error between
-        // here and `stat`. Skip silently rather than crash the whole upload.
+        // Filesystem boundary: skip entries that aren't readable files (broken
+        // symlinks, races where a file is unlinked between glob and stat, etc.).
         if (!s?.isFile())
             continue;
         const rel = (0,external_node_path_.relative)(root, m).split(external_node_path_.sep).join(external_node_path_.posix.sep);
@@ -66913,17 +67134,11 @@ async function verifyCommand(bucket, inputs) {
     const source = requireSource(inputs.source, 'verify', 'the B2 file name');
     core.startGroup(`verify b2://${bucket.name}/${source}`);
     try {
-        const head = await bucket.download(source, { method: 'HEAD' });
-        const remoteSize = head.headers.contentLength;
-        const remoteSha1 = head.headers.contentSha1;
-        // Drain the (empty) HEAD body to free the underlying response.
-        try {
-            await head.body.cancel();
-            /* v8 ignore next 3 -- defensive: SDK's HEAD response body sometimes has nothing to cancel */
-        }
-        catch {
-            // Ignored: HEAD responses may have no body to cancel.
-        }
+        // `bucket.head` returns only the parsed response headers; no body to
+        // drain. The SDK normalizes multipart `'none'` to `null` at the boundary.
+        const { headers } = await bucket.head(source);
+        const remoteSize = headers.contentLength;
+        const remoteSha1 = headers.contentSha1;
         let localSha1 = null;
         let expected = inputs.expectedSha1 ?? null;
         if (expected === null && inputs.destination !== undefined && inputs.destination !== '') {
@@ -67007,9 +67222,12 @@ async function writeStepSummary(opts) {
     lines.push('');
     try {
         await (0,promises_.appendFile)(path, `${lines.join('\n')}\n`);
-        /* v8 ignore next 3 -- defensive: only fires if $GITHUB_STEP_SUMMARY points at an unwritable path */
     }
     catch (err) {
+        // $GITHUB_STEP_SUMMARY might point at an unwritable path (e.g. a
+        // directory, or a file the runner lacks permission to extend). The
+        // summary is informational; degrading to a warning is better than
+        // failing an otherwise-successful step.
         core.warning(`Failed to write step summary: ${err.message}`);
     }
 }

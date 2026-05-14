@@ -118,9 +118,8 @@ async function resolveFiles(
   const out: ResolvedFile[] = []
   for (const m of matches) {
     const s = await tryStat(m)
-    // Filesystem boundary: the globber lists what's there at glob time; the
-    // file may be unlinked, renamed, or become a permission error between
-    // here and `stat`. Skip silently rather than crash the whole upload.
+    // Filesystem boundary: skip entries that aren't readable files (broken
+    // symlinks, races where a file is unlinked between glob and stat, etc.).
     if (!s?.isFile()) continue
     const rel = relative(root, m).split(sep).join(posix.sep)
     out.push({ localPath: m, fileName: rel })

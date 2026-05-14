@@ -95,7 +95,7 @@ export async function findFileByName(
   fileName: string,
   bucketDisplayName?: string,
 ): Promise<FileVersion> {
-  const page = await bucket.listFileNames({ prefix: fileName, maxFileCount: 1 })
+  const page = await bucket.listFileNames({ prefix: fileName, pageSize: 1 })
   const hit = page.files.find((f) => f.fileName === fileName && f.action === 'upload')
   if (!hit) {
     throw new Error(`File not found in bucket "${bucketDisplayName ?? bucket.name}": ${fileName}`)

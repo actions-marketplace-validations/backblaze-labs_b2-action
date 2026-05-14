@@ -34,16 +34,9 @@ export async function headCommand(bucket: Bucket, inputs: ParsedInputs): Promise
 
   core.startGroup(`head b2://${bucket.name}/${source}`)
   try {
-    const result = await bucket.download(source, { method: 'HEAD' })
-    // Drain any (empty) HEAD body so the underlying response can be released.
-    try {
-      await result.body.cancel()
-      /* v8 ignore next 3 -- defensive: SDK's HEAD response body sometimes has nothing to cancel */
-    } catch {
-      // Ignored: HEAD responses may have no body to cancel.
-    }
-    const h = result.headers
-    // SDK normalizes multipart `'none'` to `null` at the boundary.
+    // `bucket.head` returns only the parsed response headers; no body to
+    // drain. The SDK normalizes multipart `'none'` to `null` at the boundary.
+    const { headers: h } = await bucket.head(source)
     core.info(
       `  size=${h.contentLength} type=${h.contentType} sha1=${h.contentSha1 ?? 'multipart'}`,
     )

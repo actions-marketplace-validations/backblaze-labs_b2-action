@@ -66,10 +66,18 @@ export async function retentionCommand(
   core.startGroup(`retention b2://${bucket.name}/${source}`)
   try {
     if (mode !== undefined) {
-      const retainUntilMillis =
-        mode === 'none' ? null : until !== undefined ? Date.parse(until) : null
-      if (mode !== 'none' && (retainUntilMillis === null || Number.isNaN(retainUntilMillis))) {
-        throw new Error(`'retention-until' is not a valid ISO 8601 timestamp: "${until}"`)
+      // Resolve the retention expiration. The guard at the top of this
+      // function already enforced `until !== undefined` for non-`none`
+      // modes, so we only handle the two remaining branches here.
+      let retainUntilMillis: number | null
+      if (mode === 'none') {
+        retainUntilMillis = null
+      } else {
+        const parsed = Date.parse(until as string)
+        if (Number.isNaN(parsed)) {
+          throw new Error(`'retention-until' is not a valid ISO 8601 timestamp: "${until}"`)
+        }
+        retainUntilMillis = parsed
       }
       const result = await bucket.updateFileRetention(source, hit.fileId, {
         mode: mode === 'none' ? null : mode,

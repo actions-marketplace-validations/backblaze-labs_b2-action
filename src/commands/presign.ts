@@ -69,7 +69,7 @@ async function presignPrefix(
       const remaining = inputs.maxResults - files.length
       const page = await bucket.listFileNames({
         prefix,
-        maxFileCount: Math.min(1000, remaining),
+        pageSize: Math.min(1000, remaining),
         ...(startFileName !== undefined ? { startFileName } : {}),
       })
       for (const f of page.files) {

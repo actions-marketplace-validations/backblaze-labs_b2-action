@@ -75,8 +75,11 @@ export async function writeStepSummary(opts: {
 
   try {
     await appendFile(path, `${lines.join('\n')}\n`)
-    /* v8 ignore next 3 -- defensive: only fires if $GITHUB_STEP_SUMMARY points at an unwritable path */
   } catch (err) {
+    // $GITHUB_STEP_SUMMARY might point at an unwritable path (e.g. a
+    // directory, or a file the runner lacks permission to extend). The
+    // summary is informational; degrading to a warning is better than
+    // failing an otherwise-successful step.
     core.warning(`Failed to write step summary: ${(err as Error).message}`)
   }
 }

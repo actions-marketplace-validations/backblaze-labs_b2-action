@@ -11,7 +11,7 @@
  * load-bearing assertion for any happy-path behavior.
  */
 
-import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises'
+import { mkdir, mkdtemp, rm, symlink, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import * as core from '@actions/core'
@@ -25,7 +25,7 @@ import { listCommand } from '../src/commands/list.ts'
 import { presignCommand } from '../src/commands/presign.ts'
 import { purgeCommand } from '../src/commands/purge.ts'
 import { retentionCommand } from '../src/commands/retention.ts'
-import { syncCommand } from '../src/commands/sync.ts'
+import { type SyncEventCounters, processSyncEvent, syncCommand } from '../src/commands/sync.ts'
 import { unhideCommand } from '../src/commands/unhide.ts'
 import { uploadCommand } from '../src/commands/upload.ts'
 import { verifyCommand } from '../src/commands/verify.ts'
@@ -789,11 +789,13 @@ describe('sync: orphan deletion (local-to-b2)', () => {
   })
 
   it('emits a single delete-remote per orphan on a vanilla (no-lock) bucket', async () => {
-    // Seed a remote-only file at the bucket root; sync up with `delete`
-    // keep-mode. Because the bucket is vanilla `allPrivate` (no file lock),
-    // the SDK's `removeOrphan` factory routes to `deleteRemote` (not `hide`)
-    // and yields exactly one `delete-remote` event per orphan.
-    await seedFile(fx, 'orphan.txt', 'will be removed by sync')
+    // Seed a remote-only file under a destination prefix; sync up with
+    // `delete` keep-mode. Because the bucket is vanilla `allPrivate` (no
+    // file lock), the SDK's `removeOrphan` factory routes to `deleteRemote`
+    // (not `hide`) and yields exactly one `delete-remote` event per orphan.
+    // The SDK's deleteRemote factory uses `path.selectedVersion.fileName`
+    // (the authoritative B2 key) so prefixed orphans delete correctly.
+    await seedFile(fx, 'site/orphan.txt', 'will be removed by sync')
 
     const localSrc = join(fx.workDir, 'src')
     await mkdir(localSrc, { recursive: true })
@@ -803,6 +805,7 @@ describe('sync: orphan deletion (local-to-b2)', () => {
       fx.bucket,
       makeInputs('sync', fx, {
         source: localSrc,
+        destination: 'site',
         syncDirection: 'up',
         keepMode: 'delete',
       }),
@@ -830,15 +833,15 @@ describe('sync: orphan removal on a locked bucket yields hide events', () => {
   let fx: TestFixture
   beforeEach(async () => {
     fx = await makeFixture('gh-action-stress-sync-locked-orphan')
-    // Mutate the cached bucket info directly so the synchronizer's
-    // `removeOrphan` factory reads `isFileLockEnabled: true`. Matches the
-    // pattern in the SDK's own `src/sync/synchronizer.test.ts` because the
-    // simulator's `createBucket({ fileLockEnabled: true })` doesn't yet
-    // propagate the flag into `info.fileLockConfiguration`.
-    const info = fx.bucket.info as {
-      fileLockConfiguration: { value: { isFileLockEnabled: boolean } }
-    }
-    info.fileLockConfiguration.value.isFileLockEnabled = true
+    // Recreate as a fileLock-enabled bucket. The simulator now propagates
+    // the flag into `info.fileLockConfiguration.value.isFileLockEnabled`,
+    // so the synchronizer's `removeOrphan` factory picks the `hide` branch.
+    await fx.bucket.delete()
+    fx.bucket = await fx.client.createBucket({
+      bucketName: 'gh-action-stress-sync-locked-orphan',
+      bucketType: 'allPrivate',
+      fileLockEnabled: true,
+    })
   })
   afterEach(async () => {
     await rm(fx.workDir, { recursive: true, force: true })
@@ -1484,6 +1487,293 @@ describe('sync: handles empty prefix (bucket root) in both directions', () => {
     )
     expect(result.direction).toBe('b2-to-local')
     expect(result.downloaded).toBeGreaterThanOrEqual(1)
+  })
+})
+
+// =========================================================================
+// download: empty file (size=0) exercises the `totalBytes: size > 0 ? size
+// : null` branch in the progress-event Transform.
+// =========================================================================
+
+describe('download: empty (size=0) file round-trip', () => {
+  let fx: TestFixture
+  beforeEach(async () => {
+    fx = await makeFixture('gh-action-dl-empty')
+  })
+  afterEach(async () => {
+    await rm(fx.workDir, { recursive: true, force: true })
+  })
+
+  it('reports `totalBytes: null` in progress events for a zero-byte file', async () => {
+    await seedFile(fx, 'empty.txt', '')
+    const result = await downloadCommand(
+      fx.bucket,
+      makeInputs('download', fx, { source: 'empty.txt', destination: fx.workDir }),
+    )
+    expect(result.files[0]?.size).toBe(0)
+  })
+})
+
+// =========================================================================
+// download: multipart file logs `sha1=multipart` (the `sha1 ?? 'multipart'`
+// branch in the per-file log line).
+// =========================================================================
+
+describe('download: multipart file logs `multipart` sentinel for sha1', () => {
+  let fx: TestFixture
+  beforeEach(async () => {
+    fx = await makeMultipartFixture('gh-action-dl-multipart')
+  })
+  afterEach(async () => {
+    await rm(fx.workDir, { recursive: true, force: true })
+  })
+
+  it('downloads a multipart-uploaded file (null sha1) without error', async () => {
+    // Upload via the SDK directly with BufferSource so the multipart path is
+    // exercised. Multipart files surface `contentSha1: null` on download,
+    // which routes through the `sha1 ?? 'multipart'` log arm.
+    const { BufferSource } = await import('@backblaze/b2-sdk/streams')
+    await fx.bucket.upload({
+      fileName: 'big.bin',
+      source: new BufferSource(new Uint8Array(MULTIPART_PART_SIZE * 3).fill(7)),
+      partSize: MULTIPART_PART_SIZE,
+      concurrency: 1,
+    })
+    const result = await downloadCommand(
+      fx.bucket,
+      makeInputs('download', fx, { source: 'big.bin', destination: fx.workDir }),
+    )
+    expect(result.files[0]?.contentSha1).toBeNull()
+  })
+})
+
+// =========================================================================
+// sync: down direction with no destination defaults to cwd. Covers the
+// `inputs.destination ?? '.'` branches in syncCommand's startGroup label
+// and buildConfig's down-direction return shape.
+// =========================================================================
+
+describe('sync: down with no destination defaults to cwd', () => {
+  let fx: TestFixture
+  beforeEach(async () => {
+    fx = await makeFixture('gh-action-sync-down-cwd')
+  })
+  afterEach(async () => {
+    await rm(fx.workDir, { recursive: true, force: true })
+  })
+
+  it('downloads to the current working directory when destination is omitted', async () => {
+    await seedFile(fx, 'r.txt', 'root-down-cwd')
+    // chdir to a fresh empty subdir so the cwd-equals-default-destination
+    // path doesn't already contain `r.txt` from the seed. If the local
+    // copy is present, the simulator's `Date.now()`-based uploadTimestamp
+    // can collide with the local file's mtime millisecond-for-millisecond,
+    // making the modtime comparator emit `skip` instead of `download-done`
+    // intermittently.
+    const cwdSubdir = join(fx.workDir, 'cwd-only')
+    await mkdir(cwdSubdir, { recursive: true })
+    const cwd = process.cwd()
+    process.chdir(cwdSubdir)
+    try {
+      const result = await syncCommand(
+        fx.bucket,
+        // No `destination`: triggers both `?? '.'` defaults (log + buildConfig).
+        makeInputs('sync', fx, { source: '/', syncDirection: 'down' }),
+      )
+      expect(result.direction).toBe('b2-to-local')
+      expect(result.downloaded).toBeGreaterThanOrEqual(1)
+    } finally {
+      process.chdir(cwd)
+    }
+  })
+})
+
+// =========================================================================
+// download: real pagination handover. The action's download loop uses a
+// hardcoded `maxFileCount: 1000`, so triggering page 2 requires more than
+// 1000 files under the prefix. The simulator is in-memory; seeding 1001
+// 1-byte BufferSource uploads in parallel takes a few hundred ms, and the
+// per-file download loop runs against the simulator with no real IO, so the
+// whole test stays under a second on a modern laptop. Covers the otherwise-
+// v8-ignored pagination handover at download.ts:85, 104, 106.
+// =========================================================================
+
+describe('download: walks pagination past the 1000-file page boundary', () => {
+  let fx: TestFixture
+  beforeEach(async () => {
+    fx = await makeFixture('gh-action-dl-real-pagination')
+  })
+  afterEach(async () => {
+    await rm(fx.workDir, { recursive: true, force: true })
+  })
+
+  it('downloads files split across two pages', async () => {
+    const { BufferSource } = await import('@backblaze/b2-sdk/streams')
+    // 1001 tiny uploads: enough to force a second listFileNames page.
+    // Parallelized via Promise.all; simulator is in-memory and serializes
+    // internally where needed, so this stays under ~400ms in practice.
+    const body = new Uint8Array([0x66])
+    await Promise.all(
+      Array.from({ length: 1001 }, (_, i) =>
+        fx.bucket.upload({
+          fileName: `p/${i.toString().padStart(4, '0')}.txt`,
+          source: new BufferSource(body),
+        }),
+      ),
+    )
+
+    const dest = join(fx.workDir, 'out')
+    await mkdir(dest, { recursive: true })
+    const result = await downloadCommand(
+      fx.bucket,
+      makeInputs('download', fx, { source: 'p/', destination: dest }),
+    )
+    // Page 1 returns 1000, page 2 returns 1. Both pages must be walked.
+    expect(result.files.length).toBe(1001)
+  })
+})
+
+// =========================================================================
+// processSyncEvent: direct coverage of every SyncEvent variant, including
+// `copy-start` / `copy-done` which only fire for b2-to-b2 sync (a config
+// the action's input surface doesn't expose). Drives the function with
+// synthetic events so every switch arm is exercised deterministically.
+// =========================================================================
+
+describe('processSyncEvent: handles every SyncEvent variant', () => {
+  function freshCounters(): SyncEventCounters {
+    return { uploaded: 0, downloaded: 0, deleted: 0, skipped: 0, errors: 0, bytesTransferred: 0 }
+  }
+
+  it('upload-done increments uploaded and adds to bytesTransferred', () => {
+    const c = freshCounters()
+    processSyncEvent({ type: 'upload-done', path: 'a.txt', size: 17 }, c)
+    expect(c.uploaded).toBe(1)
+    expect(c.bytesTransferred).toBe(17)
+  })
+
+  it('download-done increments downloaded and adds to bytesTransferred', () => {
+    const c = freshCounters()
+    processSyncEvent({ type: 'download-done', path: 'b.txt', size: 9 }, c)
+    expect(c.downloaded).toBe(1)
+    expect(c.bytesTransferred).toBe(9)
+  })
+
+  it('delete-remote increments deleted', () => {
+    const c = freshCounters()
+    processSyncEvent({ type: 'delete-remote', path: 'd.txt', size: 0 }, c)
+    expect(c.deleted).toBe(1)
+  })
+
+  it('delete-local increments deleted', () => {
+    const c = freshCounters()
+    processSyncEvent({ type: 'delete-local', path: 'd.txt', size: 0 }, c)
+    expect(c.deleted).toBe(1)
+  })
+
+  it('hide increments deleted', () => {
+    const c = freshCounters()
+    processSyncEvent({ type: 'hide', path: 'h.txt', size: 0 }, c)
+    expect(c.deleted).toBe(1)
+  })
+
+  it('skip increments skipped', () => {
+    const c = freshCounters()
+    processSyncEvent({ type: 'skip', path: 's.txt', size: 0, message: 'no-op' }, c)
+    expect(c.skipped).toBe(1)
+  })
+
+  it('error increments errors and warns with message', () => {
+    const c = freshCounters()
+    const warnSpy = vi.spyOn(core, 'warning')
+    try {
+      processSyncEvent({ type: 'error', path: 'e.txt', size: 0, message: 'boom' }, c)
+      expect(c.errors).toBe(1)
+      expect(warnSpy).toHaveBeenCalledWith(expect.stringContaining('boom'))
+    } finally {
+      warnSpy.mockRestore()
+    }
+  })
+
+  it.each(['upload-start', 'compare', 'download-start', 'copy-start', 'copy-done'] as const)(
+    'informational event %s is a no-op',
+    (type) => {
+      const before = freshCounters()
+      const c = freshCounters()
+      processSyncEvent({ type, path: 'x.txt', size: 0 }, c)
+      expect(c).toEqual(before)
+    },
+  )
+})
+
+// =========================================================================
+// upload: filesystem-boundary skip when a glob match resolves to a missing
+// target (broken symlink). Exercises the TOCTOU-race-style guard in
+// `resolveFiles`: globber lists the symlink (it isn't a directory, so
+// `matchDirectories: false` doesn't filter it), `stat` follows it to a
+// non-existent target and throws ENOENT, `tryStat` returns undefined, and
+// the upload loop skips the entry without crashing.
+// =========================================================================
+
+describe('upload: skips broken symlinks silently', () => {
+  let fx: TestFixture
+  beforeEach(async () => {
+    fx = await makeFixture('gh-action-upload-broken-symlink')
+  })
+  afterEach(async () => {
+    await rm(fx.workDir, { recursive: true, force: true })
+  })
+
+  it('does not fail the upload when a globbed entry is a broken symlink', async () => {
+    const root = join(fx.workDir, 'site')
+    await mkdir(root, { recursive: true })
+    // Real file: will upload.
+    await writeFile(join(root, 'real.txt'), 'real')
+    // Broken symlink: target does not exist.
+    await symlink(join(root, 'does-not-exist.txt'), join(root, 'broken.txt'))
+
+    const result = await uploadCommand(
+      fx.bucket,
+      makeInputs('upload', fx, { source: `${root}/**`, destination: 'site' }),
+    )
+    const names = result.files.map((f) => f.fileName)
+    expect(names.some((n) => n.endsWith('real.txt'))).toBe(true)
+    expect(names.some((n) => n.endsWith('broken.txt'))).toBe(false)
+  })
+})
+
+// =========================================================================
+// summary: appendFile failure path. The action catches the error and calls
+// `core.warning` rather than failing the step. Triggered by pointing the
+// `$GITHUB_STEP_SUMMARY` env var at a directory: `appendFile` to a directory
+// throws `EISDIR` on every platform.
+// =========================================================================
+
+describe('summary: appendFile error logs a warning instead of throwing', () => {
+  const ORIGINAL = process.env.GITHUB_STEP_SUMMARY
+  let dir: string
+
+  beforeEach(async () => {
+    dir = await mkdtemp(join(tmpdir(), 'b2-summary-error-'))
+    process.env.GITHUB_STEP_SUMMARY = dir // a directory, not a writable file
+  })
+  afterEach(async () => {
+    if (ORIGINAL === undefined) Reflect.deleteProperty(process.env, 'GITHUB_STEP_SUMMARY')
+    else process.env.GITHUB_STEP_SUMMARY = ORIGINAL
+    await rm(dir, { recursive: true, force: true })
+  })
+
+  it('warns instead of throwing when the summary path is unwritable', async () => {
+    const warnSpy = vi.spyOn(core, 'warning')
+    try {
+      await writeStepSummary({ title: 'will-fail', rows: [{ fileName: 'x.txt' }] })
+      const warningCall = warnSpy.mock.calls.find((c) =>
+        String(c[0]).includes('Failed to write step summary'),
+      )
+      expect(warningCall).toBeDefined()
+    } finally {
+      warnSpy.mockRestore()
+    }
   })
 })
 

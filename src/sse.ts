@@ -31,13 +31,10 @@ export function parseSse(raw: string | undefined): EncryptionSetting | undefined
     if (base64Key === '') {
       throw new Error("SSE-C key is empty. Use 'C:<base64-encoded-32-byte-key>'.")
     }
-    let keyBytes: Buffer
-    try {
-      keyBytes = Buffer.from(base64Key, 'base64')
-      /* v8 ignore next 3 -- Node's Buffer.from with 'base64' silently drops invalid chars rather than throwing; the catch is defensive in case the behavior tightens in a future Node version */
-    } catch (err) {
-      throw new Error(`SSE-C key is not valid base64: ${(err as Error).message}`)
-    }
+    // Node's `Buffer.from(str, 'base64')` silently drops invalid chars rather
+    // than throwing; malformed keys surface as wrong-length output and get
+    // caught by the byteLength check below.
+    const keyBytes = Buffer.from(base64Key, 'base64')
     if (keyBytes.byteLength !== 32) {
       throw new Error(
         `SSE-C key must decode to exactly 32 bytes (256 bits); got ${keyBytes.byteLength}.`,

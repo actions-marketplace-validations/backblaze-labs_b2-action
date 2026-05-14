@@ -81,12 +81,15 @@ async function downloadPrefix(
   for (;;) {
     const page = await bucket.listFileNames({
       prefix,
-      maxFileCount: 1000,
+      pageSize: 1000,
       ...(startFileName !== undefined ? { startFileName } : {}),
     })
     for (const f of page.files) {
       if (f.action !== 'upload') continue
-      const relName = f.fileName.startsWith(prefix) ? f.fileName.slice(prefix.length) : f.fileName
+      // `listFileNames({ prefix })` returns files matching `prefix` per the
+      // SDK / B2 contract, so the slice is always safe. Empty `prefix`
+      // leaves the name unchanged.
+      const relName = f.fileName.slice(prefix.length)
       const localPath = join(destRoot, ...relName.split(posix.sep))
       core.startGroup(`download b2://${bucket.name}/${f.fileName} → ${localPath}`)
       try {
@@ -97,11 +100,12 @@ async function downloadPrefix(
         core.endGroup()
       }
     }
-    if (page.nextFileName === null || page.nextFileName === undefined) break
-    /* v8 ignore start -- known coverage gap: real B2 pagination path. Fires when >1000 files share the prefix. Documented in DEVELOPMENT.md "Known coverage gaps"; not exercised because seeding 1001 files would dominate suite runtime. */
+    // SDK contract: `nextFileName` is `string | null` per `ListFileNamesResponse`.
+    // The "not null" arm fires for prefixes with >1000 files (covered by
+    // the real-pagination test in coverage-stress).
+    if (page.nextFileName === null) break
     startFileName = page.nextFileName
   }
-  /* v8 ignore stop */
 
   return { files, bytesTransferred: total }
 }
@@ -129,10 +133,13 @@ async function downloadOne(
   let bytesSeen = 0
   const counter = new Transform({
     transform(chunk: Buffer, _enc, cb) {
+      // The transform only runs when the body has bytes to push; for a zero-
+      // length response Node's stream pipeline closes without invoking it,
+      // so `size` is provably > 0 here.
       bytesSeen += chunk.length
       onProgress({
         bytesTransferred: bytesSeen,
-        totalBytes: size > 0 ? size : null,
+        totalBytes: size,
         partsCompleted: 0,
         totalParts: null,
         elapsedMs: Date.now() - startedAt,
@@ -157,7 +164,12 @@ async function resolveLocalPath(
   fileName: string,
   destination: string | undefined,
 ): Promise<string> {
-  const tail = fileName.split(posix.sep).pop() ?? fileName
+  // `fileName` is always non-empty (validated by `requireSource` in the
+  // dispatcher), so `String.split` returns at least one element and `pop`
+  // never returns undefined. The non-null assertion encodes that invariant
+  // without a defensive fallback that v8 would flag as a dead branch.
+  // biome-ignore lint/style/noNonNullAssertion: split on a non-empty string never returns an empty array.
+  const tail = fileName.split(posix.sep).pop()!
   if (destination === undefined || destination === '') {
     return resolve(tail)
   }

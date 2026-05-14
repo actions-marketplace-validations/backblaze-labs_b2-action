@@ -53,7 +53,7 @@ export async function listCommand(bucket: Bucket, inputs: ParsedInputs): Promise
       const pageSize = Math.min(1000, remaining)
       const page = await bucket.listFileNames({
         prefix,
-        maxFileCount: pageSize,
+        pageSize,
         ...(startFileName !== undefined ? { startFileName } : {}),
       })
 
