@@ -711,6 +711,8 @@ describe('copy: large-file path', () => {
 
     const copyLargeSpy = vi.spyOn(fx.bucket, 'copyLargeFile')
     try {
+      // First call: no signal → exercises the `undefined` arm of the
+      // conditional spread in copyLargeFile's options.
       const result = await copyCommand(
         fx.client,
         fx.bucket,
@@ -721,6 +723,17 @@ describe('copy: large-file path', () => {
       )
       expect(result.destinationFileName).toBe('archive/src.bin')
       expect(copyLargeSpy).toHaveBeenCalledOnce()
+      // Second call: with signal → exercises the `defined` arm.
+      await copyCommand(
+        fx.client,
+        fx.bucket,
+        makeInputs('copy', fx, {
+          source: 'src.bin',
+          destination: 'archive/src-with-signal.bin',
+        }),
+        new AbortController().signal,
+      )
+      expect(copyLargeSpy).toHaveBeenCalledTimes(2)
     } finally {
       copyLargeSpy.mockRestore()
     }
@@ -1768,6 +1781,159 @@ describe('summary: appendFile error logs a warning instead of throwing', () => {
     })
     expect(captured).toContain('::warning::')
     expect(captured).toContain('Failed to write step summary')
+  })
+})
+
+// =========================================================================
+// AbortSignal wiring: pass a non-aborted signal to each command that accepts
+// one. Covers the `signal !== undefined` conditional-spread arm at every
+// SDK call site. Behavior is otherwise identical to an unsignaled call.
+// =========================================================================
+
+describe('commands: AbortSignal is threaded to SDK options', () => {
+  let fx: TestFixture
+  let signal: AbortSignal
+  beforeEach(async () => {
+    fx = await makeFixture('gh-action-signal')
+    signal = new AbortController().signal
+  })
+  afterEach(async () => {
+    await rm(fx.workDir, { recursive: true, force: true })
+  })
+
+  it('upload accepts a signal without aborting', async () => {
+    const local = join(fx.workDir, 'sig.txt')
+    await writeFile(local, 'signal')
+    const r = await uploadCommand(
+      fx.bucket,
+      makeInputs('upload', fx, { source: local, destination: 'sig.txt' }),
+      signal,
+    )
+    expect(r.files[0]?.fileName).toBe('sig.txt')
+  })
+
+  it('download accepts a signal without aborting', async () => {
+    await seedFile(fx, 'd.txt', 'd')
+    const r = await downloadCommand(
+      fx.bucket,
+      makeInputs('download', fx, { source: 'd.txt', destination: fx.workDir }),
+      signal,
+    )
+    expect(r.files[0]?.fileName).toBe('d.txt')
+  })
+
+  it('sync accepts a signal without aborting', async () => {
+    const src = join(fx.workDir, 'src')
+    await mkdir(src, { recursive: true })
+    await writeFile(join(src, 'a.txt'), 'a')
+    const r = await syncCommand(
+      fx.bucket,
+      makeInputs('sync', fx, { source: src, syncDirection: 'up' }),
+      signal,
+    )
+    expect(r.uploaded).toBeGreaterThanOrEqual(1)
+  })
+
+  it('delete accepts a signal without aborting', async () => {
+    await seedFile(fx, 'p/x.txt', 'x')
+    const r = await deleteCommand(fx.bucket, makeInputs('delete', fx, { source: 'p/' }), signal)
+    expect(r.files.length).toBeGreaterThanOrEqual(1)
+  })
+
+  it('purge accepts a signal without aborting', async () => {
+    await seedFile(fx, 'q/x.txt', 'x')
+    const r = await purgeCommand(fx.bucket, makeInputs('purge', fx, { source: 'q/' }), signal)
+    expect(r.files.length).toBeGreaterThanOrEqual(1)
+  })
+
+  it('copy accepts a signal without aborting', async () => {
+    await seedFile(fx, 'src.txt', 'copy-src')
+    const r = await copyCommand(
+      fx.client,
+      fx.bucket,
+      makeInputs('copy', fx, { source: 'src.txt', destination: 'dst.txt' }),
+      signal,
+    )
+    expect(r.destinationFileName).toBe('dst.txt')
+  })
+})
+
+// =========================================================================
+// retention: reject a retention-until in the past (client-side validation
+// catches it before the round-trip).
+// =========================================================================
+
+describe('retention: rejects a past retention-until', () => {
+  let fx: TestFixture
+  beforeEach(async () => {
+    fx = await makeFixture('gh-action-retention-past')
+    await fx.bucket.delete()
+    fx.bucket = await fx.client.createBucket({
+      bucketName: 'gh-action-retention-past',
+      bucketType: 'allPrivate',
+      fileLockEnabled: true,
+    })
+  })
+  afterEach(async () => {
+    await rm(fx.workDir, { recursive: true, force: true })
+  })
+
+  it('throws when retention-until is in the past', async () => {
+    await seedFile(fx, 'r.txt', 'r')
+    const yesterday = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString()
+    await expect(
+      retentionCommand(
+        fx.bucket,
+        makeInputs('retention', fx, {
+          source: 'r.txt',
+          retentionMode: 'governance',
+          retentionUntil: yesterday,
+        }),
+      ),
+    ).rejects.toThrow(/must be in the future/)
+  })
+})
+
+// =========================================================================
+// download: unlink partial file on pipeline error. Inject a failure on the
+// download body fetch to force the pipeline to throw; assert the destination
+// path doesn't exist after the catch.
+// =========================================================================
+
+describe('download: cleans up partial file on pipeline error', () => {
+  let fx: TestFixture
+  beforeEach(async () => {
+    fx = await makeFixture('gh-action-dl-partial-cleanup')
+  })
+  afterEach(async () => {
+    await rm(fx.workDir, { recursive: true, force: true })
+  })
+
+  it('unlinks the destination file if the pipeline throws', async () => {
+    // Make `bucket.download` succeed (so we enter the try block) but force
+    // the pipeline to fail when it tries to write. Pre-create the
+    // destination directory as read-only: `mkdir` (recursive) is a no-op
+    // because the directory exists, then `createWriteStream` opens the
+    // file path inside it, but the actual write syscall fails with EACCES.
+    // That hits the catch block and the action's best-effort unlink.
+    await seedFile(fx, 'will-fail.txt', 'payload')
+    const { chmod } = await import('node:fs/promises')
+    const destDir = join(fx.workDir, 'ro-dir')
+    await mkdir(destDir, { recursive: true })
+    const dest = join(destDir, 'out.txt')
+    await chmod(destDir, 0o555) // read+execute, no write
+
+    try {
+      await expect(
+        downloadCommand(
+          fx.bucket,
+          makeInputs('download', fx, { source: 'will-fail.txt', destination: dest }),
+        ),
+      ).rejects.toThrow()
+    } finally {
+      // Restore mode so afterEach's `rm` can clean up.
+      await chmod(destDir, 0o755)
+    }
   })
 })
 

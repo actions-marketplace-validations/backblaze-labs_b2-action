@@ -27,6 +27,20 @@ import { writeStepSummary } from './summary.ts'
  * live log.
  */
 export async function run(): Promise<void> {
+  // Wire workflow-cancellation signals (`SIGTERM` when the user cancels the
+  // job or a sibling fails fast; `SIGINT` for Ctrl+C in local dev) to an
+  // AbortController that long-running SDK operations subscribe to. Aborting
+  // mid-upload lets the SDK cancel in-flight multipart sessions cleanly
+  // rather than leaving them dangling for the user to pay storage on.
+  const controller = new AbortController()
+  const onSignal = (sig: NodeJS.Signals) => {
+    core.warning(`Received ${sig}; cancelling in-flight B2 operations.`)
+    controller.abort(new Error(`${sig} received`))
+  }
+  process.once('SIGTERM', () => onSignal('SIGTERM'))
+  process.once('SIGINT', () => onSignal('SIGINT'))
+  const signal = controller.signal
+
   try {
     const inputs = parseInputs()
 
@@ -40,7 +54,7 @@ export async function run(): Promise<void> {
 
     switch (inputs.action) {
       case 'upload': {
-        const result = await uploadCommand(bucket, inputs)
+        const result = await uploadCommand(bucket, inputs, signal)
         const first = result.files[0]
         if (first !== undefined) {
           core.setOutput('file-id', first.fileId)
@@ -65,7 +79,7 @@ export async function run(): Promise<void> {
         return
       }
       case 'download': {
-        const result = await downloadCommand(bucket, inputs)
+        const result = await downloadCommand(bucket, inputs, signal)
         const first = result.files[0]
         if (first !== undefined) {
           core.setOutput('file-name', first.fileName)
@@ -88,7 +102,7 @@ export async function run(): Promise<void> {
         return
       }
       case 'sync': {
-        const result = await syncCommand(bucket, inputs)
+        const result = await syncCommand(bucket, inputs, signal)
         core.setOutput('files-uploaded', String(result.uploaded))
         core.setOutput('files-downloaded', String(result.downloaded))
         core.setOutput('files-deleted', String(result.deleted))
@@ -124,7 +138,7 @@ export async function run(): Promise<void> {
         return
       }
       case 'copy': {
-        const result = await copyCommand(authorized.client, bucket, inputs)
+        const result = await copyCommand(authorized.client, bucket, inputs, signal)
         core.setOutput('file-id', result.fileId)
         core.setOutput('file-name', result.destinationFileName)
         core.setOutput('bytes-transferred', String(result.size))
@@ -143,7 +157,7 @@ export async function run(): Promise<void> {
         return
       }
       case 'delete': {
-        const result = await deleteCommand(bucket, inputs)
+        const result = await deleteCommand(bucket, inputs, signal)
         await emitDeletionSummary('delete', result, inputs)
         return
       }
@@ -243,6 +257,23 @@ export async function run(): Promise<void> {
         }
         return
       }
+      case 'retention': {
+        const result = await retentionCommand(bucket, inputs)
+        core.setOutput('file-id', result.fileId)
+        core.setOutput('file-name', result.fileName)
+        core.setOutput('summary-json', JSON.stringify([result]))
+        await writeStepSummary({
+          title: 'Backblaze B2: retention',
+          rows: [
+            {
+              fileName: result.fileName,
+              fileId: result.fileId,
+              status: retentionStatusLine(result),
+            },
+          ],
+        })
+        return
+      }
       case 'head': {
         const result = await headCommand(bucket, inputs)
         core.setOutput('file-id', result.fileId)
@@ -265,25 +296,8 @@ export async function run(): Promise<void> {
         return
       }
       case 'purge': {
-        const result = await purgeCommand(bucket, inputs)
+        const result = await purgeCommand(bucket, inputs, signal)
         await emitDeletionSummary('purge', result, inputs)
-        return
-      }
-      case 'retention': {
-        const result = await retentionCommand(bucket, inputs)
-        core.setOutput('file-id', result.fileId)
-        core.setOutput('file-name', result.fileName)
-        core.setOutput('summary-json', JSON.stringify([result]))
-        await writeStepSummary({
-          title: 'Backblaze B2: retention',
-          rows: [
-            {
-              fileName: result.fileName,
-              fileId: result.fileId,
-              status: retentionStatusLine(result),
-            },
-          ],
-        })
         return
       }
     }

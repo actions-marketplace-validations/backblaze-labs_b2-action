@@ -1,5 +1,5 @@
 import { createWriteStream } from 'node:fs'
-import { mkdir, stat } from 'node:fs/promises'
+import { mkdir, stat, unlink } from 'node:fs/promises'
 import { dirname, join, posix, resolve } from 'node:path'
 import { Readable, Transform } from 'node:stream'
 import { pipeline } from 'node:stream/promises'
@@ -42,16 +42,17 @@ export interface DownloadResult {
 export async function downloadCommand(
   bucket: Bucket,
   inputs: ParsedInputs,
+  signal?: AbortSignal,
 ): Promise<DownloadResult> {
-  const source = requireSource(inputs.source, 'download')
+  const source = requireSource(inputs.source, 'download', 'a B2 file name or prefix')
   const isPrefix = source.endsWith('/')
 
   const sseDownload = sseFromInputs(inputs)
 
   if (isPrefix) {
-    return downloadPrefix(bucket, source, inputs.destination ?? '.', sseDownload)
+    return downloadPrefix(bucket, source, inputs.destination ?? '.', sseDownload, signal)
   }
-  const out = await downloadOne(bucket, source, inputs.destination, sseDownload)
+  const out = await downloadOne(bucket, source, inputs.destination, sseDownload, signal)
   return { files: [out], bytesTransferred: out.size }
 }
 
@@ -70,6 +71,7 @@ async function downloadPrefix(
   prefix: string,
   destinationDir: string,
   sseDownload: SseCDownloadKey | undefined,
+  signal?: AbortSignal,
 ): Promise<DownloadResult> {
   const destRoot = resolve(destinationDir)
   await mkdir(destRoot, { recursive: true })
@@ -79,6 +81,7 @@ async function downloadPrefix(
   let startFileName: string | undefined
 
   for (;;) {
+    signal?.throwIfAborted()
     const page = await bucket.listFileNames({
       prefix,
       pageSize: 1000,
@@ -86,6 +89,7 @@ async function downloadPrefix(
     })
     for (const f of page.files) {
       if (f.action !== 'upload') continue
+      signal?.throwIfAborted()
       // `listFileNames({ prefix })` returns files matching `prefix` per the
       // SDK / B2 contract, so the slice is always safe. Empty `prefix`
       // leaves the name unchanged.
@@ -93,7 +97,7 @@ async function downloadPrefix(
       const localPath = join(destRoot, ...relName.split(posix.sep))
       core.startGroup(`download b2://${bucket.name}/${f.fileName} → ${localPath}`)
       try {
-        const r = await downloadOne(bucket, f.fileName, localPath, sseDownload)
+        const r = await downloadOne(bucket, f.fileName, localPath, sseDownload, signal)
         files.push(r)
         total += r.size
       } finally {
@@ -115,12 +119,14 @@ async function downloadOne(
   fileName: string,
   destination: string | undefined,
   sseDownload: SseCDownloadKey | undefined,
+  signal?: AbortSignal,
 ): Promise<DownloadedFile> {
   const localPath = await resolveLocalPath(fileName, destination)
   await mkdir(dirname(localPath), { recursive: true })
 
   const result = await bucket.download(fileName, {
     ...(sseDownload !== undefined ? { serverSideEncryption: sseDownload } : {}),
+    ...(signal !== undefined ? { signal } : {}),
   })
   const size = result.headers.contentLength
   const sha1 = result.headers.contentSha1
@@ -149,11 +155,23 @@ async function downloadOne(
   })
 
   const writeStream = createWriteStream(localPath)
-  await pipeline(
-    Readable.fromWeb(result.body as unknown as Parameters<typeof Readable.fromWeb>[0]),
-    counter,
-    writeStream,
-  )
+  try {
+    await pipeline(
+      Readable.fromWeb(result.body as unknown as Parameters<typeof Readable.fromWeb>[0]),
+      counter,
+      writeStream,
+    )
+  } catch (err) {
+    // Partial download on disk is worse than no file (a subsequent run
+    // could mistake it for a complete copy). Best-effort unlink and
+    // re-throw; the outer dispatcher reports the original error.
+    try {
+      await unlink(localPath)
+    } catch {
+      // ignore: best-effort cleanup, the original error matters more
+    }
+    throw err
+  }
 
   core.info(`  wrote ${size} bytes to ${localPath} (sha1=${sha1 ?? 'multipart'})`)
 

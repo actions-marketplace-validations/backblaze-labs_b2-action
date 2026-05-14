@@ -35,6 +35,7 @@ export async function copyCommand(
   client: B2Client,
   destinationBucket: Bucket,
   inputs: ParsedInputs,
+  signal?: AbortSignal,
 ): Promise<CopyResult> {
   const source = requireSource(inputs.source, 'copy', 'the source B2 file name')
   const destination = inputs.destination
@@ -66,6 +67,7 @@ export async function copyCommand(
       ? await destinationBucket.copyLargeFile({
           sourceFileId: hit.fileId,
           fileName: destination,
+          ...(signal !== undefined ? { signal } : {}),
         })
       : await destinationBucket.copyFile({
           sourceFileId: hit.fileId,

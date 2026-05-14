@@ -35,7 +35,11 @@ export interface PurgeResult {
  *
  * Supports `dry-run` to preview what would be deleted.
  */
-export async function purgeCommand(bucket: Bucket, inputs: ParsedInputs): Promise<PurgeResult> {
+export async function purgeCommand(
+  bucket: Bucket,
+  inputs: ParsedInputs,
+  signal?: AbortSignal,
+): Promise<PurgeResult> {
   // Normalize: treat undefined source as "missing" to avoid accidental bucket-wide purges.
   if (inputs.source === undefined) {
     throw new Error(
@@ -60,6 +64,7 @@ export async function purgeCommand(bucket: Bucket, inputs: ParsedInputs): Promis
     const opts = {
       ...(prefix !== '' ? { prefix } : {}),
       dryRun,
+      ...(signal !== undefined ? { signal } : {}),
     }
     for await (const event of bucket.deleteAll(opts)) {
       if (event.type === 'delete') {

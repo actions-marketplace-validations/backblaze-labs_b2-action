@@ -33,12 +33,16 @@ export interface DeleteResult {
  * With `dry-run: true`, no actual deletions happen; the action reports what
  * would have been deleted.
  */
-export async function deleteCommand(bucket: Bucket, inputs: ParsedInputs): Promise<DeleteResult> {
-  const source = requireSource(inputs.source, 'delete')
+export async function deleteCommand(
+  bucket: Bucket,
+  inputs: ParsedInputs,
+  signal?: AbortSignal,
+): Promise<DeleteResult> {
+  const source = requireSource(inputs.source, 'delete', 'a B2 file name or prefix')
   const isPrefix = source.endsWith('/')
 
   if (isPrefix) {
-    return deletePrefix(bucket, source, inputs.dryRun)
+    return deletePrefix(bucket, source, inputs.dryRun, signal)
   }
   return deleteOne(bucket, source, inputs.dryRun)
 }
@@ -47,13 +51,18 @@ async function deletePrefix(
   bucket: Bucket,
   prefix: string,
   dryRun: boolean,
+  signal?: AbortSignal,
 ): Promise<DeleteResult> {
   const files: DeletedFile[] = []
   let errors = 0
 
   core.startGroup(`${dryRun ? 'dry-run' : 'delete'} prefix b2://${bucket.name}/${prefix}`)
   try {
-    for await (const event of bucket.deleteAll({ prefix, dryRun })) {
+    for await (const event of bucket.deleteAll({
+      prefix,
+      dryRun,
+      ...(signal !== undefined ? { signal } : {}),
+    })) {
       if (event.type === 'delete') {
         files.push({ fileName: event.fileName, fileId: event.fileId, skipped: false })
         core.info(`  deleted ${event.fileName} (${event.fileId})`)

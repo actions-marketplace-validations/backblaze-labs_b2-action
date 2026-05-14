@@ -117,15 +117,19 @@ export interface SyncResult {
  * The SDK's {@link synchronize} returns an `AsyncGenerator<SyncEvent>` which we
  * relay to the workflow log (per-file) and aggregate into a typed result.
  */
-export async function syncCommand(bucket: Bucket, inputs: ParsedInputs): Promise<SyncResult> {
-  const source = requireSource(inputs.source, 'sync')
+export async function syncCommand(
+  bucket: Bucket,
+  inputs: ParsedInputs,
+  signal?: AbortSignal,
+): Promise<SyncResult> {
+  const source = requireSource(inputs.source, 'sync', 'a local directory (up) or B2 prefix (down)')
 
   const direction = await resolveDirection(inputs.syncDirection, source)
   const compareMode = inputs.compareMode
   const keepMode = inputs.keepMode
   const dryRun = inputs.dryRun
 
-  const config = await buildConfig(bucket, source, inputs, direction)
+  const config = await buildConfig(bucket, source, inputs, direction, signal)
 
   core.startGroup(
     `sync ${direction === 'local-to-b2' ? source : `b2://${bucket.name}/${source}`} ` +
@@ -185,11 +189,19 @@ async function buildConfig(
   source: string,
   inputs: ParsedInputs,
   direction: 'local-to-b2' | 'b2-to-local',
+  signal?: AbortSignal,
 ): Promise<SynchronizerUpConfig | SynchronizerDownConfig> {
   const compareMode = inputs.compareMode
   const keepMode = inputs.keepMode
   const dryRun = inputs.dryRun
   const concurrency = inputs.concurrency
+  const options = {
+    compareMode,
+    keepMode,
+    concurrency,
+    dryRun,
+    ...(signal !== undefined ? { signal } : {}),
+  }
 
   if (direction === 'local-to-b2') {
     const stats = await tryStat(source)
@@ -202,7 +214,7 @@ async function buildConfig(
       dest: new B2Folder(bucket, prefix === '' ? '' : `${prefix}/`),
       bucket,
       prefix: prefix === '' ? '' : `${prefix}/`,
-      options: { compareMode, keepMode, concurrency, dryRun },
+      options,
     }
   }
 
@@ -213,7 +225,7 @@ async function buildConfig(
     source: new B2Folder(bucket, remotePrefix === '' ? '' : `${remotePrefix}/`),
     dest: new LocalFolder(resolve(localDest)),
     bucket,
-    options: { compareMode, keepMode, concurrency, dryRun },
+    options,
   }
 }
 

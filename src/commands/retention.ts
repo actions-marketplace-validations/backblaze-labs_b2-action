@@ -61,6 +61,17 @@ export async function retentionCommand(
     if (Number.isNaN(parsed)) {
       throw new Error(`'retention-until' is not a valid ISO 8601 timestamp: "${until}"`)
     }
+    // Reject past timestamps client-side. B2 also rejects them server-side
+    // but with a generic 400; the action's check fails faster and tells the
+    // user exactly what's wrong (especially helpful for timezone-skewed CI
+    // runners). Allow a small clock-skew tolerance: anything within the
+    // last 30 seconds is treated as "now" rather than past.
+    const skewToleranceMs = 30_000
+    if (parsed < Date.now() - skewToleranceMs) {
+      throw new Error(
+        `'retention-until' must be in the future; got "${until}" (${new Date(parsed).toISOString()})`,
+      )
+    }
     retainUntilMillis = parsed
   }
 

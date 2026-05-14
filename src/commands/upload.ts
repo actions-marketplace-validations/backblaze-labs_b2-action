@@ -47,7 +47,11 @@ export interface UploadResult {
  * routes to multipart automatically when size exceeds the recommended part
  * size and parallelizes parts up to `concurrency`.
  */
-export async function uploadCommand(bucket: Bucket, inputs: ParsedInputs): Promise<UploadResult> {
+export async function uploadCommand(
+  bucket: Bucket,
+  inputs: ParsedInputs,
+  signal?: AbortSignal,
+): Promise<UploadResult> {
   const source = requireSource(inputs.source, 'upload')
 
   const files = await resolveFiles(source, inputs.include, inputs.exclude)
@@ -67,10 +71,11 @@ export async function uploadCommand(bucket: Bucket, inputs: ParsedInputs): Promi
   let totalBytes = 0
 
   for (const f of files) {
+    signal?.throwIfAborted()
     const fileName = remapFileName(f, inputs.destination, isSingleExplicitFile)
     core.startGroup(`upload ${f.localPath} → b2://${bucket.name}/${fileName}`)
     try {
-      const result = await uploadOne(bucket, f.localPath, fileName, inputs)
+      const result = await uploadOne(bucket, f.localPath, fileName, inputs, signal)
       uploaded.push(result)
       totalBytes += result.size
     } finally {
@@ -143,6 +148,7 @@ async function uploadOne(
   localPath: string,
   fileName: string,
   inputs: ParsedInputs,
+  signal?: AbortSignal,
 ): Promise<UploadedFile> {
   const fileStat = await stat(localPath)
   const size = fileStat.size
@@ -158,6 +164,15 @@ async function uploadOne(
 
   const onProgress = makeProgressListener(`upload[${fileName}]`)
 
+  // `inputs.resume` is parsed but deliberately NOT forwarded to the SDK.
+  // The SDK's resume implementation requires a sliceable source so it can
+  // re-upload specific part offsets after a crash. The action uses
+  // `StreamSource` (memory-bounded streaming from disk), which is read-once-
+  // sequential and not sliceable; passing `resume: true` here would throw
+  // `"resume is not supported on non-sliceable sources"`. The input is
+  // kept in the action surface so this can be re-enabled if the action
+  // ever offers a `BufferSource` fallback for users willing to trade RAM
+  // for resumability.
   const result = await bucket.upload({
     fileName,
     source,
@@ -165,6 +180,7 @@ async function uploadOne(
     ...(inputs.partSize !== undefined ? { partSize: inputs.partSize } : {}),
     ...(inputs.contentType !== undefined ? { contentType: inputs.contentType } : {}),
     ...(inputs.encryption !== undefined ? { serverSideEncryption: inputs.encryption } : {}),
+    ...(signal !== undefined ? { signal } : {}),
     onProgress,
   })
 

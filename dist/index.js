@@ -31267,6 +31267,26 @@ function largeFileId(raw) {
 
 //# sourceMappingURL=ids.js.map
 
+;// CONCATENATED MODULE: ../b2-typescript-sdk/dist/util/best-effort.js
+async function bestEffort(fn) {
+  try {
+    await fn();
+  } catch {
+  }
+}
+
+//# sourceMappingURL=best-effort.js.map
+
+;// CONCATENATED MODULE: ../b2-typescript-sdk/dist/upload/cancel.js
+
+async function cancelLargeFileBestEffort(raw, accountInfo, fileId) {
+  await bestEffort(
+    () => raw.cancelLargeFile(accountInfo.getApiUrl(), accountInfo.getAuthToken(), { fileId })
+  );
+}
+
+//# sourceMappingURL=cancel.js.map
+
 ;// CONCATENATED MODULE: ../b2-typescript-sdk/dist/upload/concurrency.js
 class Semaphore {
   /**
@@ -31321,23 +31341,43 @@ class Semaphore {
 
 //# sourceMappingURL=concurrency.js.map
 
-;// CONCATENATED MODULE: ../b2-typescript-sdk/dist/util/best-effort.js
-async function bestEffort(fn) {
-  try {
-    await fn();
-  } catch {
-  }
-}
-
-//# sourceMappingURL=best-effort.js.map
-
 ;// CONCATENATED MODULE: ../b2-typescript-sdk/dist/util/defaults.js
 const DEFAULT_TRANSFER_CONCURRENCY = 4;
 const DEFAULT_BULK_CONCURRENCY = 10;
+const DEFAULT_PAGE_SIZE = 1e3;
+const DEFAULT_CONTENT_TYPE = "b2/x-auto";
 
 //# sourceMappingURL=defaults.js.map
 
+;// CONCATENATED MODULE: ../b2-typescript-sdk/dist/util/plan-ranges.js
+function planRanges(totalSize, chunkSize) {
+  const plans = [];
+  let offset = 0;
+  let index = 0;
+  while (offset < totalSize) {
+    const length = Math.min(chunkSize, totalSize - offset);
+    const end = offset + length - 1;
+    plans.push({
+      partNumber: index + 1,
+      index,
+      offset,
+      length,
+      start: offset,
+      end
+    });
+    offset += length;
+    index++;
+  }
+  return plans;
+}
+function byteRangeHeader(start, end) {
+  return `bytes=${start}-${end}`;
+}
+
+//# sourceMappingURL=plan-ranges.js.map
+
 ;// CONCATENATED MODULE: ../b2-typescript-sdk/dist/copy/large.js
+
 
 
 
@@ -31366,20 +31406,12 @@ async function copyLargeFile(raw, accountInfo, options) {
   const startResp = await raw.startLargeFile(accountInfo.getApiUrl(), accountInfo.getAuthToken(), {
     bucketId: destBucketId,
     fileName: options.fileName,
-    contentType: options.contentType ?? sourceInfo.contentType ?? "b2/x-auto",
+    contentType: options.contentType ?? sourceInfo.contentType ?? DEFAULT_CONTENT_TYPE,
     fileInfo: options.fileInfo ?? {},
     ...options.destinationServerSideEncryption !== void 0 ? { serverSideEncryption: options.destinationServerSideEncryption } : {}
   });
   const largeFileId = startResp.fileId;
-  const ranges = [];
-  let offset = 0;
-  let partNumber = 1;
-  while (offset < totalSize) {
-    const end = Math.min(offset + partSize - 1, totalSize - 1);
-    ranges.push({ partNumber, start: offset, end });
-    offset = end + 1;
-    partNumber++;
-  }
+  const ranges = planRanges(totalSize, partSize);
   const partSha1s = new Array(ranges.length);
   const sem = new Semaphore(concurrency);
   try {
@@ -31395,7 +31427,7 @@ async function copyLargeFile(raw, accountInfo, options) {
             // same value typed as `FileId`. Re-brand via the factory.
             largeFileId: fileId(largeFileId),
             partNumber: range.partNumber,
-            range: `bytes=${range.start}-${range.end}`,
+            range: byteRangeHeader(range.start, range.end),
             ...options.sourceServerSideEncryption !== void 0 ? { sourceServerSideEncryption: options.sourceServerSideEncryption } : {},
             ...options.destinationServerSideEncryption !== void 0 ? { destinationServerSideEncryption: options.destinationServerSideEncryption } : {}
           });
@@ -31411,11 +31443,7 @@ async function copyLargeFile(raw, accountInfo, options) {
       partSha1Array: partSha1s
     });
   } catch (err) {
-    await bestEffort(
-      () => raw.cancelLargeFile(accountInfo.getApiUrl(), accountInfo.getAuthToken(), {
-        fileId: largeFileId
-      })
-    );
+    await cancelLargeFileBestEffort(raw, accountInfo, largeFileId);
     throw err;
   }
 }
@@ -31681,24 +31709,47 @@ function sleep(ms, signal) {
 
 //# sourceMappingURL=retry.js.map
 
+;// CONCATENATED MODULE: ../b2-typescript-sdk/dist/streams/collect.js
+async function collectStream(stream) {
+  const reader = stream.getReader();
+  try {
+    const chunks = [];
+    let total = 0;
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      chunks.push(value);
+      total += value.byteLength;
+    }
+    const result = new Uint8Array(total);
+    let offset = 0;
+    for (const chunk of chunks) {
+      result.set(chunk, offset);
+      offset += chunk.byteLength;
+    }
+    return result;
+  } finally {
+    reader.releaseLock();
+  }
+}
+
+//# sourceMappingURL=collect.js.map
+
 ;// CONCATENATED MODULE: ../b2-typescript-sdk/dist/download/parallel.js
+
+
 
 
 function createParallelDownloadStream(raw, accountInfo, options) {
   const rangeSize = options.rangeSize ?? 10 * 1024 * 1024;
   const concurrency = options.concurrency ?? DEFAULT_TRANSFER_CONCURRENCY;
   const totalSize = options.totalSize;
-  const retryOptions = { ...DEFAULT_RETRY_OPTIONS, maxRetries: options.maxRetries ?? 5 };
+  const retryOptions = {
+    ...DEFAULT_RETRY_OPTIONS,
+    ...options.maxRetries !== void 0 ? { maxRetries: options.maxRetries } : {}
+  };
   const abort = options.signal;
-  const ranges = [];
-  let offset = 0;
-  let index = 0;
-  while (offset < totalSize) {
-    const end = Math.min(offset + rangeSize - 1, totalSize - 1);
-    ranges.push({ start: offset, end, index });
-    offset = end + 1;
-    index++;
-  }
+  const ranges = planRanges(totalSize, rangeSize);
   const windowSize = concurrency * 2;
   const inflight = /* @__PURE__ */ new Map();
   const buffer = /* @__PURE__ */ new Map();
@@ -31789,12 +31840,12 @@ async function fetchRangeWithRetry(raw, accountInfo, fileId, start, end, retryOp
         accountInfo.getAuthToken(),
         fileId,
         {
-          range: `bytes=${start}-${end}`,
+          range: byteRangeHeader(start, end),
           ...signal !== void 0 ? { signal } : {}
         }
       );
       if (!resp.body) throw new Error("Download chunk has no body");
-      return new Uint8Array(await readAll(resp.body));
+      return await collectStream(resp.body);
     } catch (err) {
       lastError = err;
       if (signal?.aborted) throw err;
@@ -31802,28 +31853,6 @@ async function fetchRangeWithRetry(raw, accountInfo, fileId, start, end, retryOp
     }
   }
   throw lastError instanceof Error ? lastError : new Error("Range download failed after retries");
-}
-async function readAll(stream) {
-  const reader = stream.getReader();
-  try {
-    const parts = [];
-    let total = 0;
-    while (true) {
-      const { done, value } = await reader.read();
-      if (done) break;
-      parts.push(value);
-      total += value.byteLength;
-    }
-    const result = new Uint8Array(total);
-    let offset = 0;
-    for (const part of parts) {
-      result.set(part, offset);
-      offset += part.byteLength;
-    }
-    return result;
-  } finally {
-    reader.releaseLock();
-  }
 }
 
 //# sourceMappingURL=parallel.js.map
@@ -31968,14 +31997,24 @@ async function collectPartSha1s(raw, accountInfo, fileId) {
 
 
 
+
 async function uploadLargeFile(raw, accountInfo, options) {
   const recommendedPartSize = accountInfo.getRecommendedPartSize();
   const minPartSize = accountInfo.getAbsoluteMinimumPartSize();
   const partSize = Math.max(options.partSize ?? recommendedPartSize, minPartSize);
   const concurrency = options.concurrency ?? DEFAULT_TRANSFER_CONCURRENCY;
   const totalSize = options.source.size;
-  const parts = planParts(totalSize, partSize);
+  const parts = planRanges(totalSize, partSize);
   const fileInfo = { ...options.fileInfo };
+  const startLargeFileRequest = {
+    bucketId: options.bucketId,
+    fileName: options.fileName,
+    contentType: options.contentType ?? DEFAULT_CONTENT_TYPE,
+    fileInfo,
+    ...options.serverSideEncryption !== void 0 ? { serverSideEncryption: options.serverSideEncryption } : {},
+    ...options.fileRetention !== void 0 ? { fileRetention: options.fileRetention } : {},
+    ...options.legalHold !== void 0 ? { legalHold: options.legalHold } : {}
+  };
   let largeFileId;
   let preUploaded;
   if (options.resumeFileId !== void 0) {
@@ -31995,15 +32034,7 @@ async function uploadLargeFile(raw, accountInfo, options) {
       const startResp = await raw.startLargeFile(
         accountInfo.getApiUrl(),
         accountInfo.getAuthToken(),
-        {
-          bucketId: options.bucketId,
-          fileName: options.fileName,
-          contentType: options.contentType ?? "b2/x-auto",
-          fileInfo,
-          ...options.serverSideEncryption !== void 0 ? { serverSideEncryption: options.serverSideEncryption } : {},
-          ...options.fileRetention !== void 0 ? { fileRetention: options.fileRetention } : {},
-          ...options.legalHold !== void 0 ? { legalHold: options.legalHold } : {}
-        }
+        startLargeFileRequest
       );
       largeFileId = startResp.fileId;
       preUploaded = /* @__PURE__ */ new Map();
@@ -32012,15 +32043,7 @@ async function uploadLargeFile(raw, accountInfo, options) {
     const startResp = await raw.startLargeFile(
       accountInfo.getApiUrl(),
       accountInfo.getAuthToken(),
-      {
-        bucketId: options.bucketId,
-        fileName: options.fileName,
-        contentType: options.contentType ?? "b2/x-auto",
-        fileInfo,
-        ...options.serverSideEncryption !== void 0 ? { serverSideEncryption: options.serverSideEncryption } : {},
-        ...options.fileRetention !== void 0 ? { fileRetention: options.fileRetention } : {},
-        ...options.legalHold !== void 0 ? { legalHold: options.legalHold } : {}
-      }
+      startLargeFileRequest
     );
     largeFileId = startResp.fileId;
     preUploaded = /* @__PURE__ */ new Map();
@@ -32030,11 +32053,7 @@ async function uploadLargeFile(raw, accountInfo, options) {
   const sem = new Semaphore(concurrency);
   if (!options.source.canSlice) {
     if (options.resume === true || options.resumeFileId !== void 0) {
-      await bestEffort(
-        () => raw.cancelLargeFile(accountInfo.getApiUrl(), accountInfo.getAuthToken(), {
-          fileId: largeFileId
-        })
-      );
+      await cancelLargeFileBestEffort(raw, accountInfo, largeFileId);
       throw new Error(
         "uploadLargeFile: resume is not supported on non-sliceable sources (e.g. StreamSource)."
       );
@@ -32054,11 +32073,7 @@ async function uploadLargeFile(raw, accountInfo, options) {
         partSha1Array: partSha1s
       });
     } catch (err) {
-      await bestEffort(
-        () => raw.cancelLargeFile(accountInfo.getApiUrl(), accountInfo.getAuthToken(), {
-          fileId: largeFileId
-        })
-      );
+      await cancelLargeFileBestEffort(raw, accountInfo, largeFileId);
       throw err;
     }
   }
@@ -32120,25 +32135,9 @@ async function uploadLargeFile(raw, accountInfo, options) {
     });
     return result;
   } catch (err) {
-    await bestEffort(
-      () => raw.cancelLargeFile(accountInfo.getApiUrl(), accountInfo.getAuthToken(), {
-        fileId: largeFileId
-      })
-    );
+    await cancelLargeFileBestEffort(raw, accountInfo, largeFileId);
     throw err;
   }
-}
-function planParts(totalSize, partSize) {
-  const parts = [];
-  let offset = 0;
-  let partNumber = 1;
-  while (offset < totalSize) {
-    const length = Math.min(partSize, totalSize - offset);
-    parts.push({ partNumber, offset, length });
-    offset += length;
-    partNumber++;
-  }
-  return parts;
 }
 async function uploadPartsSequentially(raw, accountInfo, options, largeFileId, parts, partSha1s, tracker) {
   const reader = options.source.stream().getReader();
@@ -32216,6 +32215,7 @@ async function uploadPartsSequentially(raw, accountInfo, options, largeFileId, p
 ;// CONCATENATED MODULE: ../b2-typescript-sdk/dist/upload/single.js
 
 
+
 async function uploadSmallFile(raw, accountInfo, options) {
   let uploadEntry = accountInfo.checkoutUploadUrl(options.bucketId);
   if (!uploadEntry) {
@@ -32235,7 +32235,7 @@ async function uploadSmallFile(raw, accountInfo, options) {
       {
         authorization: uploadEntry.authorizationToken,
         fileName: options.fileName,
-        contentType: options.contentType ?? "b2/x-auto",
+        contentType: options.contentType ?? DEFAULT_CONTENT_TYPE,
         contentLength: data.byteLength,
         contentSha1: sha1Hex,
         ...options.fileInfo !== void 0 ? { fileInfo: options.fileInfo } : {},
@@ -32259,7 +32259,15 @@ async function uploadSmallFile(raw, accountInfo, options) {
 
 //# sourceMappingURL=single.js.map
 
+;// CONCATENATED MODULE: ../b2-typescript-sdk/dist/util/to-error.js
+function toError(value) {
+  return value instanceof Error ? value : new Error(String(value));
+}
+
+//# sourceMappingURL=to-error.js.map
+
 ;// CONCATENATED MODULE: ../b2-typescript-sdk/dist/upload/stream.js
+
 
 
 
@@ -32292,7 +32300,7 @@ function createWriteStream(raw, accountInfo, options) {
       const resp = await raw.startLargeFile(accountInfo.getApiUrl(), accountInfo.getAuthToken(), {
         bucketId: options.bucketId,
         fileName: options.fileName,
-        contentType: options.contentType ?? "b2/x-auto",
+        contentType: options.contentType ?? DEFAULT_CONTENT_TYPE,
         fileInfo: options.fileInfo ?? {},
         ...options.serverSideEncryption !== void 0 ? { serverSideEncryption: options.serverSideEncryption } : {}
       });
@@ -32359,7 +32367,7 @@ function createWriteStream(raw, accountInfo, options) {
       try {
         await shipPart(data, partNumber);
       } catch (err) {
-        errored = err instanceof Error ? err : new Error(String(err));
+        errored = toError(err);
         throw err;
       } finally {
         sem.release();
@@ -32384,7 +32392,7 @@ function createWriteStream(raw, accountInfo, options) {
           try {
             await shipPart(carved, partNumber);
           } catch (err) {
-            errored = err instanceof Error ? err : new Error(String(err));
+            errored = toError(err);
             throw err;
           } finally {
             sem.release();
@@ -32416,11 +32424,7 @@ function createWriteStream(raw, accountInfo, options) {
       } catch (err) {
         const fileIdToCancel = largeFileId;
         if (fileIdToCancel !== null) {
-          await bestEffort(
-            () => raw.cancelLargeFile(accountInfo.getApiUrl(), accountInfo.getAuthToken(), {
-              fileId: fileIdToCancel
-            })
-          );
+          await cancelLargeFileBestEffort(raw, accountInfo, fileIdToCancel);
         }
         rejectDone(err);
         throw err;
@@ -32429,13 +32433,9 @@ function createWriteStream(raw, accountInfo, options) {
     async abort(reason) {
       const fileIdToCancel = largeFileId;
       if (fileIdToCancel !== null) {
-        await bestEffort(
-          () => raw.cancelLargeFile(accountInfo.getApiUrl(), accountInfo.getAuthToken(), {
-            fileId: fileIdToCancel
-          })
-        );
+        await cancelLargeFileBestEffort(raw, accountInfo, fileIdToCancel);
       }
-      rejectDone(reason instanceof Error ? reason : new Error(String(reason)));
+      rejectDone(toError(reason));
     }
   });
   return { writable, done };
@@ -32703,6 +32703,7 @@ async function* paginateItems(fetcher, extractItems, signal) {
 
 
 
+
 class Bucket {
   /** Unique identifier for this bucket. */
   id;
@@ -32863,7 +32864,7 @@ class Bucket {
     return paginateItems(
       async (cursor) => {
         const resp = await this.listFileNames({
-          pageSize: options?.pageSize ?? 1e3,
+          pageSize: options?.pageSize ?? DEFAULT_PAGE_SIZE,
           ...cursor !== void 0 ? { startFileName: cursor } : {},
           ...options?.prefix !== void 0 ? { prefix: options.prefix } : {},
           ...options?.delimiter !== void 0 ? { delimiter: options.delimiter } : {}
@@ -32894,7 +32895,7 @@ class Bucket {
     return paginateItems(
       async (cursor) => {
         const resp = await this.listFileVersions({
-          pageSize: options?.pageSize ?? 1e3,
+          pageSize: options?.pageSize ?? DEFAULT_PAGE_SIZE,
           ...cursor !== void 0 ? { startFileName: cursor.fileName } : {},
           ...cursor?.fileId !== void 0 ? { startFileId: cursor.fileId } : {},
           ...options?.prefix !== void 0 ? { prefix: options.prefix } : {},
@@ -32952,7 +32953,7 @@ class Bucket {
           this.client.accountInfo.getAuthToken(),
           {
             fileId: largeFileId,
-            maxPartCount: options?.pageSize ?? 1e3,
+            maxPartCount: options?.pageSize ?? DEFAULT_PAGE_SIZE,
             ...cursor !== void 0 ? { startPartNumber: cursor } : {}
           }
         );
@@ -33094,7 +33095,7 @@ class Bucket {
           if (signal?.aborted) {
             errors.push({
               target,
-              error: signal.reason instanceof Error ? signal.reason : new Error(String(signal.reason ?? "aborted"))
+              error: toError(signal.reason ?? "aborted")
             });
             return;
           }
@@ -33103,7 +33104,7 @@ class Bucket {
         } catch (err) {
           errors.push({
             target,
-            error: err instanceof Error ? err : new Error(String(err))
+            error: toError(err)
           });
         } finally {
           sem.release();
@@ -33123,7 +33124,7 @@ class Bucket {
    */
   async *deleteAll(options) {
     const dryRun = options?.dryRun ?? false;
-    const pageSize = options?.pageSize ?? 1e3;
+    const pageSize = options?.pageSize ?? DEFAULT_PAGE_SIZE;
     let startFileName;
     let startFileId;
     while (true) {
@@ -34956,6 +34957,7 @@ function applyLegalHoldHeader(headers, legalHold) {
 
 
 
+
 class B2Client {
   /** Low-level client for direct B2 API calls. */
   raw;
@@ -35133,7 +35135,7 @@ class B2Client {
     return paginateItems(
       async (cursor) => {
         const resp = await this.listKeys({
-          pageSize: options?.pageSize ?? 1e3,
+          pageSize: options?.pageSize ?? DEFAULT_PAGE_SIZE,
           ...cursor !== void 0 ? { startApplicationKeyId: cursor } : {}
         });
         return { page: resp, nextCursor: resp.nextApplicationKeyId ?? void 0 };
@@ -35502,7 +35504,7 @@ function parsePositiveInt(name, raw) {
  * `bucket` input is the destination. The application key must have read
  * permission on the source bucket and write permission on the destination.
  */
-async function copyCommand(client, destinationBucket, inputs) {
+async function copyCommand(client, destinationBucket, inputs, signal) {
     const source = requireSource(inputs.source, 'copy', 'the source B2 file name');
     const destination = inputs.destination;
     if (destination === undefined || destination === '') {
@@ -35524,6 +35526,7 @@ async function copyCommand(client, destinationBucket, inputs) {
             ? await destinationBucket.copyLargeFile({
                 sourceFileId: hit.fileId,
                 fileName: destination,
+                ...(signal !== undefined ? { signal } : {}),
             })
             : await destinationBucket.copyFile({
                 sourceFileId: hit.fileId,
@@ -35563,20 +35566,24 @@ async function copyCommand(client, destinationBucket, inputs) {
  * With `dry-run: true`, no actual deletions happen; the action reports what
  * would have been deleted.
  */
-async function deleteCommand(bucket, inputs) {
-    const source = requireSource(inputs.source, 'delete');
+async function deleteCommand(bucket, inputs, signal) {
+    const source = requireSource(inputs.source, 'delete', 'a B2 file name or prefix');
     const isPrefix = source.endsWith('/');
     if (isPrefix) {
-        return deletePrefix(bucket, source, inputs.dryRun);
+        return deletePrefix(bucket, source, inputs.dryRun, signal);
     }
     return deleteOne(bucket, source, inputs.dryRun);
 }
-async function deletePrefix(bucket, prefix, dryRun) {
+async function deletePrefix(bucket, prefix, dryRun, signal) {
     const files = [];
     let errors = 0;
     startGroup(`${dryRun ? 'dry-run' : 'delete'} prefix b2://${bucket.name}/${prefix}`);
     try {
-        for await (const event of bucket.deleteAll({ prefix, dryRun })) {
+        for await (const event of bucket.deleteAll({
+            prefix,
+            dryRun,
+            ...(signal !== undefined ? { signal } : {}),
+        })) {
             if (event.type === 'delete') {
                 files.push({ fileName: event.fileName, fileId: event.fileId, skipped: false });
                 info(`  deleted ${event.fileName} (${event.fileId})`);
@@ -35701,14 +35708,14 @@ function makeProgressListener(label, intervalMs = 1000) {
  *     basename of `source`. Else `destination` is the exact output file path.
  *     If unset, the file's basename is used in the current working directory.
  */
-async function downloadCommand(bucket, inputs) {
-    const source = requireSource(inputs.source, 'download');
+async function downloadCommand(bucket, inputs, signal) {
+    const source = requireSource(inputs.source, 'download', 'a B2 file name or prefix');
     const isPrefix = source.endsWith('/');
     const sseDownload = sseFromInputs(inputs);
     if (isPrefix) {
-        return downloadPrefix(bucket, source, inputs.destination ?? '.', sseDownload);
+        return downloadPrefix(bucket, source, inputs.destination ?? '.', sseDownload, signal);
     }
-    const out = await downloadOne(bucket, source, inputs.destination, sseDownload);
+    const out = await downloadOne(bucket, source, inputs.destination, sseDownload, signal);
     return { files: [out], bytesTransferred: out.size };
 }
 function sseFromInputs(inputs) {
@@ -35721,13 +35728,14 @@ function sseFromInputs(inputs) {
         customerKeyMd5: e.customerKeyMd5,
     };
 }
-async function downloadPrefix(bucket, prefix, destinationDir, sseDownload) {
+async function downloadPrefix(bucket, prefix, destinationDir, sseDownload, signal) {
     const destRoot = (0,external_node_path_.resolve)(destinationDir);
     await (0,promises_.mkdir)(destRoot, { recursive: true });
     const files = [];
     let total = 0;
     let startFileName;
     for (;;) {
+        signal?.throwIfAborted();
         const page = await bucket.listFileNames({
             prefix,
             pageSize: 1000,
@@ -35736,6 +35744,7 @@ async function downloadPrefix(bucket, prefix, destinationDir, sseDownload) {
         for (const f of page.files) {
             if (f.action !== 'upload')
                 continue;
+            signal?.throwIfAborted();
             // `listFileNames({ prefix })` returns files matching `prefix` per the
             // SDK / B2 contract, so the slice is always safe. Empty `prefix`
             // leaves the name unchanged.
@@ -35743,7 +35752,7 @@ async function downloadPrefix(bucket, prefix, destinationDir, sseDownload) {
             const localPath = (0,external_node_path_.join)(destRoot, ...relName.split(external_node_path_.posix.sep));
             startGroup(`download b2://${bucket.name}/${f.fileName} → ${localPath}`);
             try {
-                const r = await downloadOne(bucket, f.fileName, localPath, sseDownload);
+                const r = await downloadOne(bucket, f.fileName, localPath, sseDownload, signal);
                 files.push(r);
                 total += r.size;
             }
@@ -35760,11 +35769,12 @@ async function downloadPrefix(bucket, prefix, destinationDir, sseDownload) {
     }
     return { files, bytesTransferred: total };
 }
-async function downloadOne(bucket, fileName, destination, sseDownload) {
+async function downloadOne(bucket, fileName, destination, sseDownload, signal) {
     const localPath = await resolveLocalPath(fileName, destination);
     await (0,promises_.mkdir)((0,external_node_path_.dirname)(localPath), { recursive: true });
     const result = await bucket.download(fileName, {
         ...(sseDownload !== undefined ? { serverSideEncryption: sseDownload } : {}),
+        ...(signal !== undefined ? { signal } : {}),
     });
     const size = result.headers.contentLength;
     const sha1 = result.headers.contentSha1;
@@ -35791,7 +35801,21 @@ async function downloadOne(bucket, fileName, destination, sseDownload) {
         },
     });
     const writeStream = (0,external_node_fs_namespaceObject.createWriteStream)(localPath);
-    await (0,external_node_stream_promises_namespaceObject.pipeline)(external_node_stream_.Readable.fromWeb(result.body), counter, writeStream);
+    try {
+        await (0,external_node_stream_promises_namespaceObject.pipeline)(external_node_stream_.Readable.fromWeb(result.body), counter, writeStream);
+    }
+    catch (err) {
+        // Partial download on disk is worse than no file (a subsequent run
+        // could mistake it for a complete copy). Best-effort unlink and
+        // re-throw; the outer dispatcher reports the original error.
+        try {
+            await (0,promises_.unlink)(localPath);
+        }
+        catch {
+            // ignore: best-effort cleanup, the original error matters more
+        }
+        throw err;
+    }
     info(`  wrote ${size} bytes to ${localPath} (sha1=${sha1 ?? 'multipart'})`);
     return { fileName, localPath, size, contentSha1: sha1 };
 }
@@ -36054,7 +36078,7 @@ async function presignOne(client, bucket, fileName, ttlSeconds, authPrefix) {
  *
  * Supports `dry-run` to preview what would be deleted.
  */
-async function purgeCommand(bucket, inputs) {
+async function purgeCommand(bucket, inputs, signal) {
     // Normalize: treat undefined source as "missing" to avoid accidental bucket-wide purges.
     if (inputs.source === undefined) {
         throw new Error("'source' input is required for 'purge' (use empty string explicitly for whole-bucket purge)");
@@ -36071,6 +36095,7 @@ async function purgeCommand(bucket, inputs) {
         const opts = {
             ...(prefix !== '' ? { prefix } : {}),
             dryRun,
+            ...(signal !== undefined ? { signal } : {}),
         };
         for await (const event of bucket.deleteAll(opts)) {
             if (event.type === 'delete') {
@@ -36143,6 +36168,15 @@ async function retentionCommand(bucket, inputs) {
         if (Number.isNaN(parsed)) {
             throw new Error(`'retention-until' is not a valid ISO 8601 timestamp: "${until}"`);
         }
+        // Reject past timestamps client-side. B2 also rejects them server-side
+        // but with a generic 400; the action's check fails faster and tells the
+        // user exactly what's wrong (especially helpful for timezone-skewed CI
+        // runners). Allow a small clock-skew tolerance: anything within the
+        // last 30 seconds is treated as "now" rather than past.
+        const skewToleranceMs = 30_000;
+        if (parsed < Date.now() - skewToleranceMs) {
+            throw new Error(`'retention-until' must be in the future; got "${until}" (${new Date(parsed).toISOString()})`);
+        }
         retainUntilMillis = parsed;
     }
     // Resolve the file version we're operating on.
@@ -36180,6 +36214,7 @@ async function retentionCommand(bucket, inputs) {
 }
 
 ;// CONCATENATED MODULE: ../b2-typescript-sdk/dist/streams/source.js
+
 class BlobSource {
   /**
    * Create a BlobSource wrapping the given Blob.
@@ -36311,26 +36346,8 @@ class StreamSource {
    * @returns A promise that resolves with the full content as an ArrayBuffer.
    */
   async toArrayBuffer() {
-    const reader = this.stream().getReader();
-    try {
-      const chunks = [];
-      let totalLen = 0;
-      while (true) {
-        const { done, value } = await reader.read();
-        if (done) break;
-        chunks.push(value);
-        totalLen += value.byteLength;
-      }
-      const result = new Uint8Array(totalLen);
-      let offset = 0;
-      for (const chunk of chunks) {
-        result.set(chunk, offset);
-        offset += chunk.byteLength;
-      }
-      return result.buffer;
-    } finally {
-      reader.releaseLock();
-    }
+    const bytes = await collectStream(this.stream());
+    return bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength);
   }
 }
 function toContentSource(input, size) {
@@ -36660,6 +36677,7 @@ function* actionsForBoth(source, dest, direction, compareMode, compareThreshold,
 
 
 
+
 function resolveDirection(source, dest) {
   if (source.type === "local" && dest.type === "b2") return "local-to-b2";
   if (source.type === "b2" && dest.type === "local") return "b2-to-local";
@@ -36702,12 +36720,13 @@ async function* synchronize(config) {
       const event = await action.execute(dryRun);
       results.push(event);
     } catch (err) {
-      errors.push(err instanceof Error ? err : new Error(String(err)));
+      const errorValue = toError(err);
+      errors.push(errorValue);
       results.push({
         type: "error",
         path: action.relativePath,
         size: 0,
-        message: err instanceof Error ? err.message : String(err)
+        message: errorValue.message
       });
     } finally {
       sem.release();
@@ -37036,13 +37055,13 @@ function processSyncEvent(event, counters) {
  * The SDK's {@link synchronize} returns an `AsyncGenerator<SyncEvent>` which we
  * relay to the workflow log (per-file) and aggregate into a typed result.
  */
-async function syncCommand(bucket, inputs) {
-    const source = requireSource(inputs.source, 'sync');
+async function syncCommand(bucket, inputs, signal) {
+    const source = requireSource(inputs.source, 'sync', 'a local directory (up) or B2 prefix (down)');
     const direction = await sync_resolveDirection(inputs.syncDirection, source);
     const compareMode = inputs.compareMode;
     const keepMode = inputs.keepMode;
     const dryRun = inputs.dryRun;
-    const config = await buildConfig(bucket, source, inputs, direction);
+    const config = await buildConfig(bucket, source, inputs, direction, signal);
     startGroup(`sync ${direction === 'local-to-b2' ? source : `b2://${bucket.name}/${source}`} ` +
         `→ ${direction === 'local-to-b2' ? `b2://${bucket.name}/${inputs.destination ?? ''}` : (inputs.destination ?? '.')} ` +
         `(compare=${compareMode}, keep=${keepMode}${dryRun ? ', dry-run' : ''})`);
@@ -37085,11 +37104,18 @@ async function sync_resolveDirection(requested, source) {
     const localStat = await sync_tryStat(source);
     return localStat?.isDirectory() ? 'local-to-b2' : 'b2-to-local';
 }
-async function buildConfig(bucket, source, inputs, direction) {
+async function buildConfig(bucket, source, inputs, direction, signal) {
     const compareMode = inputs.compareMode;
     const keepMode = inputs.keepMode;
     const dryRun = inputs.dryRun;
     const concurrency = inputs.concurrency;
+    const options = {
+        compareMode,
+        keepMode,
+        concurrency,
+        dryRun,
+        ...(signal !== undefined ? { signal } : {}),
+    };
     if (direction === 'local-to-b2') {
         const stats = await sync_tryStat(source);
         if (!stats?.isDirectory()) {
@@ -37101,7 +37127,7 @@ async function buildConfig(bucket, source, inputs, direction) {
             dest: new B2Folder(bucket, prefix === '' ? '' : `${prefix}/`),
             bucket,
             prefix: prefix === '' ? '' : `${prefix}/`,
-            options: { compareMode, keepMode, concurrency, dryRun },
+            options,
         };
     }
     const remotePrefix = source.replace(/^\/+|\/+$/g, '');
@@ -37111,7 +37137,7 @@ async function buildConfig(bucket, source, inputs, direction) {
         source: new B2Folder(bucket, remotePrefix === '' ? '' : `${remotePrefix}/`),
         dest: new LocalFolder((0,external_node_path_.resolve)(localDest)),
         bucket,
-        options: { compareMode, keepMode, concurrency, dryRun },
+        options,
     };
 }
 async function sync_tryStat(path) {
@@ -40570,7 +40596,7 @@ function glob_hashFiles(patterns_1) {
  * routes to multipart automatically when size exceeds the recommended part
  * size and parallelizes parts up to `concurrency`.
  */
-async function uploadCommand(bucket, inputs) {
+async function uploadCommand(bucket, inputs, signal) {
     const source = requireSource(inputs.source, 'upload');
     const files = await resolveFiles(source, inputs.include, inputs.exclude);
     if (files.length === 0) {
@@ -40585,10 +40611,11 @@ async function uploadCommand(bucket, inputs) {
     const uploaded = [];
     let totalBytes = 0;
     for (const f of files) {
+        signal?.throwIfAborted();
         const fileName = remapFileName(f, inputs.destination, isSingleExplicitFile);
         startGroup(`upload ${f.localPath} → b2://${bucket.name}/${fileName}`);
         try {
-            const result = await uploadOne(bucket, f.localPath, fileName, inputs);
+            const result = await uploadOne(bucket, f.localPath, fileName, inputs, signal);
             uploaded.push(result);
             totalBytes += result.size;
         }
@@ -40641,7 +40668,7 @@ function remapFileName(file, destination, isSingleExplicitFile) {
         return dest;
     return `${dest}/${file.fileName}`;
 }
-async function uploadOne(bucket, localPath, fileName, inputs) {
+async function uploadOne(bucket, localPath, fileName, inputs, signal) {
     const fileStat = await (0,promises_.stat)(localPath);
     const size = fileStat.size;
     // Stream the file from disk. The SDK's `bucket.upload` routes files larger
@@ -40653,6 +40680,15 @@ async function uploadOne(bucket, localPath, fileName, inputs) {
     const webStream = external_node_stream_.Readable.toWeb(nodeStream);
     const source = new StreamSource(webStream, size);
     const onProgress = makeProgressListener(`upload[${fileName}]`);
+    // `inputs.resume` is parsed but deliberately NOT forwarded to the SDK.
+    // The SDK's resume implementation requires a sliceable source so it can
+    // re-upload specific part offsets after a crash. The action uses
+    // `StreamSource` (memory-bounded streaming from disk), which is read-once-
+    // sequential and not sliceable; passing `resume: true` here would throw
+    // `"resume is not supported on non-sliceable sources"`. The input is
+    // kept in the action surface so this can be re-enabled if the action
+    // ever offers a `BufferSource` fallback for users willing to trade RAM
+    // for resumability.
     const result = await bucket.upload({
         fileName,
         source,
@@ -40660,6 +40696,7 @@ async function uploadOne(bucket, localPath, fileName, inputs) {
         ...(inputs.partSize !== undefined ? { partSize: inputs.partSize } : {}),
         ...(inputs.contentType !== undefined ? { contentType: inputs.contentType } : {}),
         ...(inputs.encryption !== undefined ? { serverSideEncryption: inputs.encryption } : {}),
+        ...(signal !== undefined ? { signal } : {}),
         onProgress,
     });
     // SDK now normalizes multipart `'none'` to `null` at the boundary, so
@@ -40840,6 +40877,19 @@ function escapePipes(s) {
  * live log.
  */
 async function run() {
+    // Wire workflow-cancellation signals (`SIGTERM` when the user cancels the
+    // job or a sibling fails fast; `SIGINT` for Ctrl+C in local dev) to an
+    // AbortController that long-running SDK operations subscribe to. Aborting
+    // mid-upload lets the SDK cancel in-flight multipart sessions cleanly
+    // rather than leaving them dangling for the user to pay storage on.
+    const controller = new AbortController();
+    const onSignal = (sig) => {
+        warning(`Received ${sig}; cancelling in-flight B2 operations.`);
+        controller.abort(new Error(`${sig} received`));
+    };
+    process.once('SIGTERM', () => onSignal('SIGTERM'));
+    process.once('SIGINT', () => onSignal('SIGINT'));
+    const signal = controller.signal;
     try {
         const inputs = parseInputs();
         const authorized = await buildClient({
@@ -40851,7 +40901,7 @@ async function run() {
         const bucket = await getBucket(authorized);
         switch (inputs.action) {
             case 'upload': {
-                const result = await uploadCommand(bucket, inputs);
+                const result = await uploadCommand(bucket, inputs, signal);
                 const first = result.files[0];
                 if (first !== undefined) {
                     setOutput('file-id', first.fileId);
@@ -40877,7 +40927,7 @@ async function run() {
                 return;
             }
             case 'download': {
-                const result = await downloadCommand(bucket, inputs);
+                const result = await downloadCommand(bucket, inputs, signal);
                 const first = result.files[0];
                 if (first !== undefined) {
                     setOutput('file-name', first.fileName);
@@ -40901,7 +40951,7 @@ async function run() {
                 return;
             }
             case 'sync': {
-                const result = await syncCommand(bucket, inputs);
+                const result = await syncCommand(bucket, inputs, signal);
                 setOutput('files-uploaded', String(result.uploaded));
                 setOutput('files-downloaded', String(result.downloaded));
                 setOutput('files-deleted', String(result.deleted));
@@ -40937,7 +40987,7 @@ async function run() {
                 return;
             }
             case 'copy': {
-                const result = await copyCommand(authorized.client, bucket, inputs);
+                const result = await copyCommand(authorized.client, bucket, inputs, signal);
                 setOutput('file-id', result.fileId);
                 setOutput('file-name', result.destinationFileName);
                 setOutput('bytes-transferred', String(result.size));
@@ -40956,7 +41006,7 @@ async function run() {
                 return;
             }
             case 'delete': {
-                const result = await deleteCommand(bucket, inputs);
+                const result = await deleteCommand(bucket, inputs, signal);
                 await emitDeletionSummary('delete', result, inputs);
                 return;
             }
@@ -41056,6 +41106,23 @@ async function run() {
                 }
                 return;
             }
+            case 'retention': {
+                const result = await retentionCommand(bucket, inputs);
+                setOutput('file-id', result.fileId);
+                setOutput('file-name', result.fileName);
+                setOutput('summary-json', JSON.stringify([result]));
+                await writeStepSummary({
+                    title: 'Backblaze B2: retention',
+                    rows: [
+                        {
+                            fileName: result.fileName,
+                            fileId: result.fileId,
+                            status: retentionStatusLine(result),
+                        },
+                    ],
+                });
+                return;
+            }
             case 'head': {
                 const result = await headCommand(bucket, inputs);
                 setOutput('file-id', result.fileId);
@@ -41079,25 +41146,8 @@ async function run() {
                 return;
             }
             case 'purge': {
-                const result = await purgeCommand(bucket, inputs);
+                const result = await purgeCommand(bucket, inputs, signal);
                 await emitDeletionSummary('purge', result, inputs);
-                return;
-            }
-            case 'retention': {
-                const result = await retentionCommand(bucket, inputs);
-                setOutput('file-id', result.fileId);
-                setOutput('file-name', result.fileName);
-                setOutput('summary-json', JSON.stringify([result]));
-                await writeStepSummary({
-                    title: 'Backblaze B2: retention',
-                    rows: [
-                        {
-                            fileName: result.fileName,
-                            fileId: result.fileId,
-                            status: retentionStatusLine(result),
-                        },
-                    ],
-                });
                 return;
             }
         }
