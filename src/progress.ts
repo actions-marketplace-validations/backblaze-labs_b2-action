@@ -30,6 +30,7 @@ export function makeProgressListener(label: string, intervalMs = 1000): Progress
         ? `${Math.round((event.bytesTransferred / event.totalBytes) * 100)}%`
         : '?%'
 
+    /* v8 ignore next 2 -- pending SDK request: tighten `ProgressEvent.partsCompleted` from `number | null | undefined` to `number`. The SDK always populates this at runtime; the `?? 0` is only here to satisfy the loose type. */
     const parts =
       event.totalParts !== null ? ` (${event.partsCompleted ?? 0}/${event.totalParts} parts)` : ''
 

@@ -61362,6 +61362,9 @@ function bucketId(raw) {
 function fileId(raw) {
   return raw;
 }
+function largeFileId(raw) {
+  return raw;
+}
 
 //# sourceMappingURL=ids.js.map
 
@@ -61417,7 +61420,14 @@ async function bestEffort(fn) {
 
 //# sourceMappingURL=best-effort.js.map
 
+;// CONCATENATED MODULE: ../b2-typescript-sdk/dist/util/defaults.js
+const DEFAULT_TRANSFER_CONCURRENCY = 4;
+const DEFAULT_BULK_CONCURRENCY = 10;
+
+//# sourceMappingURL=defaults.js.map
+
 ;// CONCATENATED MODULE: ../b2-typescript-sdk/dist/copy/large.js
+
 
 
 
@@ -61425,7 +61435,7 @@ async function copyLargeFile(raw, accountInfo, options) {
   const recommendedPartSize = accountInfo.getRecommendedPartSize();
   const minPartSize = accountInfo.getAbsoluteMinimumPartSize();
   const partSize = Math.max(options.partSize ?? recommendedPartSize, minPartSize);
-  const concurrency = options.concurrency ?? 4;
+  const concurrency = options.concurrency ?? DEFAULT_TRANSFER_CONCURRENCY;
   const sourceInfo = await raw.getFileInfo(accountInfo.getApiUrl(), accountInfo.getAuthToken(), {
     fileId: options.sourceFileId
   });
@@ -61462,10 +61472,12 @@ async function copyLargeFile(raw, accountInfo, options) {
   const partSha1s = new Array(ranges.length);
   const sem = new Semaphore(concurrency);
   try {
+    options.signal?.throwIfAborted();
     await Promise.all(
       ranges.map(async (range) => {
         await sem.acquire();
         try {
+          options.signal?.throwIfAborted();
           const resp = await raw.copyPart(accountInfo.getApiUrl(), accountInfo.getAuthToken(), {
             sourceFileId: options.sourceFileId,
             // `startLargeFile` returns `LargeFileId`; `copyPart` takes the
@@ -61482,6 +61494,7 @@ async function copyLargeFile(raw, accountInfo, options) {
         }
       })
     );
+    options.signal?.throwIfAborted();
     return await raw.finishLargeFile(accountInfo.getApiUrl(), accountInfo.getAuthToken(), {
       fileId: largeFileId,
       partSha1Array: partSha1s
@@ -61548,7 +61561,55 @@ function parseFileInfoHeaders(headers) {
 
 //# sourceMappingURL=encoding.js.map
 
+;// CONCATENATED MODULE: ../b2-typescript-sdk/dist/streams/progress.js
+class ProgressTracker {
+  /**
+   * Creates a new ProgressTracker.
+   * @param listener - Callback to receive progress events, or undefined to disable.
+   * @param totalBytes - Expected total bytes, or null if unknown.
+   * @param totalParts - Expected total parts, or null if not a multipart transfer.
+   */
+  constructor(listener, totalBytes, totalParts) {
+    this.listener = listener;
+    this.totalBytes = totalBytes;
+    this.totalParts = totalParts;
+    this.startTime = Date.now();
+  }
+  /** Running total of bytes transferred. */
+  bytesTransferred = 0;
+  /** Running count of completed parts. */
+  partsCompleted = 0;
+  /** Timestamp when tracking began. */
+  startTime;
+  /**
+   * Record that additional bytes have been transferred and notify the listener.
+   * @param count - The number of additional bytes that were transferred.
+   */
+  addBytes(count) {
+    this.bytesTransferred += count;
+    this.emit();
+  }
+  /** Record that a multipart part has completed and notify the listener. */
+  completePart() {
+    this.partsCompleted++;
+    this.emit();
+  }
+  /** Emit the current progress snapshot to the listener, if one is registered. */
+  emit() {
+    this.listener?.({
+      bytesTransferred: this.bytesTransferred,
+      totalBytes: this.totalBytes,
+      partsCompleted: this.partsCompleted,
+      totalParts: this.totalParts,
+      elapsedMs: Date.now() - this.startTime
+    });
+  }
+}
+
+//# sourceMappingURL=progress.js.map
+
 ;// CONCATENATED MODULE: ../b2-typescript-sdk/dist/download/single.js
+
 
 
 async function downloadById(raw, accountInfo, options) {
@@ -61558,11 +61619,12 @@ async function downloadById(raw, accountInfo, options) {
     options.fileId,
     toRawDownloadOptions(options)
   );
+  const headers = extractDownloadHeaders(resp.headers);
   return {
-    headers: extractDownloadHeaders(resp.headers),
+    headers,
     // HEAD requests legitimately have no body; return an empty stream so the
     // result shape stays consistent.
-    body: resp.body ?? emptyStream()
+    body: instrumentProgress(resp.body ?? emptyStream(), headers.contentLength, options.onProgress)
   };
 }
 async function downloadByName(raw, accountInfo, options) {
@@ -61573,9 +61635,10 @@ async function downloadByName(raw, accountInfo, options) {
     options.fileName,
     toRawDownloadOptions(options)
   );
+  const headers = extractDownloadHeaders(resp.headers);
   return {
-    headers: extractDownloadHeaders(resp.headers),
-    body: resp.body ?? emptyStream()
+    headers,
+    body: instrumentProgress(resp.body ?? emptyStream(), headers.contentLength, options.onProgress)
   };
 }
 function toRawDownloadOptions(options) {
@@ -61598,6 +61661,20 @@ function emptyStream() {
       controller.close();
     }
   });
+}
+function instrumentProgress(body, totalBytes, listener) {
+  if (listener === void 0) return body;
+  const tracker = new ProgressTracker(listener, totalBytes, 1);
+  const transform = new TransformStream({
+    transform(chunk, controller) {
+      tracker.addBytes(chunk.byteLength);
+      controller.enqueue(chunk);
+    },
+    flush() {
+      tracker.completePart();
+    }
+  });
+  return body.pipeThrough(transform);
 }
 function extractDownloadHeaders(headers) {
   const fileInfo = parseFileInfoHeaders(headers);
@@ -61651,9 +61728,10 @@ function sleep(ms, signal) {
 ;// CONCATENATED MODULE: ../b2-typescript-sdk/dist/download/parallel.js
 
 
+
 function createParallelDownloadStream(raw, accountInfo, options) {
   const rangeSize = options.rangeSize ?? 10 * 1024 * 1024;
-  const concurrency = options.concurrency ?? 4;
+  const concurrency = options.concurrency ?? DEFAULT_TRANSFER_CONCURRENCY;
   const totalSize = options.totalSize;
   const retryOptions = { ...DEFAULT_RETRY_OPTIONS, maxRetries: options.maxRetries ?? 5 };
   const ranges = [];
@@ -61741,7 +61819,7 @@ async function readAll(stream) {
   const reader = stream.getReader();
   const parts = [];
   let total = 0;
-  for (; ; ) {
+  while (true) {
     const { done, value } = await reader.read();
     if (done) break;
     parts.push(value);
@@ -61858,54 +61936,8 @@ async function sha1Hex(data) {
 
 //# sourceMappingURL=hash.js.map
 
-;// CONCATENATED MODULE: ../b2-typescript-sdk/dist/streams/progress.js
-class ProgressTracker {
-  /**
-   * Creates a new ProgressTracker.
-   * @param listener - Callback to receive progress events, or undefined to disable.
-   * @param totalBytes - Expected total bytes, or null if unknown.
-   * @param totalParts - Expected total parts, or null if not a multipart transfer.
-   */
-  constructor(listener, totalBytes, totalParts) {
-    this.listener = listener;
-    this.totalBytes = totalBytes;
-    this.totalParts = totalParts;
-    this.startTime = Date.now();
-  }
-  /** Running total of bytes transferred. */
-  bytesTransferred = 0;
-  /** Running count of completed parts. */
-  partsCompleted = 0;
-  /** Timestamp when tracking began. */
-  startTime;
-  /**
-   * Record that additional bytes have been transferred and notify the listener.
-   * @param count - The number of additional bytes that were transferred.
-   */
-  addBytes(count) {
-    this.bytesTransferred += count;
-    this.emit();
-  }
-  /** Record that a multipart part has completed and notify the listener. */
-  completePart() {
-    this.partsCompleted++;
-    this.emit();
-  }
-  /** Emit the current progress snapshot to the listener, if one is registered. */
-  emit() {
-    this.listener?.({
-      bytesTransferred: this.bytesTransferred,
-      totalBytes: this.totalBytes,
-      partsCompleted: this.partsCompleted,
-      totalParts: this.totalParts,
-      elapsedMs: Date.now() - this.startTime
-    });
-  }
-}
-
-//# sourceMappingURL=progress.js.map
-
 ;// CONCATENATED MODULE: ../b2-typescript-sdk/dist/upload/resume.js
+
 async function findResumeCandidate(raw, accountInfo, bucketId, fileName) {
   const unfinished = await raw.listUnfinishedLargeFiles(
     accountInfo.getApiUrl(),
@@ -61914,14 +61946,14 @@ async function findResumeCandidate(raw, accountInfo, bucketId, fileName) {
   );
   const match = unfinished.files.find((f) => f.fileName === fileName);
   if (!match) return null;
-  const fileId = match.fileId;
+  const fileId = largeFileId(match.fileId);
   const uploadedPartSha1s = await collectPartSha1s(raw, accountInfo, fileId);
   return { fileId, uploadedPartSha1s };
 }
 async function collectPartSha1s(raw, accountInfo, fileId) {
   const sha1s = /* @__PURE__ */ new Map();
   let startPartNumber;
-  for (; ; ) {
+  while (true) {
     const page = await raw.listParts(accountInfo.getApiUrl(), accountInfo.getAuthToken(), {
       fileId,
       ...startPartNumber !== void 0 ? { startPartNumber } : {}
@@ -61943,11 +61975,12 @@ async function collectPartSha1s(raw, accountInfo, fileId) {
 
 
 
+
 async function uploadLargeFile(raw, accountInfo, options) {
   const recommendedPartSize = accountInfo.getRecommendedPartSize();
   const minPartSize = accountInfo.getAbsoluteMinimumPartSize();
   const partSize = Math.max(options.partSize ?? recommendedPartSize, minPartSize);
-  const concurrency = options.concurrency ?? 4;
+  const concurrency = options.concurrency ?? DEFAULT_TRANSFER_CONCURRENCY;
   const totalSize = options.source.size;
   const parts = planParts(totalSize, partSize);
   const fileInfo = { ...options.fileInfo };
@@ -62086,6 +62119,7 @@ function planParts(totalSize, partSize) {
 
 ;// CONCATENATED MODULE: ../b2-typescript-sdk/dist/upload/single.js
 
+
 async function uploadSmallFile(raw, accountInfo, options) {
   let uploadEntry = accountInfo.checkoutUploadUrl(options.bucketId);
   if (!uploadEntry) {
@@ -62098,6 +62132,7 @@ async function uploadSmallFile(raw, accountInfo, options) {
   const sha1 = new IncrementalSha1();
   await sha1.update(data);
   const sha1Hex = await sha1.digest();
+  const tracker = new ProgressTracker(options.onProgress, data.byteLength, 1);
   try {
     const result = await raw.uploadFile(
       uploadEntry.uploadUrl,
@@ -62116,6 +62151,8 @@ async function uploadSmallFile(raw, accountInfo, options) {
       data,
       options.signal
     );
+    tracker.addBytes(data.byteLength);
+    tracker.completePart();
     accountInfo.returnUploadUrl(options.bucketId, uploadEntry);
     return result;
   } catch (err) {
@@ -62131,11 +62168,12 @@ async function uploadSmallFile(raw, accountInfo, options) {
 
 
 
+
 function createWriteStream(raw, accountInfo, options) {
   const minPartSize = accountInfo.getAbsoluteMinimumPartSize();
   const recommendedPartSize = accountInfo.getRecommendedPartSize();
   const partSize = Math.max(options.partSize ?? recommendedPartSize, minPartSize);
-  const concurrency = options.concurrency ?? 4;
+  const concurrency = options.concurrency ?? DEFAULT_TRANSFER_CONCURRENCY;
   const tracker = new ProgressTracker(options.onProgress, null, null);
   const sem = new Semaphore(concurrency);
   let largeFileId = null;
@@ -62146,12 +62184,11 @@ function createWriteStream(raw, accountInfo, options) {
   const partSha1s = [];
   const inflight = [];
   let errored = null;
-  let resolveDone;
-  let rejectDone;
-  const done = new Promise((resolve, reject) => {
-    resolveDone = resolve;
-    rejectDone = reject;
-  });
+  const {
+    promise: done,
+    resolve: resolveDone,
+    reject: rejectDone
+  } = Promise.withResolvers();
   function ensureStarted() {
     if (largeFileId !== null) return Promise.resolve(largeFileId);
     if (startPromise !== null) return startPromise;
@@ -62502,7 +62539,7 @@ class B2Object {
 ;// CONCATENATED MODULE: ../b2-typescript-sdk/dist/util/paginator.js
 async function* paginatePages(fetcher, signal) {
   let cursor;
-  for (; ; ) {
+  while (true) {
     signal?.throwIfAborted();
     const { page, nextCursor } = await fetcher(cursor);
     yield page;
@@ -62519,6 +62556,7 @@ async function* paginateItems(fetcher, extractItems, signal) {
 //# sourceMappingURL=paginator.js.map
 
 ;// CONCATENATED MODULE: ../b2-typescript-sdk/dist/bucket.js
+
 
 
 
@@ -62657,7 +62695,11 @@ class Bucket {
         });
         return { page: resp, nextCursor: resp.nextFileName ?? void 0 };
       },
-      (page) => page.files,
+      // Real B2 surfaces hide markers as rows in `b2_list_file_names`. This
+      // iterator's documented contract is "latest VISIBLE version", so we
+      // drop hide-action rows here. Callers who need full history should
+      // use `paginateFileVersions`.
+      (page) => page.files.filter((f) => f.action !== "hide"),
       options?.signal
     );
   }
@@ -62756,7 +62798,8 @@ class Bucket {
   async getFileInfoByName(fileName) {
     const resp = await this.listFileNames({ prefix: fileName, maxFileCount: 1 });
     const match = resp.files.find((f) => f.fileName === fileName);
-    return match ?? null;
+    if (!match || match.action === "hide") return null;
+    return match;
   }
   /**
    * Removes the latest hide marker for a file, restoring visibility of the
@@ -62766,7 +62809,7 @@ class Bucket {
    *
    * @returns The deleted hide marker version, or `null` if nothing was hidden.
    */
-  async unhide(fileName) {
+  async unhideFile(fileName) {
     const resp = await this.listFileVersions({ prefix: fileName, maxFileCount: 100 });
     const versions = resp.files.filter((f) => f.fileName === fileName);
     if (versions.length === 0) return null;
@@ -62851,12 +62894,15 @@ class Bucket {
    * deletes are collected and returned rather than thrown, so partial success
    * does not abort the run.
    * @param targets - File versions to delete.
-   * @param options - Optional concurrency override (default 10).
+   * @param options - Optional concurrency override. Defaults to
+   *   {@link DEFAULT_BULK_CONCURRENCY} (a bulk-metadata setting, higher
+   *   than transfer concurrency because each task is a single tiny API
+   *   round-trip).
    *
    * @returns A summary of successes and per-target errors.
    */
   async deleteMany(targets, options) {
-    const concurrency = options?.concurrency ?? 10;
+    const concurrency = options?.concurrency ?? DEFAULT_BULK_CONCURRENCY;
     const sem = new Semaphore(concurrency);
     let deleted = 0;
     const errors = [];
@@ -62892,7 +62938,7 @@ class Bucket {
     const pageSize = options?.pageSize ?? 1e3;
     let startFileName;
     let startFileId;
-    for (; ; ) {
+    while (true) {
       const page = await this.listFileVersions({
         maxFileCount: pageSize,
         ...options?.prefix !== void 0 ? { prefix: options.prefix } : {},
@@ -62952,7 +62998,8 @@ class Bucket {
       ...options.destinationServerSideEncryption !== void 0 ? { destinationServerSideEncryption: options.destinationServerSideEncryption } : {},
       ...options.sourceServerSideEncryption !== void 0 ? { sourceServerSideEncryption: options.sourceServerSideEncryption } : {},
       ...options.partSize !== void 0 ? { partSize: options.partSize } : {},
-      ...options.concurrency !== void 0 ? { concurrency: options.concurrency } : {}
+      ...options.concurrency !== void 0 ? { concurrency: options.concurrency } : {},
+      ...options.signal !== void 0 ? { signal: options.signal } : {}
     });
   }
   /**
@@ -64889,10 +64936,10 @@ function parseOptionalEnum(name, raw, valid) {
     return raw === undefined ? undefined : parseEnum(name, raw, valid);
 }
 function required(name) {
-    const v = core.getInput(name, { required: true });
-    if (!v)
-        throw new Error(`Missing required input: ${name}`);
-    return v;
+    // `@actions/core` throws on missing required inputs, so this never returns
+    // empty. Wrapping the call only exists so the throw site has a uniform
+    // shape with the rest of the input parsers.
+    return core.getInput(name, { required: true });
 }
 function optional(name) {
     const v = core.getInput(name);
@@ -65090,6 +65137,18 @@ function formatBytes(n) {
         return `${(n / 1024 / 1024).toFixed(1)} MB`;
     return `${(n / 1024 / 1024 / 1024).toFixed(2)} GB`;
 }
+/**
+ * Normalize a B2-returned content SHA-1 string. Real B2 returns the literal
+ * string `'none'` for files completed via `b2_finish_large_file` (multipart),
+ * because the protocol stores per-part SHA-1s but not a whole-file SHA-1.
+ * The action treats that as "no SHA-1 available" and surfaces `null` to its
+ * outputs and step-summary rows.
+ */
+function normalizeSha1(s) {
+    if (s === null || s === undefined || s === 'none')
+        return null;
+    return s;
+}
 
 ;// CONCATENATED MODULE: ./src/progress.ts
 
@@ -65117,6 +65176,7 @@ function makeProgressListener(label, intervalMs = 1000) {
         const pct = event.totalBytes !== null && event.totalBytes > 0
             ? `${Math.round((event.bytesTransferred / event.totalBytes) * 100)}%`
             : '?%';
+        /* v8 ignore next 2 -- pending SDK request: tighten `ProgressEvent.partsCompleted` from `number | null | undefined` to `number`. The SDK always populates this at runtime; the `?? 0` is only here to satisfy the loose type. */
         const parts = event.totalParts !== null ? ` (${event.partsCompleted ?? 0}/${event.totalParts} parts)` : '';
         const totalSuffix = event.totalBytes !== null ? ` / ${formatBytes(event.totalBytes)}` : '';
         core.info(`${label} ${pct}${parts} ${formatBytes(event.bytesTransferred)}${totalSuffix} @ ${mbps.toFixed(2)} MB/s`);
@@ -65127,6 +65187,7 @@ function makeProgressListener(label, intervalMs = 1000) {
 }
 
 ;// CONCATENATED MODULE: ./src/commands/download.ts
+
 
 
 
@@ -65195,8 +65256,10 @@ async function downloadPrefix(bucket, prefix, destinationDir, sseDownload) {
         }
         if (page.nextFileName === null || page.nextFileName === undefined)
             break;
+        /* v8 ignore start -- known coverage gap: real B2 pagination path. Fires when >1000 files share the prefix. Documented in DEVELOPMENT.md "Known coverage gaps"; not exercised because seeding 1001 files would dominate suite runtime. */
         startFileName = page.nextFileName;
     }
+    /* v8 ignore stop */
     return { files, bytesTransferred: total };
 }
 async function downloadOne(bucket, fileName, destination, sseDownload) {
@@ -65206,7 +65269,7 @@ async function downloadOne(bucket, fileName, destination, sseDownload) {
         ...(sseDownload !== undefined ? { serverSideEncryption: sseDownload } : {}),
     });
     const size = result.headers.contentLength;
-    const sha1 = result.headers.contentSha1;
+    const sha1 = normalizeSha1(result.headers.contentSha1);
     // Wrap the body in a byte-counting Transform that synthesizes ProgressEvents
     // for the shared progress listener. The SDK doesn't expose progress for
     // single-shot downloads; we compute it here from the known content-length.
@@ -65257,6 +65320,7 @@ async function tryStat(path) {
 ;// CONCATENATED MODULE: ./src/commands/head.ts
 
 
+
 /**
  * HEAD-only metadata probe. Fetches the headers of an object without
  * downloading the body. Useful for cheap "does this exist and what's its
@@ -65280,13 +65344,14 @@ async function headCommand(bucket, inputs) {
             // Ignored: HEAD responses may have no body to cancel.
         }
         const h = result.headers;
-        core.info(`  size=${h.contentLength} type=${h.contentType} sha1=${h.contentSha1 ?? 'multipart'}`);
+        const sha1 = normalizeSha1(h.contentSha1);
+        core.info(`  size=${h.contentLength} type=${h.contentType} sha1=${sha1 ?? 'multipart'}`);
         return {
             fileName: h.fileName,
             fileId: h.fileId,
             size: h.contentLength,
             contentType: h.contentType,
-            contentSha1: h.contentSha1,
+            contentSha1: sha1,
             uploadTimestamp: h.uploadTimestamp,
             fileInfo: h.fileInfo,
         };
@@ -65325,6 +65390,7 @@ async function hideCommand(bucket, inputs) {
 
 ;// CONCATENATED MODULE: ./src/commands/list.ts
 
+
 /**
  * List file names under a prefix.
  *
@@ -65359,9 +65425,10 @@ async function listCommand(bucket, inputs) {
                     fileName: f.fileName,
                     fileId: f.fileId,
                     size: f.contentLength,
-                    contentSha1: f.contentSha1 ?? null,
+                    contentSha1: normalizeSha1(f.contentSha1),
                     uploadTimestamp: f.uploadTimestamp,
                     contentType: f.contentType,
+                    /* v8 ignore next 1 -- pending SDK request: tighten `FileVersion.fileInfo` from optional to `Record<string, string>`. The SDK always returns at least `{}`; the `?? {}` is only here to satisfy the loose type. */
                     fileInfo: f.fileInfo ?? {},
                 });
                 if (files.length >= maxResults)
@@ -65738,7 +65805,7 @@ class StreamSource {
     const reader = this.stream().getReader();
     const chunks = [];
     let totalLen = 0;
-    for (; ; ) {
+    while (true) {
       const { done, value } = await reader.read();
       if (done) break;
       chunks.push(value);
@@ -66080,6 +66147,7 @@ function* actionsForBoth(source, dest, direction, compareMode, compareThreshold,
 
 
 
+
 function resolveDirection(source, dest) {
   if (source.type === "local" && dest.type === "b2") return "local-to-b2";
   if (source.type === "b2" && dest.type === "local") return "b2-to-local";
@@ -66090,7 +66158,7 @@ async function* synchronize(config) {
   const { source, dest, options } = config;
   const direction = resolveDirection(source, dest);
   const dryRun = options.dryRun ?? false;
-  const concurrency = options.concurrency ?? 4;
+  const concurrency = options.concurrency ?? DEFAULT_TRANSFER_CONCURRENCY;
   const keepDays = options.keepDays ?? 0;
   const compareThreshold = options.compareThreshold ?? 0;
   const nowMillis = Date.now();
@@ -66146,6 +66214,9 @@ async function* synchronize(config) {
     };
   }
 }
+function assertBucket(bucket, context) {
+  if (!bucket) throw new Error(`Bucket required for ${context} actions`);
+}
 function createActionFactory(config) {
   const upConfig = config;
   const downConfig = config;
@@ -66153,7 +66224,7 @@ function createActionFactory(config) {
     upload(source) {
       const bucket = upConfig.bucket;
       const prefix = upConfig.prefix ?? "";
-      if (!bucket) throw new Error("Bucket required for upload actions");
+      assertBucket(bucket, "upload");
       return new UploadAction(
         source.relativePath,
         source.absolutePath,
@@ -66171,12 +66242,12 @@ function createActionFactory(config) {
     download(source) {
       const bucket = downConfig.bucket;
       const root = downConfig.dest?.type === "local" ? downConfig.dest.root : "";
-      if (!bucket) throw new Error("Bucket required for download actions");
+      assertBucket(bucket, "download");
       return new DownloadAction(source.relativePath, source.size, async (relPath) => {
         const result = await bucket.download(source.selectedVersion.fileName);
         const reader = result.body.getReader();
         const chunks = [];
-        for (; ; ) {
+        while (true) {
           const { done, value } = await reader.read();
           if (done) break;
           chunks.push(value);
@@ -66198,7 +66269,7 @@ function createActionFactory(config) {
     },
     copy(source, destPath) {
       const bucket = upConfig.bucket;
-      if (!bucket) throw new Error("Bucket required for copy actions");
+      assertBucket(bucket, "copy");
       return new CopyAction(source.relativePath, source.size, async () => {
         await bucket.copyFile({
           sourceFileId: source.selectedVersion.fileId,
@@ -66208,7 +66279,7 @@ function createActionFactory(config) {
     },
     hide(path) {
       const bucket = upConfig.bucket ?? downConfig.bucket;
-      if (!bucket) throw new Error("Bucket required for hide actions");
+      assertBucket(bucket, "hide");
       return new HideAction(path, async (relPath) => {
         const prefix = upConfig.prefix ?? "";
         await bucket.hideFile(`${prefix}${relPath}`);
@@ -66216,7 +66287,7 @@ function createActionFactory(config) {
     },
     deleteRemote(path) {
       const bucket = upConfig.bucket ?? downConfig.bucket;
-      if (!bucket) throw new Error("Bucket required for delete actions");
+      assertBucket(bucket, "delete");
       return new DeleteRemoteAction(
         path.relativePath,
         path.selectedVersion.fileId,
@@ -66336,7 +66407,7 @@ class B2Folder {
     const grouped = /* @__PURE__ */ new Map();
     let startFileName;
     let startFileId;
-    for (; ; ) {
+    while (true) {
       const listing = await this.bucket.listFileVersions({
         ...this.prefix !== "" ? { prefix: this.prefix } : {},
         ...startFileName !== void 0 ? { startFileName } : {},
@@ -66396,7 +66467,7 @@ async function syncCommand(bucket, inputs) {
     const compareMode = inputs.compareMode;
     const keepMode = inputs.keepMode;
     const dryRun = inputs.dryRun;
-    const config = await buildConfig(bucket, inputs, direction);
+    const config = await buildConfig(bucket, source, inputs, direction);
     core.startGroup(`sync ${direction === 'local-to-b2' ? source : `b2://${bucket.name}/${source}`} ` +
         `→ ${direction === 'local-to-b2' ? `b2://${bucket.name}/${inputs.destination ?? ''}` : (inputs.destination ?? '.')} ` +
         `(compare=${compareMode}, keep=${keepMode}${dryRun ? ', dry-run' : ''})`);
@@ -66421,6 +66492,7 @@ async function syncCommand(bucket, inputs) {
                     bytesTransferred += event.size;
                     core.info(`  ↓ ${event.path} (${event.size}B)`);
                     break;
+                /* v8 ignore next 4 -- pending SDK request: emit `delete-remote` (not `hide`) for orphan removal on unversioned/no-file-lock buckets. Today the engine emits `hide` regardless, so this case is unreachable. Forward-compat, not defensive. */
                 case 'delete-remote':
                     deleted++;
                     core.info(`  − ${event.path}`);
@@ -66438,6 +66510,7 @@ async function syncCommand(bucket, inputs) {
                     break;
                 case 'error':
                     errors++;
+                    /* v8 ignore next 1 -- pending SDK request: narrow `SyncEvent` so `message: string` is required on error events. The engine always populates it; the `??` is only here to satisfy the loose type. */
                     core.warning(`  ! ${event.path}: ${event.message ?? 'unknown error'}`);
                     break;
                 case 'upload-start':
@@ -66472,29 +66545,26 @@ async function sync_resolveDirection(requested, source) {
     const localStat = await sync_tryStat(source);
     return localStat?.isDirectory() ? 'local-to-b2' : 'b2-to-local';
 }
-async function buildConfig(bucket, inputs, direction) {
+async function buildConfig(bucket, source, inputs, direction) {
     const compareMode = inputs.compareMode;
     const keepMode = inputs.keepMode;
     const dryRun = inputs.dryRun;
     const concurrency = inputs.concurrency;
     if (direction === 'local-to-b2') {
-        const localPath = inputs.source;
-        if (localPath === undefined)
-            throw new Error("'source' must be a local directory for sync up");
-        const stats = await sync_tryStat(localPath);
+        const stats = await sync_tryStat(source);
         if (!stats?.isDirectory()) {
-            throw new Error(`'sync' up requires 'source' to be an existing local directory: ${localPath}`);
+            throw new Error(`'sync' up requires 'source' to be an existing local directory: ${source}`);
         }
         const prefix = (inputs.destination ?? '').replace(/^\/+|\/+$/g, '');
         return {
-            source: new LocalFolder((0,external_node_path_.resolve)(localPath)),
+            source: new LocalFolder((0,external_node_path_.resolve)(source)),
             dest: new B2Folder(bucket, prefix === '' ? '' : `${prefix}/`),
             bucket,
             prefix: prefix === '' ? '' : `${prefix}/`,
             options: { compareMode, keepMode, concurrency, dryRun },
         };
     }
-    const remotePrefix = (inputs.source ?? '').replace(/^\/+|\/+$/g, '');
+    const remotePrefix = source.replace(/^\/+|\/+$/g, '');
     const localDest = inputs.destination ?? '.';
     await (0,promises_.mkdir)((0,external_node_path_.resolve)(localDest), { recursive: true });
     return {
@@ -66531,7 +66601,7 @@ async function unhideCommand(bucket, inputs) {
     const source = requireSource(inputs.source, 'unhide', 'the B2 file name');
     core.startGroup(`unhide b2://${bucket.name}/${source}`);
     try {
-        const marker = await bucket.unhide(source);
+        const marker = await bucket.unhideFile(source);
         if (marker === null) {
             core.info(`  no hide marker found for ${source} (already visible or non-existent)`);
             return { fileName: source, removedMarkerFileId: null };
@@ -66547,7 +66617,6 @@ async function unhideCommand(bucket, inputs) {
 // EXTERNAL MODULE: ./node_modules/.pnpm/@actions+glob@0.5.1/node_modules/@actions/glob/lib/glob.js
 var glob = __nccwpck_require__(3313);
 ;// CONCATENATED MODULE: ./src/commands/upload.ts
-
 
 
 
@@ -66626,10 +66695,13 @@ async function resolveFiles(source, include, exclude) {
     const out = [];
     for (const m of matches) {
         const s = await upload_tryStat(m);
+        // Filesystem boundary: the globber lists what's there at glob time; the
+        // file may be unlinked, renamed, or become a permission error between
+        // here and `stat`. Skip silently rather than crash the whole upload.
         if (!s?.isFile())
             continue;
         const rel = (0,external_node_path_.relative)(root, m).split(external_node_path_.sep).join(external_node_path_.posix.sep);
-        out.push({ localPath: m, fileName: rel || (0,external_node_path_.basename)(m) });
+        out.push({ localPath: m, fileName: rel });
     }
     return out;
 }
@@ -66644,9 +66716,15 @@ function remapFileName(file, destination, isSingleExplicitFile) {
 async function uploadOne(bucket, localPath, fileName, inputs) {
     const fileStat = await (0,promises_.stat)(localPath);
     const size = fileStat.size;
-    const nodeStream = (0,external_node_fs_namespaceObject.createReadStream)(localPath);
-    const webStream = external_node_stream_.Readable.toWeb(nodeStream);
-    const source = new StreamSource(webStream, size);
+    // Read the file into a BufferSource. The SDK's `bucket.upload` routes
+    // files larger than the recommended part size through `uploadLargeFile`,
+    // which slices the source into parts and uploads them in parallel. Stream
+    // sources cannot be sliced (a stream is read-once-sequential), so the
+    // multipart path requires a randomly-accessible source. BufferSource
+    // satisfies that. The cost is holding the file in runner memory; on
+    // ubuntu-latest (7 GB) that's fine up to multi-GB artifacts, which is
+    // well past the practical size for anything a CI workflow uploads.
+    const source = new BufferSource(await (0,promises_.readFile)(localPath));
     const onProgress = makeProgressListener(`upload[${fileName}]`);
     const result = await bucket.upload({
         fileName,
@@ -66657,13 +66735,14 @@ async function uploadOne(bucket, localPath, fileName, inputs) {
         ...(inputs.encryption !== undefined ? { serverSideEncryption: inputs.encryption } : {}),
         onProgress,
     });
-    core.info(`  fileId=${result.fileId} sha1=${result.contentSha1 ?? 'multipart'}`);
+    const sha1 = normalizeSha1(result.contentSha1);
+    core.info(`  fileId=${result.fileId} sha1=${sha1 ?? 'multipart'}`);
     return {
         localPath,
         fileName: result.fileName,
         fileId: result.fileId,
         size,
-        contentSha1: result.contentSha1 ?? null,
+        contentSha1: sha1,
     };
 }
 async function upload_tryStat(path) {
@@ -66676,6 +66755,7 @@ async function upload_tryStat(path) {
 }
 
 ;// CONCATENATED MODULE: ./src/commands/verify.ts
+
 
 
 
@@ -66704,7 +66784,7 @@ async function verifyCommand(bucket, inputs) {
     try {
         const head = await bucket.download(source, { method: 'HEAD' });
         const remoteSize = head.headers.contentLength;
-        const remoteSha1 = head.headers.contentSha1;
+        const remoteSha1 = normalizeSha1(head.headers.contentSha1);
         // Drain the (empty) HEAD body to free the underlying response.
         try {
             await head.body.cancel();

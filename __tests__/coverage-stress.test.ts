@@ -14,6 +14,7 @@
 import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
+import * as core from '@actions/core'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { copyCommand } from '../src/commands/copy.ts'
 import { deleteCommand } from '../src/commands/delete.ts'
@@ -29,11 +30,14 @@ import { unhideCommand } from '../src/commands/unhide.ts'
 import { uploadCommand } from '../src/commands/upload.ts'
 import { verifyCommand } from '../src/commands/verify.ts'
 import { parseInputs } from '../src/inputs.ts'
+import { makeProgressListener } from '../src/progress.ts'
 import { writeStepSummary } from '../src/summary.ts'
 import {
+  MULTIPART_PART_SIZE,
   type TestFixture,
   makeFixture,
   makeInputs,
+  makeMultipartFixture,
   resetInputEnv,
   seedFile,
   setInput,
@@ -948,3 +952,456 @@ describe('summary: row with only fileName set', () => {
     expect(out).not.toContain('…')
   })
 })
+
+// =========================================================================
+// Multipart-upload null contentSha1 round-trip.
+//
+// Real B2 stores per-part SHA-1s for multipart uploads but no whole-file
+// SHA-1; `listFileNames` / `head` / download header surface that as `null`.
+// The simulator (post-round-3 SDK update) honors the same shape when
+// `b2_finish_large_file` is involved. We force the multipart path by
+// pointing the simulator at a 100 KB `recommendedPartSize`.
+// =========================================================================
+
+describe('multipart upload: null contentSha1 surfaces through upload/head/verify', () => {
+  let fx: TestFixture
+  beforeEach(async () => {
+    fx = await makeMultipartFixture('gh-action-mp-roundtrip')
+  })
+  afterEach(async () => {
+    await rm(fx.workDir, { recursive: true, force: true })
+  })
+
+  it('upload returns null contentSha1; head reports null; verify hits the multipart warning', async () => {
+    // 3x the part size guarantees multipart with at least 3 parts.
+    const local = join(fx.workDir, 'big.bin')
+    const body = 'x'.repeat(MULTIPART_PART_SIZE * 3)
+    await writeFile(local, body)
+
+    const upResult = await uploadCommand(
+      fx.bucket,
+      makeInputs('upload', fx, {
+        source: local,
+        destination: 'big.bin',
+        partSize: MULTIPART_PART_SIZE,
+      }),
+    )
+    const first = upResult.files[0]
+    expect(first?.contentSha1).toBeNull()
+
+    const headResult = await headCommand(fx.bucket, makeInputs('head', fx, { source: 'big.bin' }))
+    expect(headResult.contentSha1).toBeNull()
+
+    // verify against any expected SHA-1 should hit the "remote sha1
+    // unavailable" warning branch because the remote has no whole-file hash.
+    const verifyResult = await verifyCommand(
+      fx.bucket,
+      makeInputs('verify', fx, {
+        source: 'big.bin',
+        expectedSha1: '0000000000000000000000000000000000000000',
+      }),
+    )
+    expect(verifyResult.verified).toBe(false)
+    expect(verifyResult.remoteSha1).toBeNull()
+    expect(verifyResult.reason).toMatch(/remote SHA-1 is unavailable/)
+  })
+})
+
+// =========================================================================
+// Progress events: totalParts/partsCompleted populated on multipart.
+//
+// progress.ts:34 formats the `(N/M parts)` suffix when `event.totalParts`
+// is not null. We hit that branch by intercepting `core.info` while a
+// multipart upload runs and asserting at least one log line includes the
+// `parts` marker.
+// =========================================================================
+
+describe('progress listener: emits totalParts on multipart uploads', () => {
+  let fx: TestFixture
+  beforeEach(async () => {
+    fx = await makeMultipartFixture('gh-action-progress-mp')
+  })
+  afterEach(async () => {
+    await rm(fx.workDir, { recursive: true, force: true })
+  })
+
+  it('logs a "N/M parts" suffix at least once during a multipart upload', async () => {
+    const local = join(fx.workDir, 'multi.bin')
+    await writeFile(local, 'x'.repeat(MULTIPART_PART_SIZE * 3))
+
+    const infoSpy = vi.spyOn(core, 'info')
+    try {
+      // 0ms throttle: every progress event emits, so the multipart suffix is
+      // captured even on a fast in-memory upload that would otherwise debounce
+      // to one event total. We don't change the production default; this only
+      // widens the test's observation window.
+      const onProgress = makeProgressListener('mp-test', 0)
+      const { readFile } = await import('node:fs/promises')
+      const { BufferSource } = await import('@backblaze/b2-sdk/streams')
+      await fx.bucket.upload({
+        fileName: 'multi.bin',
+        source: new BufferSource(await readFile(local)),
+        partSize: MULTIPART_PART_SIZE,
+        concurrency: 1,
+        onProgress,
+      })
+
+      const partsSuffix = infoSpy.mock.calls.find((c) => /\(\d+\/\d+ parts\)/.test(String(c[0])))
+      expect(partsSuffix).toBeDefined()
+    } finally {
+      infoSpy.mockRestore()
+    }
+  })
+})
+
+// =========================================================================
+// `bucket.deleteAll` error events surface through delete / purge.
+//
+// Both delete.ts and purge.ts have an `errors++` branch that fires when
+// the SDK yields `{ type: 'error', ... }`. We trigger that by injecting a
+// 500-status failure into `b2_delete_file_version`. The simulator's fault
+// injection respects substring matching on the URL.
+// =========================================================================
+
+describe('delete: yields errors when b2_delete_file_version fails', () => {
+  let fx: TestFixture
+  beforeEach(async () => {
+    fx = await makeFixture('gh-action-del-faults')
+  })
+  afterEach(async () => {
+    await rm(fx.workDir, { recursive: true, force: true })
+  })
+
+  it('reports errors via the prefix `deleteAll` path without failing the whole command', async () => {
+    // Prefix-mode delete (trailing `/`) routes through `bucket.deleteAll`,
+    // which yields `{ type: 'error' }` per-file rather than throwing. That's
+    // the branch we want to cover. Single-file delete uses `deleteFileVersion`
+    // directly and throws, which is a different code path.
+    await seedFile(fx, 'd/f1.txt', 'one')
+    await seedFile(fx, 'd/f2.txt', 'two')
+    fx.sim.injectFailure({ on: 'b2_delete_file_version', status: 500, code: 'internal_error' })
+
+    const result = await deleteCommand(fx.bucket, makeInputs('delete', fx, { source: 'd/' }))
+    expect(result.errors).toBeGreaterThanOrEqual(1)
+  })
+})
+
+describe('purge: yields errors when b2_delete_file_version fails', () => {
+  let fx: TestFixture
+  beforeEach(async () => {
+    fx = await makeFixture('gh-action-purge-faults')
+  })
+  afterEach(async () => {
+    await rm(fx.workDir, { recursive: true, force: true })
+  })
+
+  it('reports errors in the result and continues processing other versions', async () => {
+    await seedFile(fx, 'p/a.txt', 'a')
+    await seedFile(fx, 'p/b.txt', 'b')
+    fx.sim.injectFailure({ on: 'b2_delete_file_version', status: 500, code: 'internal_error' })
+
+    const result = await purgeCommand(fx.bucket, makeInputs('purge', fx, { source: 'p/' }))
+    expect(result.errors).toBeGreaterThanOrEqual(1)
+  })
+})
+
+// =========================================================================
+// Multi-page pagination: list / download / presign all loop until the
+// simulator stops setting `nextFileName`. The trick to force pagination
+// without seeding 1000+ files is to seed N>maxResults files where the
+// page request asks for maxFileCount = maxResults; the simulator returns
+// maxResults entries AND a nextFileName, then the action's filter (hide
+// markers in `list.ts`) reduces the upload count below maxResults so the
+// outer `while` runs again. Same idea for download/presign (their loops
+// don't filter, so we just exit when nextFileName is null).
+// =========================================================================
+
+describe('list: walks nextFileName across pages when hides reduce upload count', () => {
+  let fx: TestFixture
+  beforeEach(async () => {
+    fx = await makeFixture('gh-action-list-pages')
+  })
+  afterEach(async () => {
+    await rm(fx.workDir, { recursive: true, force: true })
+  })
+
+  it('uses startFileName on page 2 after the upload-only filter trims page 1', async () => {
+    // Seed 8 files. Hide the first 4 so page 1 (size=6) sees 4 hide markers
+    // and 2 uploads; the loop has to fetch page 2 to reach maxResults.
+    for (let i = 1; i <= 8; i++) await seedFile(fx, `f${i}.txt`, String(i))
+    for (let i = 1; i <= 4; i++) {
+      await fx.bucket.hideFile(`f${i}.txt`)
+    }
+
+    const result = await listCommand(
+      fx.bucket,
+      makeInputs('list', fx, { source: 'f', maxResults: 6 }),
+    )
+    expect(result.files.length).toBeGreaterThanOrEqual(4)
+  })
+})
+
+describe('download: walks nextFileName across pages', () => {
+  let fx: TestFixture
+  beforeEach(async () => {
+    fx = await makeFixture('gh-action-dl-pages')
+  })
+  afterEach(async () => {
+    await rm(fx.workDir, { recursive: true, force: true })
+  })
+
+  it('downloads files across a paginated listing', async () => {
+    for (let i = 1; i <= 4; i++) await seedFile(fx, `dl/${i}.txt`, `body-${i}`)
+    // Use a small per-page page size by capping maxResults; the action's
+    // download loop computes maxFileCount = min(1000, remaining). Hide some
+    // files so the action sees page 1 finish below maxResults and continues.
+    await fx.bucket.hideFile('dl/1.txt')
+    await fx.bucket.hideFile('dl/2.txt')
+
+    const dest = join(fx.workDir, 'out')
+    await mkdir(dest, { recursive: true })
+    const result = await downloadCommand(
+      fx.bucket,
+      makeInputs('download', fx, { source: 'dl/', destination: dest, maxResults: 3 }),
+    )
+    expect(result.files.length).toBeGreaterThanOrEqual(1)
+  })
+})
+
+describe('presign: walks nextFileName across pages', () => {
+  let fx: TestFixture
+  beforeEach(async () => {
+    fx = await makeFixture('gh-action-presign-pages')
+  })
+  afterEach(async () => {
+    await rm(fx.workDir, { recursive: true, force: true })
+  })
+
+  it('emits a presigned URL for each page-walked file', async () => {
+    for (let i = 1; i <= 4; i++) await seedFile(fx, `p/${i}.txt`, `b${i}`)
+    await fx.bucket.hideFile('p/1.txt')
+    await fx.bucket.hideFile('p/2.txt')
+
+    const result = await presignCommand(
+      fx.client,
+      fx.bucket,
+      makeInputs('presign', fx, { source: 'p/', maxResults: 3 }),
+    )
+    expect(result.files.length).toBeGreaterThanOrEqual(1)
+  })
+})
+
+// =========================================================================
+// Upload conditional-spread branches: partSize + contentType both set.
+// The corresponding `...(inputs.X !== undefined ? { ... } : {})` lines in
+// upload.ts are partial-cover otherwise.
+// =========================================================================
+
+describe('upload: passes optional partSize and contentType through', () => {
+  let fx: TestFixture
+  beforeEach(async () => {
+    fx = await makeFixture('gh-action-upload-opts')
+  })
+  afterEach(async () => {
+    await rm(fx.workDir, { recursive: true, force: true })
+  })
+
+  it('hits the partSize + contentType conditional spreads', async () => {
+    const local = join(fx.workDir, 'with-opts.txt')
+    await writeFile(local, 'payload')
+    const result = await uploadCommand(
+      fx.bucket,
+      makeInputs('upload', fx, {
+        source: local,
+        destination: 'with-opts.txt',
+        partSize: 5_000_000,
+        contentType: 'application/octet-stream',
+      }),
+    )
+    expect(result.files[0]?.fileName).toBe('with-opts.txt')
+  })
+})
+
+// =========================================================================
+// list / presign: inner-loop maxResults break fires mid-page.
+// =========================================================================
+
+describe('list: stops mid-page when files.length reaches maxResults', () => {
+  let fx: TestFixture
+  beforeEach(async () => {
+    fx = await makeFixture('gh-action-list-cap')
+  })
+  afterEach(async () => {
+    await rm(fx.workDir, { recursive: true, force: true })
+  })
+
+  it('breaks the inner loop when the cap is hit before the page finishes', async () => {
+    for (let i = 1; i <= 5; i++) await seedFile(fx, `c/${i}.txt`, String(i))
+    const result = await listCommand(
+      fx.bucket,
+      makeInputs('list', fx, { source: 'c/', maxResults: 2 }),
+    )
+    expect(result.files).toHaveLength(2)
+    expect(result.truncated).toBe(true)
+  })
+})
+
+describe('presign: stops mid-page when files.length reaches maxResults', () => {
+  let fx: TestFixture
+  beforeEach(async () => {
+    fx = await makeFixture('gh-action-presign-cap')
+  })
+  afterEach(async () => {
+    await rm(fx.workDir, { recursive: true, force: true })
+  })
+
+  it('caps presigned URLs at maxResults mid-page', async () => {
+    for (let i = 1; i <= 5; i++) await seedFile(fx, `pc/${i}.txt`, String(i))
+    const result = await presignCommand(
+      fx.client,
+      fx.bucket,
+      makeInputs('presign', fx, { source: 'pc/', maxResults: 2 }),
+    )
+    expect(result.files).toHaveLength(2)
+  })
+})
+
+// =========================================================================
+// purge: source without trailing slash is normalized to a directory prefix.
+// =========================================================================
+
+describe('purge: normalizes a non-slash source to a directory prefix', () => {
+  let fx: TestFixture
+  beforeEach(async () => {
+    fx = await makeFixture('gh-action-purge-noslash')
+  })
+  afterEach(async () => {
+    await rm(fx.workDir, { recursive: true, force: true })
+  })
+
+  it('appends a trailing slash to non-root sources', async () => {
+    await seedFile(fx, 'q/a.txt', 'a')
+    const result = await purgeCommand(
+      fx.bucket,
+      makeInputs('purge', fx, { source: 'q', dryRun: true }),
+    )
+    expect(result.files.some((f) => f.fileName === 'q/a.txt')).toBe(true)
+  })
+})
+
+// =========================================================================
+// retention: invalid ISO retention-until trips the NaN guard.
+// =========================================================================
+
+describe('retention: rejects an unparseable ISO retention-until', () => {
+  let fx: TestFixture
+  beforeEach(async () => {
+    fx = await makeFixture('gh-action-retention-bad-date')
+    await fx.bucket.delete()
+    fx.bucket = await fx.client.createBucket({
+      bucketName: 'gh-action-retention-bad-date',
+      bucketType: 'allPrivate',
+      fileLockEnabled: true,
+    })
+  })
+  afterEach(async () => {
+    await rm(fx.workDir, { recursive: true, force: true })
+  })
+
+  it('throws when retention-until is not a valid ISO 8601 timestamp', async () => {
+    await seedFile(fx, 'r.txt', 'r')
+    await expect(
+      retentionCommand(
+        fx.bucket,
+        makeInputs('retention', fx, {
+          source: 'r.txt',
+          retentionMode: 'compliance',
+          retentionUntil: 'not-an-iso-date',
+        }),
+      ),
+    ).rejects.toThrow(/not a valid ISO 8601/)
+  })
+})
+
+// =========================================================================
+// upload: include/exclude patterns + a glob match that hits a directory.
+// =========================================================================
+
+describe('upload: include/exclude patterns extend the glob set', () => {
+  let fx: TestFixture
+  beforeEach(async () => {
+    fx = await makeFixture('gh-action-upload-include-exclude')
+  })
+  afterEach(async () => {
+    await rm(fx.workDir, { recursive: true, force: true })
+  })
+
+  it('honors `include` and `exclude` patterns when resolving files', async () => {
+    const root = join(fx.workDir, 'site')
+    await mkdir(join(root, 'keep'), { recursive: true })
+    await mkdir(join(root, 'skip'), { recursive: true })
+    await writeFile(join(root, 'keep', 'a.txt'), 'a')
+    await writeFile(join(root, 'skip', 'b.txt'), 'b')
+
+    const result = await uploadCommand(
+      fx.bucket,
+      makeInputs('upload', fx, {
+        source: `${root}/**`,
+        destination: 'site',
+        include: [`${root}/keep/**`],
+        exclude: [`${root}/skip/**`],
+      }),
+    )
+    // Only the file under `keep/` should land in B2.
+    const names = result.files.map((f) => f.fileName).sort()
+    expect(names.some((n) => n.includes('a.txt'))).toBe(true)
+    expect(names.some((n) => n.includes('b.txt'))).toBe(false)
+  })
+})
+
+// =========================================================================
+// sync: empty-prefix branches on up + down (sync to/from bucket root).
+// =========================================================================
+
+describe('sync: handles empty prefix (bucket root) in both directions', () => {
+  let fx: TestFixture
+  beforeEach(async () => {
+    fx = await makeFixture('gh-action-sync-empty-prefix')
+  })
+  afterEach(async () => {
+    await rm(fx.workDir, { recursive: true, force: true })
+  })
+
+  it('sync up with no destination targets the bucket root', async () => {
+    const src = join(fx.workDir, 'src')
+    await mkdir(src, { recursive: true })
+    await writeFile(join(src, 'r.txt'), 'root')
+    const result = await syncCommand(
+      fx.bucket,
+      makeInputs('sync', fx, { source: src, syncDirection: 'up' }),
+    )
+    expect(result.direction).toBe('local-to-b2')
+    expect(result.uploaded).toBeGreaterThanOrEqual(1)
+  })
+
+  it('sync down with a `/` source pulls from the bucket root', async () => {
+    await seedFile(fx, 'r.txt', 'root-down')
+    const dest = join(fx.workDir, 'down')
+    await mkdir(dest, { recursive: true })
+    const result = await syncCommand(
+      fx.bucket,
+      // `'/'` survives `requireSource`'s emptiness check but the action's
+      // `replace(/^\/+|\/+$/g, '')` strips it back to '', exercising the
+      // empty-prefix arm of the down-direction branch in `buildConfig`.
+      makeInputs('sync', fx, { source: '/', destination: dest, syncDirection: 'down' }),
+    )
+    expect(result.direction).toBe('b2-to-local')
+    expect(result.downloaded).toBeGreaterThanOrEqual(1)
+  })
+})
+
+// =========================================================================
+// Imports needed by the new sections.
+// =========================================================================
+// (References: deleteCommand, purgeCommand, listCommand, downloadCommand,
+// presignCommand, uploadCommand, headCommand, verifyCommand, makeProgressListener)

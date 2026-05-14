@@ -286,9 +286,10 @@ function parseOptionalEnum<T extends string>(
 }
 
 function required(name: string): string {
-  const v = core.getInput(name, { required: true })
-  if (!v) throw new Error(`Missing required input: ${name}`)
-  return v
+  // `@actions/core` throws on missing required inputs, so this never returns
+  // empty. Wrapping the call only exists so the throw site has a uniform
+  // shape with the rest of the input parsers.
+  return core.getInput(name, { required: true })
 }
 
 function optional(name: string): string | undefined {

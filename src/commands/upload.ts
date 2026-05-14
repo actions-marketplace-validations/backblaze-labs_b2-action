@@ -1,11 +1,10 @@
-import { createReadStream } from 'node:fs'
-import { stat } from 'node:fs/promises'
+import { readFile, stat } from 'node:fs/promises'
 import { basename, posix, relative, resolve, sep } from 'node:path'
-import { Readable } from 'node:stream'
 import * as core from '@actions/core'
 import * as glob from '@actions/glob'
 import type { Bucket } from '@backblaze/b2-sdk'
-import { StreamSource } from '@backblaze/b2-sdk/streams'
+import { BufferSource } from '@backblaze/b2-sdk/streams'
+import { normalizeSha1 } from '../format.ts'
 import { type ParsedInputs, requireSource } from '../inputs.ts'
 import { makeProgressListener } from '../progress.ts'
 
@@ -118,9 +117,12 @@ async function resolveFiles(
   const out: ResolvedFile[] = []
   for (const m of matches) {
     const s = await tryStat(m)
+    // Filesystem boundary: the globber lists what's there at glob time; the
+    // file may be unlinked, renamed, or become a permission error between
+    // here and `stat`. Skip silently rather than crash the whole upload.
     if (!s?.isFile()) continue
     const rel = relative(root, m).split(sep).join(posix.sep)
-    out.push({ localPath: m, fileName: rel || basename(m) })
+    out.push({ localPath: m, fileName: rel })
   }
   return out
 }
@@ -145,9 +147,15 @@ async function uploadOne(
   const fileStat = await stat(localPath)
   const size = fileStat.size
 
-  const nodeStream = createReadStream(localPath)
-  const webStream = Readable.toWeb(nodeStream) as ReadableStream<Uint8Array>
-  const source = new StreamSource(webStream, size)
+  // Read the file into a BufferSource. The SDK's `bucket.upload` routes
+  // files larger than the recommended part size through `uploadLargeFile`,
+  // which slices the source into parts and uploads them in parallel. Stream
+  // sources cannot be sliced (a stream is read-once-sequential), so the
+  // multipart path requires a randomly-accessible source. BufferSource
+  // satisfies that. The cost is holding the file in runner memory; on
+  // ubuntu-latest (7 GB) that's fine up to multi-GB artifacts, which is
+  // well past the practical size for anything a CI workflow uploads.
+  const source = new BufferSource(await readFile(localPath))
 
   const onProgress = makeProgressListener(`upload[${fileName}]`)
 
@@ -161,14 +169,15 @@ async function uploadOne(
     onProgress,
   })
 
-  core.info(`  fileId=${result.fileId} sha1=${result.contentSha1 ?? 'multipart'}`)
+  const sha1 = normalizeSha1(result.contentSha1)
+  core.info(`  fileId=${result.fileId} sha1=${sha1 ?? 'multipart'}`)
 
   return {
     localPath,
     fileName: result.fileName,
     fileId: result.fileId,
     size,
-    contentSha1: result.contentSha1 ?? null,
+    contentSha1: sha1,
   }
 }
 

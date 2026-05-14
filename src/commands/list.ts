@@ -1,5 +1,6 @@
 import * as core from '@actions/core'
 import type { Bucket } from '@backblaze/b2-sdk'
+import { normalizeSha1 } from '../format.ts'
 import type { ParsedInputs } from '../inputs.ts'
 
 /** One entry in {@link ListResult.files}. Mirrors the SDK's per-version metadata. */
@@ -63,9 +64,10 @@ export async function listCommand(bucket: Bucket, inputs: ParsedInputs): Promise
           fileName: f.fileName,
           fileId: f.fileId,
           size: f.contentLength,
-          contentSha1: f.contentSha1 ?? null,
+          contentSha1: normalizeSha1(f.contentSha1),
           uploadTimestamp: f.uploadTimestamp,
           contentType: f.contentType,
+          /* v8 ignore next 1 -- pending SDK request: tighten `FileVersion.fileInfo` from optional to `Record<string, string>`. The SDK always returns at least `{}`; the `?? {}` is only here to satisfy the loose type. */
           fileInfo: f.fileInfo ?? {},
         })
         if (files.length >= maxResults) break

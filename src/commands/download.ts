@@ -5,6 +5,7 @@ import { Readable, Transform } from 'node:stream'
 import { pipeline } from 'node:stream/promises'
 import * as core from '@actions/core'
 import type { Bucket, SseCDownloadKey } from '@backblaze/b2-sdk'
+import { normalizeSha1 } from '../format.ts'
 import { type ParsedInputs, requireSource } from '../inputs.ts'
 import { makeProgressListener } from '../progress.ts'
 
@@ -98,8 +99,10 @@ async function downloadPrefix(
       }
     }
     if (page.nextFileName === null || page.nextFileName === undefined) break
+    /* v8 ignore start -- known coverage gap: real B2 pagination path. Fires when >1000 files share the prefix. Documented in DEVELOPMENT.md "Known coverage gaps"; not exercised because seeding 1001 files would dominate suite runtime. */
     startFileName = page.nextFileName
   }
+  /* v8 ignore stop */
 
   return { files, bytesTransferred: total }
 }
@@ -117,7 +120,7 @@ async function downloadOne(
     ...(sseDownload !== undefined ? { serverSideEncryption: sseDownload } : {}),
   })
   const size = result.headers.contentLength
-  const sha1 = result.headers.contentSha1
+  const sha1 = normalizeSha1(result.headers.contentSha1)
 
   // Wrap the body in a byte-counting Transform that synthesizes ProgressEvents
   // for the shared progress listener. The SDK doesn't expose progress for

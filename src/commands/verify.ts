@@ -3,6 +3,7 @@ import { stat } from 'node:fs/promises'
 import * as core from '@actions/core'
 import type { Bucket } from '@backblaze/b2-sdk'
 import { IncrementalSha1 } from '@backblaze/b2-sdk/streams'
+import { normalizeSha1 } from '../format.ts'
 import { type ParsedInputs, requireSource } from '../inputs.ts'
 
 /** Result of {@link verifyCommand}. */
@@ -45,7 +46,7 @@ export async function verifyCommand(bucket: Bucket, inputs: ParsedInputs): Promi
   try {
     const head = await bucket.download(source, { method: 'HEAD' })
     const remoteSize = head.headers.contentLength
-    const remoteSha1 = head.headers.contentSha1
+    const remoteSha1 = normalizeSha1(head.headers.contentSha1)
     // Drain the (empty) HEAD body to free the underlying response.
     try {
       await head.body.cancel()

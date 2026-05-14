@@ -14,7 +14,7 @@ Thanks for sending a pull request! A few quick checks before submitting:
 - [ ] If a new `action:` verb was added: it's listed in `src/inputs.ts` `ActionName`, wired in `src/main.ts`, documented in `action.yml`, and has a usage entry in the [README](../README.md).
 - [ ] If a new input or output was added: documented in `action.yml` and the README table.
 - [ ] If user-visible behavior changed: a [`CHANGELOG.md`](../CHANGELOG.md) entry under `[Unreleased]`.
-- [ ] If a new example workflow was added: listed in [`.github/workflows/README.md`](./README.md) and runs against the project's test bucket.
+- [ ] If a new example workflow was added: listed in [`.github/workflows/README.md`](./workflows/README.md) and runs against the project's test bucket.
 
 ## How to test this
 

@@ -1,5 +1,6 @@
 import * as core from '@actions/core'
 import type { Bucket } from '@backblaze/b2-sdk'
+import { normalizeSha1 } from '../format.ts'
 import { type ParsedInputs, requireSource } from '../inputs.ts'
 
 /** Result of {@link headCommand}: metadata read from a HEAD request, no body. */
@@ -43,15 +44,14 @@ export async function headCommand(bucket: Bucket, inputs: ParsedInputs): Promise
       // Ignored: HEAD responses may have no body to cancel.
     }
     const h = result.headers
-    core.info(
-      `  size=${h.contentLength} type=${h.contentType} sha1=${h.contentSha1 ?? 'multipart'}`,
-    )
+    const sha1 = normalizeSha1(h.contentSha1)
+    core.info(`  size=${h.contentLength} type=${h.contentType} sha1=${sha1 ?? 'multipart'}`)
     return {
       fileName: h.fileName,
       fileId: h.fileId,
       size: h.contentLength,
       contentType: h.contentType,
-      contentSha1: h.contentSha1,
+      contentSha1: sha1,
       uploadTimestamp: h.uploadTimestamp,
       fileInfo: h.fileInfo,
     }

@@ -8,6 +8,15 @@ import { uploadCommand } from '../src/commands/upload.ts'
 import type { ActionName, ParsedInputs } from '../src/inputs.ts'
 
 /**
+ * Part size used by the multipart fixture. Small enough that a few-hundred-KB
+ * upload triggers the SDK's multipart path (and therefore `contentSha1: null`
+ * surfaces, totalParts > 1 in progress events, etc.), but large enough that
+ * v8 coverage instrumentation on per-part hashing stays under vitest's RPC
+ * timeout on slow CI runners.
+ */
+export const MULTIPART_PART_SIZE = 100_000
+
+/**
  * Shared base inputs for command tests. Two call shapes:
  *
  *   makeInputs('upload', { source: '...' })
@@ -71,6 +80,12 @@ export interface TestFixture {
   workDir: string
   bucket: Bucket
   client: B2Client
+  /**
+   * The simulator backing this fixture. Exposed so tests can call
+   * `fx.sim.injectFailure(...)` to exercise error branches in the action's
+   * command code (e.g. `deleteAll` errors, transient 503s).
+   */
+  sim: B2Simulator
 }
 
 /**
@@ -82,10 +97,17 @@ export interface TestFixture {
  * on the simulator's globally-unique bucket-name space. Defaults to
  * `gh-action-test`.
  *
+ * Pass `simOptions` to override the simulator's part-size advertisement.
+ * Use {@link MULTIPART_PART_SIZE} for tests that need to force multipart
+ * control flow (null contentSha1, totalParts in progress events).
+ *
  * The caller is responsible for `rm`-ing `workDir` in their `afterEach`.
  */
-export async function makeFixture(bucketName = 'gh-action-test'): Promise<TestFixture> {
-  const sim = new B2Simulator()
+export async function makeFixture(
+  bucketName = 'gh-action-test',
+  simOptions: { minimumPartSize?: number; recommendedPartSize?: number } = {},
+): Promise<TestFixture> {
+  const sim = new B2Simulator(simOptions)
   const client = new B2Client({
     applicationKeyId: 'test-key-id',
     applicationKey: 'test-key',
@@ -94,7 +116,18 @@ export async function makeFixture(bucketName = 'gh-action-test'): Promise<TestFi
   await client.authorize()
   const bucket = await client.createBucket({ bucketName, bucketType: 'allPrivate' })
   const workDir = await mkdtemp(join(tmpdir(), 'b2-test-'))
-  return { workDir, bucket, client }
+  return { workDir, bucket, client, sim }
+}
+
+/**
+ * Shortcut for {@link makeFixture} configured to advertise small part sizes
+ * so the SDK takes the multipart upload path for ~200 KB payloads.
+ */
+export function makeMultipartFixture(bucketName: string): Promise<TestFixture> {
+  return makeFixture(bucketName, {
+    minimumPartSize: MULTIPART_PART_SIZE,
+    recommendedPartSize: MULTIPART_PART_SIZE,
+  })
 }
 
 /**

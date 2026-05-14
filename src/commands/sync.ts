@@ -51,7 +51,7 @@ export async function syncCommand(bucket: Bucket, inputs: ParsedInputs): Promise
   const keepMode = inputs.keepMode
   const dryRun = inputs.dryRun
 
-  const config = await buildConfig(bucket, inputs, direction)
+  const config = await buildConfig(bucket, source, inputs, direction)
 
   core.startGroup(
     `sync ${direction === 'local-to-b2' ? source : `b2://${bucket.name}/${source}`} ` +
@@ -81,6 +81,7 @@ export async function syncCommand(bucket: Bucket, inputs: ParsedInputs): Promise
           bytesTransferred += event.size
           core.info(`  ↓ ${event.path} (${event.size}B)`)
           break
+        /* v8 ignore next 4 -- pending SDK request: emit `delete-remote` (not `hide`) for orphan removal on unversioned/no-file-lock buckets. Today the engine emits `hide` regardless, so this case is unreachable. Forward-compat, not defensive. */
         case 'delete-remote':
           deleted++
           core.info(`  − ${event.path}`)
@@ -98,6 +99,7 @@ export async function syncCommand(bucket: Bucket, inputs: ParsedInputs): Promise
           break
         case 'error':
           errors++
+          /* v8 ignore next 1 -- pending SDK request: narrow `SyncEvent` so `message: string` is required on error events. The engine always populates it; the `??` is only here to satisfy the loose type. */
           core.warning(`  ! ${event.path}: ${event.message ?? 'unknown error'}`)
           break
         case 'upload-start':
@@ -140,6 +142,7 @@ async function resolveDirection(
 
 async function buildConfig(
   bucket: Bucket,
+  source: string,
   inputs: ParsedInputs,
   direction: 'local-to-b2' | 'b2-to-local',
 ): Promise<SynchronizerUpConfig | SynchronizerDownConfig> {
@@ -149,15 +152,13 @@ async function buildConfig(
   const concurrency = inputs.concurrency
 
   if (direction === 'local-to-b2') {
-    const localPath = inputs.source
-    if (localPath === undefined) throw new Error("'source' must be a local directory for sync up")
-    const stats = await tryStat(localPath)
+    const stats = await tryStat(source)
     if (!stats?.isDirectory()) {
-      throw new Error(`'sync' up requires 'source' to be an existing local directory: ${localPath}`)
+      throw new Error(`'sync' up requires 'source' to be an existing local directory: ${source}`)
     }
     const prefix = (inputs.destination ?? '').replace(/^\/+|\/+$/g, '')
     return {
-      source: new LocalFolder(resolve(localPath)),
+      source: new LocalFolder(resolve(source)),
       dest: new B2Folder(bucket, prefix === '' ? '' : `${prefix}/`),
       bucket,
       prefix: prefix === '' ? '' : `${prefix}/`,
@@ -165,7 +166,7 @@ async function buildConfig(
     }
   }
 
-  const remotePrefix = (inputs.source ?? '').replace(/^\/+|\/+$/g, '')
+  const remotePrefix = source.replace(/^\/+|\/+$/g, '')
   const localDest = inputs.destination ?? '.'
   await mkdir(resolve(localDest), { recursive: true })
   return {

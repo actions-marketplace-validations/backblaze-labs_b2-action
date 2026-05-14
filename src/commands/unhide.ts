@@ -26,7 +26,7 @@ export async function unhideCommand(bucket: Bucket, inputs: ParsedInputs): Promi
 
   core.startGroup(`unhide b2://${bucket.name}/${source}`)
   try {
-    const marker = await bucket.unhide(source)
+    const marker = await bucket.unhideFile(source)
     if (marker === null) {
       core.info(`  no hide marker found for ${source} (already visible or non-existent)`)
       return { fileName: source, removedMarkerFileId: null }
