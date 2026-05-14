@@ -680,47 +680,48 @@ describe('sync: b2-to-local with orphan deletion', () => {
 })
 
 // =========================================================================
-// copy: copyLargeFile branch via config mock
+// copy: routes through copyLargeFile when the source exceeds the recommended
+// part size. We configure the simulator with a tiny part-size advertisement
+// (instead of spying on `accountInfo`) so the SDK's `isLarge` branch trips
+// off real config rather than a mocked method call.
 // =========================================================================
 
 describe('copy: large-file path', () => {
   let fx: TestFixture
   beforeEach(async () => {
-    fx = await makeFixture('gh-action-stress-copy-large')
+    fx = await makeMultipartFixture('gh-action-stress-copy-large')
   })
   afterEach(async () => {
     await rm(fx.workDir, { recursive: true, force: true })
   })
 
   it('routes through copyLargeFile when source size exceeds recommended part size', async () => {
-    const local = join(fx.workDir, 'small.txt')
-    await writeFile(local, 'tiny payload but accountInfo says everything is "large"')
+    // With `recommendedPartSize: MULTIPART_PART_SIZE` (100 KB), a 300 KB
+    // upload triggers the multipart path on copy as well.
+    const local = join(fx.workDir, 'big.bin')
+    await writeFile(local, 'x'.repeat(MULTIPART_PART_SIZE * 3))
     await uploadCommand(
       fx.bucket,
       makeInputs('upload', fx, {
         source: local,
-        destination: 'src.txt',
+        destination: 'src.bin',
+        partSize: MULTIPART_PART_SIZE,
       }),
     )
 
-    // Clamping the part size to 1 forces the isLarge branch deterministically
-    // without uploading a 100 MB file. This mocks a *config* value, not an
-    // SDK response shape.
-    const spy = vi.spyOn(fx.client.accountInfo, 'getRecommendedPartSize').mockReturnValue(1)
     const copyLargeSpy = vi.spyOn(fx.bucket, 'copyLargeFile')
     try {
       const result = await copyCommand(
         fx.client,
         fx.bucket,
         makeInputs('copy', fx, {
-          source: 'src.txt',
-          destination: 'archive/src.txt',
+          source: 'src.bin',
+          destination: 'archive/src.bin',
         }),
       )
-      expect(result.destinationFileName).toBe('archive/src.txt')
+      expect(result.destinationFileName).toBe('archive/src.bin')
       expect(copyLargeSpy).toHaveBeenCalledOnce()
     } finally {
-      spy.mockRestore()
       copyLargeSpy.mockRestore()
     }
   })

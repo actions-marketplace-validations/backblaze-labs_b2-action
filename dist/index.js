@@ -61362,6 +61362,12 @@ function bucketId(raw) {
 function fileId(raw) {
   return raw;
 }
+function keyId(raw) {
+  return raw;
+}
+function applicationKeyId(raw) {
+  return raw;
+}
 function largeFileId(raw) {
   return raw;
 }
@@ -64153,6 +64159,301 @@ const SSE_NONE = { mode: "none" };
 function sseCustomer(customerKey, customerKeyMd5) {
   return { mode: "SSE-C", algorithm: "AES256", customerKey, customerKeyMd5 };
 }
+function bytesToBase64(bytes) {
+  const g = globalThis;
+  if (g.Buffer) {
+    return g.Buffer.from(bytes).toString("base64");
+  }
+  let binary = "";
+  for (const b of bytes) binary += String.fromCharCode(b);
+  return btoa(binary);
+}
+async function md5Base64(bytes) {
+  try {
+    const { createHash } = await Promise.resolve(/* import() */).then(__nccwpck_require__.t.bind(__nccwpck_require__, 7598, 19));
+    if (typeof createHash !== "function") throw new Error("createHash unavailable");
+    return createHash("md5").update(bytes).digest("base64");
+  } catch {
+    return bytesToBase64(md5Bytes(bytes));
+  }
+}
+function md5Bytes(data) {
+  const originalBitLength = data.byteLength * 8;
+  const padLength = (data.byteLength + 8 >>> 6) + 1;
+  const padded = new Uint8Array(padLength * 64);
+  padded.set(data);
+  padded[data.byteLength] = 128;
+  const lowBits = originalBitLength >>> 0;
+  const highBits = Math.floor(originalBitLength / 4294967296) >>> 0;
+  const lengthView = new DataView(padded.buffer, padded.byteLength - 8, 8);
+  lengthView.setUint32(0, lowBits, true);
+  lengthView.setUint32(4, highBits, true);
+  const s = [
+    7,
+    12,
+    17,
+    22,
+    7,
+    12,
+    17,
+    22,
+    7,
+    12,
+    17,
+    22,
+    7,
+    12,
+    17,
+    22,
+    5,
+    9,
+    14,
+    20,
+    5,
+    9,
+    14,
+    20,
+    5,
+    9,
+    14,
+    20,
+    5,
+    9,
+    14,
+    20,
+    4,
+    11,
+    16,
+    23,
+    4,
+    11,
+    16,
+    23,
+    4,
+    11,
+    16,
+    23,
+    4,
+    11,
+    16,
+    23,
+    6,
+    10,
+    15,
+    21,
+    6,
+    10,
+    15,
+    21,
+    6,
+    10,
+    15,
+    21,
+    6,
+    10,
+    15,
+    21
+  ];
+  const k = new Uint32Array([
+    3614090360,
+    3905402710,
+    606105819,
+    3250441966,
+    4118548399,
+    1200080426,
+    2821735955,
+    4249261313,
+    1770035416,
+    2336552879,
+    4294925233,
+    2304563134,
+    1804603682,
+    4254626195,
+    2792965006,
+    1236535329,
+    4129170786,
+    3225465664,
+    643717713,
+    3921069994,
+    3593408605,
+    38016083,
+    3634488961,
+    3889429448,
+    568446438,
+    3275163606,
+    4107603335,
+    1163531501,
+    2850285829,
+    4243563512,
+    1735328473,
+    2368359562,
+    4294588738,
+    2272392833,
+    1839030562,
+    4259657740,
+    2763975236,
+    1272893353,
+    4139469664,
+    3200236656,
+    681279174,
+    3936430074,
+    3572445317,
+    76029189,
+    3654602809,
+    3873151461,
+    530742520,
+    3299628645,
+    4096336452,
+    1126891415,
+    2878612391,
+    4237533241,
+    1700485571,
+    2399980690,
+    4293915773,
+    2240044497,
+    1873313359,
+    4264355552,
+    2734768916,
+    1309151649,
+    4149444226,
+    3174756917,
+    718787259,
+    3951481745
+  ]);
+  let a0 = 1732584193;
+  let b0 = 4023233417;
+  let c0 = 2562383102;
+  let d0 = 271733878;
+  const m = new Uint32Array(16);
+  const view = new DataView(padded.buffer);
+  for (let block = 0; block < padded.byteLength; block += 64) {
+    for (let i = 0; i < 16; i++) m[i] = view.getUint32(block + i * 4, true);
+    let A = a0;
+    let B = b0;
+    let C = c0;
+    let D = d0;
+    for (let i = 0; i < 64; i++) {
+      let f;
+      let g;
+      if (i < 16) {
+        f = B & C | ~B & D;
+        g = i;
+      } else if (i < 32) {
+        f = D & B | ~D & C;
+        g = (5 * i + 1) % 16;
+      } else if (i < 48) {
+        f = B ^ C ^ D;
+        g = (3 * i + 5) % 16;
+      } else {
+        f = C ^ (B | ~D);
+        g = 7 * i % 16;
+      }
+      const temp = D;
+      D = C;
+      C = B;
+      const sum = A + f + (k[i] ?? 0) + (m[g] ?? 0) >>> 0;
+      const shift = s[i] ?? 0;
+      const rotated = (sum << shift | sum >>> 32 - shift) >>> 0;
+      B = B + rotated >>> 0;
+      A = temp;
+    }
+    a0 = a0 + A >>> 0;
+    b0 = b0 + B >>> 0;
+    c0 = c0 + C >>> 0;
+    d0 = d0 + D >>> 0;
+  }
+  const out = new Uint8Array(16);
+  const outView = new DataView(out.buffer);
+  outView.setUint32(0, a0, true);
+  outView.setUint32(4, b0, true);
+  outView.setUint32(8, c0, true);
+  outView.setUint32(12, d0, true);
+  return out;
+}
+const KEY_REDACTED = "[redacted SSE-C key]";
+class EncryptionKey {
+  /** Encryption mode discriminant. Always `'SSE-C'` for this class. */
+  mode = "SSE-C";
+  /** Encryption algorithm. B2's S3-compatible API only supports AES-256. */
+  algorithm = "AES256";
+  /** Base64-encoded 256-bit customer key. Logged as `[redacted SSE-C key]` via `toJSON` / `toString`. */
+  customerKey;
+  /** Base64-encoded MD5 digest of the customer key. Required by B2 for integrity verification. */
+  customerKeyMd5;
+  /**
+   * Internal constructor. Use {@link EncryptionKey.fromBytes} or
+   * {@link EncryptionKey.fromBase64} instead.
+   *
+   * @param customerKey - Base64-encoded 256-bit encryption key.
+   * @param customerKeyMd5 - Base64-encoded MD5 digest of the key.
+   *
+   * @internal
+   */
+  constructor(customerKey, customerKeyMd5) {
+    this.customerKey = customerKey;
+    this.customerKeyMd5 = customerKeyMd5;
+  }
+  /**
+   * Builds an EncryptionKey from a raw 32-byte (256-bit) key. Computes the
+   * required base64 MD5 digest internally.
+   *
+   * @param rawKey - The raw 256-bit key as bytes. Must be exactly 32 bytes.
+   *
+   * @returns A safely-wrapped EncryptionKey ready for upload/download.
+   *
+   * @throws If the key is not exactly 32 bytes.
+   */
+  static async fromBytes(rawKey) {
+    if (rawKey.byteLength !== 32) {
+      throw new Error(`SSE-C key must be exactly 32 bytes (256 bits); got ${rawKey.byteLength}.`);
+    }
+    const customerKey = bytesToBase64(rawKey);
+    const customerKeyMd5 = await md5Base64(rawKey);
+    return new EncryptionKey(customerKey, customerKeyMd5);
+  }
+  /**
+   * Builds an EncryptionKey from precomputed base64 strings. Use this in
+   * environments where MD5 must be computed externally (e.g., browsers).
+   *
+   * @param customerKey - Base64-encoded 256-bit encryption key.
+   * @param customerKeyMd5 - Base64-encoded MD5 digest of the key.
+   *
+   * @returns A safely-wrapped EncryptionKey ready for upload/download.
+   */
+  static fromBase64(customerKey, customerKeyMd5) {
+    return new EncryptionKey(customerKey, customerKeyMd5);
+  }
+  /**
+   * Hides the key bytes from `JSON.stringify`.
+   *
+   * @returns A redacted shape: same mode and algorithm, but the key and MD5
+   *   replaced with a placeholder string.
+   */
+  toJSON() {
+    return {
+      mode: this.mode,
+      algorithm: this.algorithm,
+      customerKey: KEY_REDACTED,
+      customerKeyMd5: KEY_REDACTED
+    };
+  }
+  /**
+   * Hides the key bytes from default `toString()`.
+   *
+   * @returns A short opaque label indicating this is an SSE-C key.
+   */
+  toString() {
+    return `[EncryptionKey SSE-C ${KEY_REDACTED}]`;
+  }
+  /**
+   * Hides the key bytes from Node's `util.inspect` (and therefore `console.log`).
+   *
+   * @returns A short opaque label indicating this is an SSE-C key.
+   */
+  [Symbol.for("nodejs.util.inspect.custom")]() {
+    return this.toString();
+  }
+}
 
 //# sourceMappingURL=encryption.js.map
 
@@ -65938,10 +66239,18 @@ async function retentionCommand(bucket, inputs) {
     if (mode === undefined && legalHold === undefined) {
         throw new Error("retention requires at least one of 'retention-mode' or 'legal-hold' to be set");
     }
+    // Resolve the retention expiration up front so TypeScript narrows `until`
+    // inside the parse branch and the downstream call site doesn't need a cast.
+    let retainUntilMillis = null;
     if (mode === 'compliance' || mode === 'governance') {
         if (until === undefined) {
             throw new Error(`'retention-until' (ISO 8601 timestamp) is required when 'retention-mode' is '${mode}'`);
         }
+        const parsed = Date.parse(until);
+        if (Number.isNaN(parsed)) {
+            throw new Error(`'retention-until' is not a valid ISO 8601 timestamp: "${until}"`);
+        }
+        retainUntilMillis = parsed;
     }
     // Resolve the file version we're operating on.
     const hit = await findFileByName(bucket, source);
@@ -65951,20 +66260,6 @@ async function retentionCommand(bucket, inputs) {
     core.startGroup(`retention b2://${bucket.name}/${source}`);
     try {
         if (mode !== undefined) {
-            // Resolve the retention expiration. The guard at the top of this
-            // function already enforced `until !== undefined` for non-`none`
-            // modes, so we only handle the two remaining branches here.
-            let retainUntilMillis;
-            if (mode === 'none') {
-                retainUntilMillis = null;
-            }
-            else {
-                const parsed = Date.parse(until);
-                if (Number.isNaN(parsed)) {
-                    throw new Error(`'retention-until' is not a valid ISO 8601 timestamp: "${until}"`);
-                }
-                retainUntilMillis = parsed;
-            }
             const result = await bucket.updateFileRetention(source, hit.fileId, {
                 mode: mode === 'none' ? null : mode,
                 retainUntilTimestamp: retainUntilMillis,
@@ -67381,22 +67676,7 @@ async function run() {
             }
             case 'delete': {
                 const result = await deleteCommand(bucket, inputs);
-                const actuallyDeleted = result.files.filter((f) => !f.skipped).length;
-                const wouldDelete = result.files.filter((f) => f.skipped).length;
-                core.setOutput('files-deleted', String(actuallyDeleted));
-                core.setOutput('summary-json', JSON.stringify(result.files));
-                if (result.errors > 0) {
-                    throw new Error(`Delete completed with ${result.errors} error(s)`);
-                }
-                await writeStepSummary({
-                    title: inputs.dryRun ? 'Backblaze B2: delete (dry-run)' : 'Backblaze B2: delete',
-                    totals: { files: actuallyDeleted + wouldDelete, bytes: 0 },
-                    rows: result.files.map((f) => ({
-                        fileName: f.fileName,
-                        fileId: f.fileId,
-                        status: f.skipped ? 'would delete' : 'deleted',
-                    })),
-                });
+                await emitDeletionSummary('delete', result, inputs);
                 return;
             }
             case 'presign': {
@@ -67519,22 +67799,7 @@ async function run() {
             }
             case 'purge': {
                 const result = await purgeCommand(bucket, inputs);
-                const actuallyDeleted = result.files.filter((f) => !f.skipped).length;
-                const wouldDelete = result.files.filter((f) => f.skipped).length;
-                core.setOutput('files-deleted', String(actuallyDeleted));
-                core.setOutput('summary-json', JSON.stringify(result.files));
-                if (result.errors > 0) {
-                    throw new Error(`Purge completed with ${result.errors} error(s)`);
-                }
-                await writeStepSummary({
-                    title: inputs.dryRun ? 'Backblaze B2: purge (dry-run)' : 'Backblaze B2: purge',
-                    totals: { files: actuallyDeleted + wouldDelete, bytes: 0 },
-                    rows: result.files.slice(0, 100).map((f) => ({
-                        fileName: f.fileName,
-                        fileId: f.fileId,
-                        status: f.skipped ? 'would purge' : 'purged',
-                    })),
-                });
+                await emitDeletionSummary('purge', result, inputs);
                 return;
             }
             case 'retention': {
@@ -67559,6 +67824,37 @@ async function run() {
     catch (err) {
         core.setFailed(err instanceof Error ? err.message : String(err));
     }
+}
+/**
+ * Shared output-emission + step-summary for the two deletion verbs.
+ * `delete` and `purge` returned-shape and dispatcher-side handling are
+ * structurally identical (filter into actually-deleted vs would-delete,
+ * set the same outputs, render the same row table); they differ only in
+ * the verb label, the per-row status string, and whether to cap the
+ * summary at 100 rows (purge wipes everything, including historical
+ * versions, so the row count can dwarf delete).
+ */
+async function emitDeletionSummary(verb, result, inputs) {
+    const actuallyDeleted = result.files.filter((f) => !f.skipped).length;
+    const wouldDelete = result.files.filter((f) => f.skipped).length;
+    core.setOutput('files-deleted', String(actuallyDeleted));
+    core.setOutput('summary-json', JSON.stringify(result.files));
+    if (result.errors > 0) {
+        const labels = { delete: 'Delete', purge: 'Purge' };
+        throw new Error(`${labels[verb]} completed with ${result.errors} error(s)`);
+    }
+    const past = verb === 'delete' ? 'deleted' : 'purged';
+    const future = verb === 'delete' ? 'would delete' : 'would purge';
+    const rowsSource = verb === 'purge' ? result.files.slice(0, 100) : result.files;
+    await writeStepSummary({
+        title: inputs.dryRun ? `Backblaze B2: ${verb} (dry-run)` : `Backblaze B2: ${verb}`,
+        totals: { files: actuallyDeleted + wouldDelete, bytes: 0 },
+        rows: rowsSource.map((f) => ({
+            fileName: f.fileName,
+            fileId: f.fileId,
+            status: f.skipped ? future : past,
+        })),
+    });
 }
 function retentionStatusLine(result) {
     const parts = [`mode=${result.appliedMode ?? '-'}`];

@@ -1,16 +1,12 @@
 #!/usr/bin/env bash
-# Pre-push: the slower checks (full vitest suite + coverage gate).
-# Catches what pre-commit deliberately skips for speed.
+# Pre-push: the coverage gate. `pnpm test:coverage` runs the full vitest
+# suite under v8 instrumentation, so it subsumes `pnpm test` (which already
+# ran in pre-commit). No reason to run plain `test` again here.
 #
 # Skip with `git push --no-verify` if you really need to.
 
 set -euo pipefail
 
-echo "▸ vitest (full suite)"
-pnpm --silent test
-
-# Coverage runs about 2x slower than `test` (because v8 has to instrument).
-# Comment this out if it gets annoying: CI will still enforce the gate.
 echo "▸ vitest --coverage"
 pnpm --silent test:coverage
 

@@ -3,11 +3,11 @@ import { join } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import { syncCommand } from '../../src/commands/sync.ts'
 import { uploadCommand } from '../../src/commands/upload.ts'
-import { type TestFixture, makeFixture, makeInputs } from '../_helpers.ts'
+import { type TestFixture, boundInputs, makeFixture, makeInputs } from '../_helpers.ts'
 
 describe('sync command (B2 → local)', () => {
   let fx: TestFixture
-  const inputs = (over: Record<string, unknown> = {}) => makeInputs('sync', fx, { ...over })
+  const inputs = boundInputs('sync', () => fx)
 
   beforeEach(async () => {
     fx = await makeFixture('gh-action-syncdown')

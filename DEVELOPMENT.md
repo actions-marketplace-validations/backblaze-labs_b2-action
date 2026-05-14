@@ -196,23 +196,9 @@ The `release.yml` workflow's equivalent check **stays strict**: releases must sh
 
 Once the SDK publishes to npm, pin a version range in `package.json`, restore `build-and-check-dist` to hard-failing, and delete this whole scaffold.
 
-### SDK simulator gaps (testing implications)
+### Coverage
 
-Coverage currently sits at ~97.8 % statements / ~90 % branches. The gap to 100 % is mostly **branches that depend on SDK response shapes the `B2Simulator` doesn't yet emit** under the patterns our action uses. Rather than mock around them with `vi.spyOn` (and end up testing the mocks rather than our code), we've deferred these tests until the SDK is updated.
-
-Branches currently uncovered and waiting on the SDK:
-
-| File | Branch | What we need from the simulator |
-| --- | --- | --- |
-| `delete.ts`, `purge.ts` | `error` event from `deleteAll` | The simulator should emit `{ type: 'error' }` when a `deleteFileVersion` call inside `deleteAll` fails (e.g. missing fileId, retention-blocked). |
-| `list.ts`, `download.ts`, `presign.ts` | Multi-page pagination | The simulator should set `nextFileName` on `listFileNames` responses when results exceed the requested `maxFileCount`. Today it returns everything in one page regardless of `maxFileCount`. |
-| `download.ts`, `list.ts` | `f.action !== 'upload'` filter | The simulator's `listFileNames` should return hide markers (`action: 'hide'`) for files that have been hidden via `bucket.hideFile`, matching real-B2 behavior. |
-| `verify.ts`, `download.ts` | `contentSha1: null` (multipart) | The simulator should report `null` content-SHA-1 on files finished via `b2_finish_large_file`, matching real-B2 multipart semantics. |
-| `sync.ts` | `delete-remote` event case | The `synchronize` engine should emit `delete-remote` (not `hide`) when `keep-mode: delete` orphan removal hits a file with only one version. Currently emits `hide` regardless. |
-
-We track these as known simulator gaps rather than chase 100 % with mocks. **When the SDK ships any of the above**, the corresponding test goes back into `__tests__/coverage-100.test.ts` driven by real simulator behavior.
-
-A handful of remaining gaps are not simulator-related; they're TypeScript-mandated branches with one unreachable side (defensive `?? null` on type-guaranteed-number values, conditional spreads). Those will be `v8 ignore`'d in source rather than tested.
+Coverage is at **100 % statements / 100 % branches / 100 % functions / 100 % lines** across 145 tests. Zero `v8 ignore` annotations in `src/`. Every uncovered branch the SDK formerly exposed (multipart `contentSha1: null`, pagination handover, `delete-remote` on unversioned buckets, `error` events from `deleteAll`, `bucket.head()` shape, `pageSize` rename, `SyncEvent` narrowing) shipped in the SDK and the action's tests drive them against real simulator behavior. If you add a new code path, add a real test for it; do not introduce a `v8 ignore` without a documented external reason.
 
 ### Wiring
 

@@ -13,7 +13,7 @@ import { syncCommand } from './commands/sync.ts'
 import { unhideCommand } from './commands/unhide.ts'
 import { uploadCommand } from './commands/upload.ts'
 import { verifyCommand } from './commands/verify.ts'
-import { parseInputs } from './inputs.ts'
+import { type ParsedInputs, parseInputs } from './inputs.ts'
 import { writeStepSummary } from './summary.ts'
 
 /**
@@ -144,22 +144,7 @@ export async function run(): Promise<void> {
       }
       case 'delete': {
         const result = await deleteCommand(bucket, inputs)
-        const actuallyDeleted = result.files.filter((f) => !f.skipped).length
-        const wouldDelete = result.files.filter((f) => f.skipped).length
-        core.setOutput('files-deleted', String(actuallyDeleted))
-        core.setOutput('summary-json', JSON.stringify(result.files))
-        if (result.errors > 0) {
-          throw new Error(`Delete completed with ${result.errors} error(s)`)
-        }
-        await writeStepSummary({
-          title: inputs.dryRun ? 'Backblaze B2: delete (dry-run)' : 'Backblaze B2: delete',
-          totals: { files: actuallyDeleted + wouldDelete, bytes: 0 },
-          rows: result.files.map((f) => ({
-            fileName: f.fileName,
-            fileId: f.fileId,
-            status: f.skipped ? 'would delete' : 'deleted',
-          })),
-        })
+        await emitDeletionSummary('delete', result, inputs)
         return
       }
       case 'presign': {
@@ -281,22 +266,7 @@ export async function run(): Promise<void> {
       }
       case 'purge': {
         const result = await purgeCommand(bucket, inputs)
-        const actuallyDeleted = result.files.filter((f) => !f.skipped).length
-        const wouldDelete = result.files.filter((f) => f.skipped).length
-        core.setOutput('files-deleted', String(actuallyDeleted))
-        core.setOutput('summary-json', JSON.stringify(result.files))
-        if (result.errors > 0) {
-          throw new Error(`Purge completed with ${result.errors} error(s)`)
-        }
-        await writeStepSummary({
-          title: inputs.dryRun ? 'Backblaze B2: purge (dry-run)' : 'Backblaze B2: purge',
-          totals: { files: actuallyDeleted + wouldDelete, bytes: 0 },
-          rows: result.files.slice(0, 100).map((f) => ({
-            fileName: f.fileName,
-            fileId: f.fileId,
-            status: f.skipped ? 'would purge' : 'purged',
-          })),
-        })
+        await emitDeletionSummary('purge', result, inputs)
         return
       }
       case 'retention': {
@@ -320,6 +290,45 @@ export async function run(): Promise<void> {
   } catch (err) {
     core.setFailed(err instanceof Error ? err.message : String(err))
   }
+}
+
+/**
+ * Shared output-emission + step-summary for the two deletion verbs.
+ * `delete` and `purge` returned-shape and dispatcher-side handling are
+ * structurally identical (filter into actually-deleted vs would-delete,
+ * set the same outputs, render the same row table); they differ only in
+ * the verb label, the per-row status string, and whether to cap the
+ * summary at 100 rows (purge wipes everything, including historical
+ * versions, so the row count can dwarf delete).
+ */
+async function emitDeletionSummary(
+  verb: 'delete' | 'purge',
+  result: {
+    files: { fileName: string; fileId: string; skipped: boolean }[]
+    errors: number
+  },
+  inputs: ParsedInputs,
+): Promise<void> {
+  const actuallyDeleted = result.files.filter((f) => !f.skipped).length
+  const wouldDelete = result.files.filter((f) => f.skipped).length
+  core.setOutput('files-deleted', String(actuallyDeleted))
+  core.setOutput('summary-json', JSON.stringify(result.files))
+  if (result.errors > 0) {
+    const labels = { delete: 'Delete', purge: 'Purge' } as const
+    throw new Error(`${labels[verb]} completed with ${result.errors} error(s)`)
+  }
+  const past = verb === 'delete' ? 'deleted' : 'purged'
+  const future = verb === 'delete' ? 'would delete' : 'would purge'
+  const rowsSource = verb === 'purge' ? result.files.slice(0, 100) : result.files
+  await writeStepSummary({
+    title: inputs.dryRun ? `Backblaze B2: ${verb} (dry-run)` : `Backblaze B2: ${verb}`,
+    totals: { files: actuallyDeleted + wouldDelete, bytes: 0 },
+    rows: rowsSource.map((f) => ({
+      fileName: f.fileName,
+      fileId: f.fileId,
+      status: f.skipped ? future : past,
+    })),
+  })
 }
 
 function retentionStatusLine(result: {

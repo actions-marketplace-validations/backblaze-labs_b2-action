@@ -3,11 +3,11 @@ import { join } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import { retentionCommand } from '../../src/commands/retention.ts'
 import { uploadCommand } from '../../src/commands/upload.ts'
-import { type TestFixture, makeFixture, makeInputs, seedFile } from '../_helpers.ts'
+import { type TestFixture, boundInputs, makeFixture, makeInputs, seedFile } from '../_helpers.ts'
 
 describe('retention command', () => {
   let fx: TestFixture
-  const inputs = (over: Record<string, unknown> = {}) => makeInputs('retention', fx, { ...over })
+  const inputs = boundInputs('retention', () => fx)
 
   beforeEach(async () => {
     fx = await makeFixture('gh-action-retention')

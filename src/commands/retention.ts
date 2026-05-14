@@ -48,12 +48,20 @@ export async function retentionCommand(
     throw new Error("retention requires at least one of 'retention-mode' or 'legal-hold' to be set")
   }
 
+  // Resolve the retention expiration up front so TypeScript narrows `until`
+  // inside the parse branch and the downstream call site doesn't need a cast.
+  let retainUntilMillis: number | null = null
   if (mode === 'compliance' || mode === 'governance') {
     if (until === undefined) {
       throw new Error(
         `'retention-until' (ISO 8601 timestamp) is required when 'retention-mode' is '${mode}'`,
       )
     }
+    const parsed = Date.parse(until)
+    if (Number.isNaN(parsed)) {
+      throw new Error(`'retention-until' is not a valid ISO 8601 timestamp: "${until}"`)
+    }
+    retainUntilMillis = parsed
   }
 
   // Resolve the file version we're operating on.
@@ -66,19 +74,6 @@ export async function retentionCommand(
   core.startGroup(`retention b2://${bucket.name}/${source}`)
   try {
     if (mode !== undefined) {
-      // Resolve the retention expiration. The guard at the top of this
-      // function already enforced `until !== undefined` for non-`none`
-      // modes, so we only handle the two remaining branches here.
-      let retainUntilMillis: number | null
-      if (mode === 'none') {
-        retainUntilMillis = null
-      } else {
-        const parsed = Date.parse(until as string)
-        if (Number.isNaN(parsed)) {
-          throw new Error(`'retention-until' is not a valid ISO 8601 timestamp: "${until}"`)
-        }
-        retainUntilMillis = parsed
-      }
       const result = await bucket.updateFileRetention(source, hit.fileId, {
         mode: mode === 'none' ? null : mode,
         retainUntilTimestamp: retainUntilMillis,

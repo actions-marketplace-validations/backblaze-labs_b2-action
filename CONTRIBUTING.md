@@ -63,7 +63,7 @@ The pattern is the same every time:
 ## Tests
 
 - Unit tests run via `pnpm test`. They use the SDK's in-memory `B2Simulator` so no network and no real B2 account is needed.
-- Coverage is gated at 80% statements / 70% branches / 80% functions / 80% lines via `pnpm test:coverage`. CI runs this on every PR.
+- Coverage is gated at 95% statements / 85% branches / 100% functions / 95% lines via `pnpm test:coverage`. CI runs this on every PR.
 - The example workflows (`.github/workflows/example-*.yml`) are the **integration test suite**. They run against a real Backblaze test bucket on every PR that's not from a fork (forks don't have access to repo secrets and skip silently).
 
 ## Style

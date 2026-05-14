@@ -1,5 +1,5 @@
 name: 'backblaze-b2'
-description: 'Upload, download, sync, copy, delete, hide, verify, presign, and lock Backblaze B2 Cloud Storage from GitHub Actions. TypeScript-native, built on the official b2-sdk.'
+description: 'Thirteen verbs for Backblaze B2: upload, download, sync, copy, delete, list, hide, unhide, verify, presign, retention, head, purge. TypeScript-native, built on the official b2-sdk.'
 author: 'Backblaze, Inc.'
 branding:
   icon: 'archive'

@@ -131,6 +131,21 @@ export function makeMultipartFixture(bucketName: string): Promise<TestFixture> {
 }
 
 /**
+ * Curry {@link makeInputs} for a specific verb + fixture so per-test bodies
+ * read as `inputs({ source: 'x.txt' })` instead of `makeInputs('verb', fx, { ... })`.
+ * Cuts the boilerplate in per-command test files that build many ParsedInputs
+ * with the same verb/fixture pair. The returned closure captures `fx` by
+ * reference; callers using a `let fx: TestFixture` rebound per-test in a
+ * `beforeEach` get the fresh fixture on every call.
+ */
+export function boundInputs<A extends ActionName>(
+  action: A,
+  getFx: () => TestFixture,
+): (override?: Partial<ParsedInputs>) => ParsedInputs {
+  return (override) => makeInputs(action, getFx(), override ?? {})
+}
+
+/**
  * Snapshot of `process.env` taken once at module load, before any test runs.
  * Used by {@link resetInputEnv} to put env back to a clean baseline between
  * tests so `parseInputs()` reads from a known-empty slate.
