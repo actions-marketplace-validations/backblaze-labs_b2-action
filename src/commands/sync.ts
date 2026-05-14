@@ -81,7 +81,6 @@ export async function syncCommand(bucket: Bucket, inputs: ParsedInputs): Promise
           bytesTransferred += event.size
           core.info(`  ↓ ${event.path} (${event.size}B)`)
           break
-        /* v8 ignore next 4 -- pending SDK request: emit `delete-remote` (not `hide`) for orphan removal on unversioned/no-file-lock buckets. Today the engine emits `hide` regardless, so this case is unreachable. Forward-compat, not defensive. */
         case 'delete-remote':
           deleted++
           core.info(`  − ${event.path}`)
@@ -99,8 +98,7 @@ export async function syncCommand(bucket: Bucket, inputs: ParsedInputs): Promise
           break
         case 'error':
           errors++
-          /* v8 ignore next 1 -- pending SDK request: narrow `SyncEvent` so `message: string` is required on error events. The engine always populates it; the `??` is only here to satisfy the loose type. */
-          core.warning(`  ! ${event.path}: ${event.message ?? 'unknown error'}`)
+          core.warning(`  ! ${event.path}: ${event.message}`)
           break
         case 'upload-start':
         case 'compare':

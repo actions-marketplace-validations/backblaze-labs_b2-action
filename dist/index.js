@@ -61608,7 +61608,22 @@ class ProgressTracker {
 
 //# sourceMappingURL=progress.js.map
 
+;// CONCATENATED MODULE: ../b2-typescript-sdk/dist/util/normalize.js
+function normalizeSha1(raw) {
+  if (raw === null || raw === void 0 || raw === "none") return null;
+  return raw;
+}
+function normalizeFileVersionSha1(fv) {
+  return fv.contentSha1 === "none" ? { ...fv, contentSha1: null } : fv;
+}
+function normalizeFileVersionListSha1(resp) {
+  return { ...resp, files: resp.files.map(normalizeFileVersionSha1) };
+}
+
+//# sourceMappingURL=normalize.js.map
+
 ;// CONCATENATED MODULE: ../b2-typescript-sdk/dist/download/single.js
+
 
 
 
@@ -61681,7 +61696,9 @@ function extractDownloadHeaders(headers) {
   return {
     contentType: headers.get("Content-Type") ?? "application/octet-stream",
     contentLength: Number.parseInt(headers.get("Content-Length") ?? "0", 10),
-    contentSha1: headers.get("X-Bz-Content-Sha1"),
+    // B2 sends the literal `'none'` for multipart-finished files; collapse
+    // to `null` so the typed `string | null` actually means "no SHA-1".
+    contentSha1: normalizeSha1(headers.get("X-Bz-Content-Sha1")),
     fileId: fileId(headers.get("X-Bz-File-Id") ?? ""),
     fileName: decodeURIComponent(headers.get("X-Bz-File-Name") ?? ""),
     fileInfo,
@@ -62036,6 +62053,40 @@ async function uploadLargeFile(raw, accountInfo, options) {
   const partSha1s = new Array(parts.length);
   const tracker = new ProgressTracker(options.onProgress, totalSize, parts.length);
   const sem = new Semaphore(concurrency);
+  if (!options.source.canSlice) {
+    if (options.resume === true || options.resumeFileId !== void 0) {
+      await bestEffort(
+        () => raw.cancelLargeFile(accountInfo.getApiUrl(), accountInfo.getAuthToken(), {
+          fileId: largeFileId
+        })
+      );
+      throw new Error(
+        "uploadLargeFile: resume is not supported on non-sliceable sources (e.g. StreamSource)."
+      );
+    }
+    try {
+      await uploadPartsSequentially(
+        raw,
+        accountInfo,
+        options,
+        largeFileId,
+        parts,
+        partSha1s,
+        tracker
+      );
+      return await raw.finishLargeFile(accountInfo.getApiUrl(), accountInfo.getAuthToken(), {
+        fileId: largeFileId,
+        partSha1Array: partSha1s
+      });
+    } catch (err) {
+      await bestEffort(
+        () => raw.cancelLargeFile(accountInfo.getApiUrl(), accountInfo.getAuthToken(), {
+          fileId: largeFileId
+        })
+      );
+      throw err;
+    }
+  }
   try {
     const tasks = parts.map(async (part) => {
       await sem.acquire();
@@ -62113,6 +62164,76 @@ function planParts(totalSize, partSize) {
     partNumber++;
   }
   return parts;
+}
+async function uploadPartsSequentially(raw, accountInfo, options, largeFileId, parts, partSha1s, tracker) {
+  const reader = options.source.stream().getReader();
+  let partNumber = 1;
+  let carry = null;
+  try {
+    for (const planned of parts) {
+      options.signal?.throwIfAborted();
+      const buf = new Uint8Array(planned.length);
+      let filled = 0;
+      if (carry !== null) {
+        const take = Math.min(carry.byteLength, buf.byteLength - filled);
+        buf.set(carry.subarray(0, take), filled);
+        filled += take;
+        carry = take < carry.byteLength ? carry.subarray(take) : null;
+      }
+      while (filled < buf.byteLength) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        const take = Math.min(value.byteLength, buf.byteLength - filled);
+        buf.set(value.subarray(0, take), filled);
+        filled += take;
+        if (take < value.byteLength) {
+          carry = value.subarray(take);
+        }
+      }
+      const data = filled === buf.byteLength ? buf : buf.subarray(0, filled);
+      if (data.byteLength === 0) {
+        throw new Error(
+          `uploadLargeFile: source stream ended before part ${partNumber}; advertised size does not match emitted bytes.`
+        );
+      }
+      const partSha1 = new IncrementalSha1();
+      await partSha1.update(data);
+      const sha1Hex = await partSha1.digest();
+      let uploadEntry = accountInfo.checkoutPartUploadUrl(largeFileId);
+      if (!uploadEntry) {
+        const resp = await raw.getUploadPartUrl(
+          accountInfo.getApiUrl(),
+          accountInfo.getAuthToken(),
+          { fileId: largeFileId }
+        );
+        uploadEntry = { uploadUrl: resp.uploadUrl, authorizationToken: resp.authorizationToken };
+      }
+      try {
+        const result = await raw.uploadPart(
+          uploadEntry.uploadUrl,
+          {
+            authorization: uploadEntry.authorizationToken,
+            partNumber: planned.partNumber,
+            contentLength: data.byteLength,
+            contentSha1: sha1Hex,
+            ...options.serverSideEncryption !== void 0 ? { serverSideEncryption: options.serverSideEncryption } : {}
+          },
+          data,
+          options.signal
+        );
+        accountInfo.returnPartUploadUrl(largeFileId, uploadEntry);
+        partSha1s[planned.partNumber - 1] = result.contentSha1;
+        tracker.addBytes(data.byteLength);
+        tracker.completePart();
+      } catch (err) {
+        accountInfo.evictPartUploadUrl(largeFileId, uploadEntry);
+        throw err;
+      }
+      partNumber++;
+    }
+  } finally {
+    reader.releaseLock();
+  }
 }
 
 //# sourceMappingURL=large.js.map
@@ -62894,10 +63015,10 @@ class Bucket {
    * deletes are collected and returned rather than thrown, so partial success
    * does not abort the run.
    * @param targets - File versions to delete.
-   * @param options - Optional concurrency override. Defaults to
-   *   {@link DEFAULT_BULK_CONCURRENCY} (a bulk-metadata setting, higher
-   *   than transfer concurrency because each task is a single tiny API
-   *   round-trip).
+   * @param options - Optional concurrency override. Defaults to the
+   *   SDK-wide bulk-metadata concurrency setting (currently 10, higher
+   *   than the transfer-concurrency default because each task is a
+   *   single tiny API round-trip).
    *
    * @returns A summary of successes and per-target errors.
    */
@@ -63864,6 +63985,7 @@ function sseCustomer(customerKey, customerKeyMd5) {
 
 
 
+
 class RawClient {
   /** @internal */
   transport;
@@ -63999,7 +64121,7 @@ class RawClient {
       body,
       ...signal !== void 0 ? { signal } : {}
     });
-    return response.json();
+    return normalizeFileVersionSha1(await response.json());
   }
   /**
    * Calls {@link https://www.backblaze.com/apidocs/b2-list-file-names | b2_list_file_names}.
@@ -64010,7 +64132,9 @@ class RawClient {
    * @returns The list of file names and optional continuation token.
    */
   async listFileNames(apiUrl, authToken, request) {
-    return this.postJson(apiUrl, authToken, "b2_list_file_names", request);
+    return normalizeFileVersionListSha1(
+      await this.postJson(apiUrl, authToken, "b2_list_file_names", request)
+    );
   }
   /**
    * Calls {@link https://www.backblaze.com/apidocs/b2-list-file-versions | b2_list_file_versions}.
@@ -64021,11 +64145,13 @@ class RawClient {
    * @returns The list of file versions and optional continuation token.
    */
   async listFileVersions(apiUrl, authToken, request) {
-    return this.postJson(
-      apiUrl,
-      authToken,
-      "b2_list_file_versions",
-      request
+    return normalizeFileVersionListSha1(
+      await this.postJson(
+        apiUrl,
+        authToken,
+        "b2_list_file_versions",
+        request
+      )
     );
   }
   /**
@@ -64037,7 +64163,9 @@ class RawClient {
    * @returns The file version metadata.
    */
   async getFileInfo(apiUrl, authToken, request) {
-    return this.postJson(apiUrl, authToken, "b2_get_file_info", request);
+    return normalizeFileVersionSha1(
+      await this.postJson(apiUrl, authToken, "b2_get_file_info", request)
+    );
   }
   /**
    * Calls {@link https://www.backblaze.com/apidocs/b2-hide-file | b2_hide_file}.
@@ -64048,7 +64176,9 @@ class RawClient {
    * @returns The hidden file version metadata.
    */
   async hideFile(apiUrl, authToken, request) {
-    return this.postJson(apiUrl, authToken, "b2_hide_file", request);
+    return normalizeFileVersionSha1(
+      await this.postJson(apiUrl, authToken, "b2_hide_file", request)
+    );
   }
   /**
    * Calls {@link https://www.backblaze.com/apidocs/b2-delete-file-version | b2_delete_file_version}.
@@ -64075,7 +64205,9 @@ class RawClient {
    * @returns The copied file version metadata.
    */
   async copyFile(apiUrl, authToken, request) {
-    return this.postJson(apiUrl, authToken, "b2_copy_file", request);
+    return normalizeFileVersionSha1(
+      await this.postJson(apiUrl, authToken, "b2_copy_file", request)
+    );
   }
   /**
    * Calls {@link https://www.backblaze.com/apidocs/b2-copy-part | b2_copy_part}.
@@ -64154,7 +64286,9 @@ class RawClient {
    * @returns The completed file version metadata.
    */
   async finishLargeFile(apiUrl, authToken, request) {
-    return this.postJson(apiUrl, authToken, "b2_finish_large_file", request);
+    return normalizeFileVersionSha1(
+      await this.postJson(apiUrl, authToken, "b2_finish_large_file", request)
+    );
   }
   /**
    * Calls {@link https://www.backblaze.com/apidocs/b2-cancel-large-file | b2_cancel_large_file}.
@@ -65137,18 +65271,6 @@ function formatBytes(n) {
         return `${(n / 1024 / 1024).toFixed(1)} MB`;
     return `${(n / 1024 / 1024 / 1024).toFixed(2)} GB`;
 }
-/**
- * Normalize a B2-returned content SHA-1 string. Real B2 returns the literal
- * string `'none'` for files completed via `b2_finish_large_file` (multipart),
- * because the protocol stores per-part SHA-1s but not a whole-file SHA-1.
- * The action treats that as "no SHA-1 available" and surfaces `null` to its
- * outputs and step-summary rows.
- */
-function normalizeSha1(s) {
-    if (s === null || s === undefined || s === 'none')
-        return null;
-    return s;
-}
 
 ;// CONCATENATED MODULE: ./src/progress.ts
 
@@ -65176,8 +65298,7 @@ function makeProgressListener(label, intervalMs = 1000) {
         const pct = event.totalBytes !== null && event.totalBytes > 0
             ? `${Math.round((event.bytesTransferred / event.totalBytes) * 100)}%`
             : '?%';
-        /* v8 ignore next 2 -- pending SDK request: tighten `ProgressEvent.partsCompleted` from `number | null | undefined` to `number`. The SDK always populates this at runtime; the `?? 0` is only here to satisfy the loose type. */
-        const parts = event.totalParts !== null ? ` (${event.partsCompleted ?? 0}/${event.totalParts} parts)` : '';
+        const parts = event.totalParts !== null ? ` (${event.partsCompleted}/${event.totalParts} parts)` : '';
         const totalSuffix = event.totalBytes !== null ? ` / ${formatBytes(event.totalBytes)}` : '';
         core.info(`${label} ${pct}${parts} ${formatBytes(event.bytesTransferred)}${totalSuffix} @ ${mbps.toFixed(2)} MB/s`);
         lastEmit = now;
@@ -65187,7 +65308,6 @@ function makeProgressListener(label, intervalMs = 1000) {
 }
 
 ;// CONCATENATED MODULE: ./src/commands/download.ts
-
 
 
 
@@ -65269,7 +65389,7 @@ async function downloadOne(bucket, fileName, destination, sseDownload) {
         ...(sseDownload !== undefined ? { serverSideEncryption: sseDownload } : {}),
     });
     const size = result.headers.contentLength;
-    const sha1 = normalizeSha1(result.headers.contentSha1);
+    const sha1 = result.headers.contentSha1;
     // Wrap the body in a byte-counting Transform that synthesizes ProgressEvents
     // for the shared progress listener. The SDK doesn't expose progress for
     // single-shot downloads; we compute it here from the known content-length.
@@ -65320,7 +65440,6 @@ async function tryStat(path) {
 ;// CONCATENATED MODULE: ./src/commands/head.ts
 
 
-
 /**
  * HEAD-only metadata probe. Fetches the headers of an object without
  * downloading the body. Useful for cheap "does this exist and what's its
@@ -65344,14 +65463,14 @@ async function headCommand(bucket, inputs) {
             // Ignored: HEAD responses may have no body to cancel.
         }
         const h = result.headers;
-        const sha1 = normalizeSha1(h.contentSha1);
-        core.info(`  size=${h.contentLength} type=${h.contentType} sha1=${sha1 ?? 'multipart'}`);
+        // SDK normalizes multipart `'none'` to `null` at the boundary.
+        core.info(`  size=${h.contentLength} type=${h.contentType} sha1=${h.contentSha1 ?? 'multipart'}`);
         return {
             fileName: h.fileName,
             fileId: h.fileId,
             size: h.contentLength,
             contentType: h.contentType,
-            contentSha1: sha1,
+            contentSha1: h.contentSha1,
             uploadTimestamp: h.uploadTimestamp,
             fileInfo: h.fileInfo,
         };
@@ -65390,7 +65509,6 @@ async function hideCommand(bucket, inputs) {
 
 ;// CONCATENATED MODULE: ./src/commands/list.ts
 
-
 /**
  * List file names under a prefix.
  *
@@ -65425,11 +65543,10 @@ async function listCommand(bucket, inputs) {
                     fileName: f.fileName,
                     fileId: f.fileId,
                     size: f.contentLength,
-                    contentSha1: normalizeSha1(f.contentSha1),
+                    contentSha1: f.contentSha1,
                     uploadTimestamp: f.uploadTimestamp,
                     contentType: f.contentType,
-                    /* v8 ignore next 1 -- pending SDK request: tighten `FileVersion.fileInfo` from optional to `Record<string, string>`. The SDK always returns at least `{}`; the `?? {}` is only here to satisfy the loose type. */
-                    fileInfo: f.fileInfo ?? {},
+                    fileInfo: f.fileInfo,
                 });
                 if (files.length >= maxResults)
                     break;
@@ -65692,6 +65809,8 @@ class BlobSource {
   }
   /** {@inheritDoc} */
   size;
+  /** Random-access: `Blob.slice()` is cheap and returns a new Blob view. */
+  canSlice = true;
   /**
    * Return a new BlobSource covering the specified byte range.
    * @param start - The zero-based byte offset to begin the slice.
@@ -65728,6 +65847,8 @@ class BufferSource {
   }
   /** {@inheritDoc} */
   size;
+  /** Random-access: the entire payload lives in memory. */
+  canSlice = true;
   /**
    * Return a new BufferSource covering the specified byte range.
    * @param start - The zero-based byte offset to begin the slice.
@@ -65776,6 +65897,12 @@ class StreamSource {
   }
   /** {@inheritDoc} */
   size;
+  /**
+   * Forward-only: ReadableStreams cannot be repositioned, so multipart
+   * uploads must take the sequential path. See the interface comment on
+   * `canSlice` for what the engine does with this flag.
+   */
+  canSlice = false;
   /** Whether the stream has already been read. */
   consumed = false;
   /**
@@ -66109,14 +66236,13 @@ function* actionsForDestOnly(dest, direction, keepMode, keepDays, nowMillis, fac
   }
   switch (direction) {
     case "local-to-b2":
-      yield factory.hide(dest.relativePath);
-      yield factory.deleteRemote(dest);
+      yield factory.removeOrphan(dest);
       break;
     case "b2-to-local":
       yield factory.deleteLocal(dest);
       break;
     case "b2-to-b2":
-      yield factory.deleteRemote(dest);
+      yield factory.removeOrphan(dest);
       break;
   }
 }
@@ -66220,7 +66346,9 @@ function assertBucket(bucket, context) {
 function createActionFactory(config) {
   const upConfig = config;
   const downConfig = config;
-  return {
+  const destBucket = upConfig.bucket ?? downConfig.bucket;
+  const bucketIsLocked = destBucket?.info?.fileLockConfiguration?.value?.isFileLockEnabled ?? false;
+  const factory = {
     upload(source) {
       const bucket = upConfig.bucket;
       const prefix = upConfig.prefix ?? "";
@@ -66301,8 +66429,12 @@ function createActionFactory(config) {
         const { unlink } = await Promise.resolve(/* import() */).then(__nccwpck_require__.t.bind(__nccwpck_require__, 1455, 19));
         await unlink(absPath);
       });
+    },
+    removeOrphan(dest) {
+      return bucketIsLocked ? factory.hide(dest.relativePath) : factory.deleteRemote(dest);
     }
   };
+  return factory;
 }
 
 //# sourceMappingURL=synchronizer.js.map
@@ -66492,7 +66624,6 @@ async function syncCommand(bucket, inputs) {
                     bytesTransferred += event.size;
                     core.info(`  ↓ ${event.path} (${event.size}B)`);
                     break;
-                /* v8 ignore next 4 -- pending SDK request: emit `delete-remote` (not `hide`) for orphan removal on unversioned/no-file-lock buckets. Today the engine emits `hide` regardless, so this case is unreachable. Forward-compat, not defensive. */
                 case 'delete-remote':
                     deleted++;
                     core.info(`  − ${event.path}`);
@@ -66510,8 +66641,7 @@ async function syncCommand(bucket, inputs) {
                     break;
                 case 'error':
                     errors++;
-                    /* v8 ignore next 1 -- pending SDK request: narrow `SyncEvent` so `message: string` is required on error events. The engine always populates it; the `??` is only here to satisfy the loose type. */
-                    core.warning(`  ! ${event.path}: ${event.message ?? 'unknown error'}`);
+                    core.warning(`  ! ${event.path}: ${event.message}`);
                     break;
                 case 'upload-start':
                 case 'compare':
@@ -66589,7 +66719,7 @@ async function sync_tryStat(path) {
 /**
  * Restore visibility of a file previously hidden by the `hide` command.
  *
- * Wraps the SDK's {@link Bucket.unhide}, which finds the most recent hide
+ * Wraps the SDK's {@link Bucket.unhideFile}, which finds the most recent hide
  * marker for the file name and deletes it. If the file is already visible
  * (or never existed), no-ops and reports `removedMarkerFileId: null`.
  *
@@ -66617,6 +66747,7 @@ async function unhideCommand(bucket, inputs) {
 // EXTERNAL MODULE: ./node_modules/.pnpm/@actions+glob@0.5.1/node_modules/@actions/glob/lib/glob.js
 var glob = __nccwpck_require__(3313);
 ;// CONCATENATED MODULE: ./src/commands/upload.ts
+
 
 
 
@@ -66716,15 +66847,14 @@ function remapFileName(file, destination, isSingleExplicitFile) {
 async function uploadOne(bucket, localPath, fileName, inputs) {
     const fileStat = await (0,promises_.stat)(localPath);
     const size = fileStat.size;
-    // Read the file into a BufferSource. The SDK's `bucket.upload` routes
-    // files larger than the recommended part size through `uploadLargeFile`,
-    // which slices the source into parts and uploads them in parallel. Stream
-    // sources cannot be sliced (a stream is read-once-sequential), so the
-    // multipart path requires a randomly-accessible source. BufferSource
-    // satisfies that. The cost is holding the file in runner memory; on
-    // ubuntu-latest (7 GB) that's fine up to multi-GB artifacts, which is
-    // well past the practical size for anything a CI workflow uploads.
-    const source = new BufferSource(await (0,promises_.readFile)(localPath));
+    // Stream the file from disk. The SDK's `bucket.upload` routes files larger
+    // than the recommended part size through `uploadLargeFile`, which now
+    // detects non-sliceable sources (StreamSource) and reads the stream once,
+    // shipping one part at a time. Peak memory ≈ partSize regardless of file
+    // size, so multi-GB uploads stay bounded.
+    const nodeStream = (0,external_node_fs_namespaceObject.createReadStream)(localPath);
+    const webStream = external_node_stream_.Readable.toWeb(nodeStream);
+    const source = new StreamSource(webStream, size);
     const onProgress = makeProgressListener(`upload[${fileName}]`);
     const result = await bucket.upload({
         fileName,
@@ -66735,7 +66865,9 @@ async function uploadOne(bucket, localPath, fileName, inputs) {
         ...(inputs.encryption !== undefined ? { serverSideEncryption: inputs.encryption } : {}),
         onProgress,
     });
-    const sha1 = normalizeSha1(result.contentSha1);
+    // SDK now normalizes multipart `'none'` to `null` at the boundary, so
+    // `result.contentSha1` is `string | null` directly.
+    const sha1 = result.contentSha1;
     core.info(`  fileId=${result.fileId} sha1=${sha1 ?? 'multipart'}`);
     return {
         localPath,
@@ -66755,7 +66887,6 @@ async function upload_tryStat(path) {
 }
 
 ;// CONCATENATED MODULE: ./src/commands/verify.ts
-
 
 
 
@@ -66784,7 +66915,7 @@ async function verifyCommand(bucket, inputs) {
     try {
         const head = await bucket.download(source, { method: 'HEAD' });
         const remoteSize = head.headers.contentLength;
-        const remoteSha1 = normalizeSha1(head.headers.contentSha1);
+        const remoteSha1 = head.headers.contentSha1;
         // Drain the (empty) HEAD body to free the underlying response.
         try {
             await head.body.cancel();

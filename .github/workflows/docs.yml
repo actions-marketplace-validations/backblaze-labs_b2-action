@@ -28,20 +28,23 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-
-      # We need the SDK sibling on disk because package.json's
-      # @backblaze/b2-sdk dep is `link:../b2-typescript-sdk` (private repo).
-      # Matches the pattern in ci.yml / release.yml.
-      - name: Clone sibling SDK
-        uses: ./.github/actions/setup-sdk-sibling
-        with:
-          token: ${{ secrets.SDK_REPO_TOKEN }}
-
       - uses: pnpm/action-setup@v4
+        with:
+          version: 11
       - uses: actions/setup-node@v4
         with:
           node-version: 24
           cache: pnpm
+
+      # We need the SDK sibling on disk because package.json's
+      # @backblaze/b2-sdk dep is `link:../b2-typescript-sdk` (private repo).
+      # The composite shells out to `pnpm install && pnpm build` to compile
+      # the sibling's `dist/`, so pnpm must already be on PATH (above).
+      # Matches the order in ci.yml / release.yml.
+      - name: Clone sibling SDK
+        uses: ./.github/actions/setup-sdk-sibling
+        with:
+          token: ${{ secrets.SDK_REPO_TOKEN }}
 
       - run: pnpm install --frozen-lockfile
       - run: pnpm run docs

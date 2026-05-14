@@ -13,7 +13,7 @@ export interface UnhideResult {
 /**
  * Restore visibility of a file previously hidden by the `hide` command.
  *
- * Wraps the SDK's {@link Bucket.unhide}, which finds the most recent hide
+ * Wraps the SDK's {@link Bucket.unhideFile}, which finds the most recent hide
  * marker for the file name and deletes it. If the file is already visible
  * (or never existed), no-ops and reports `removedMarkerFileId: null`.
  *

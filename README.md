@@ -5,7 +5,8 @@
 [![Marketplace](https://img.shields.io/github/v/release/backblaze-labs/b2-action?label=marketplace&color=red&logo=githubactions&logoColor=white)](https://github.com/marketplace/actions/backblaze-b2)
 [![Latest release](https://img.shields.io/github/v/release/backblaze-labs/b2-action?display_name=tag&sort=semver&color=blue)](https://github.com/backblaze-labs/b2-action/releases/latest)
 [![License: MIT](https://img.shields.io/badge/license-MIT-yellow.svg)](./LICENSE)
-[![Coverage](https://img.shields.io/badge/coverage-97%25-brightgreen.svg)](./vitest.config.ts)
+[![Coverage](https://img.shields.io/badge/coverage-100%25-brightgreen.svg)](./vitest.config.ts)
+[![Docs](https://img.shields.io/github/deployments/backblaze-labs/b2-action/github-pages?label=docs&logo=readthedocs&logoColor=white)](https://backblaze-labs.github.io/b2-action/)
 
 The Backblaze B2 GitHub Action. TypeScript-native, built on the official [`@backblaze/b2-sdk`](https://github.com/backblaze/b2-sdk-typescript). Thirteen verbs covering every B2 operation a CI workflow needs.
 
@@ -70,7 +71,7 @@ For one self-contained example per verb (each is also a live integration test), 
 ## Verbs
 
 | Verb | What it does | Required inputs |
-|---|---|---|
+| --- | --- | --- |
 | `upload` | Single-file or glob upload, with streaming + multipart-resume. | `source`, `bucket` |
 | `download` | Single-file or prefix-bulk download. | `source`, `bucket` |
 | `sync` | Mirror a local directory ↔ a B2 prefix. Direction auto-detected. | `source`, `destination`, `bucket` |
@@ -305,7 +306,7 @@ If you don't need customer-managed keys, **`sse: B2`** (SSE-B2, B2-managed) is t
 ## Inputs (full reference)
 
 | Input | Required | Default | Description |
-|---|---|---|---|
+| --- | --- | --- | --- |
 | `action` | yes | | One of 13: `upload`, `download`, `sync`, `copy`, `delete`, `presign`, `list`, `hide`, `unhide`, `verify`, `retention`, `head`, `purge` |
 | `application-key-id` | no\* | | B2 application key ID. Falls back to `$B2_APPLICATION_KEY_ID`. |
 | `application-key` | no\* | | B2 application key. Falls back to `$B2_APPLICATION_KEY`. |
@@ -339,7 +340,7 @@ If you don't need customer-managed keys, **`sse: B2`** (SSE-B2, B2-managed) is t
 ## Outputs (full reference)
 
 | Output | When | Description |
-|---|---|---|
+| --- | --- | --- |
 | `file-id` | upload / copy / hide / retention | B2 file ID. |
 | `file-name` | single-file ops | B2 file name (path). |
 | `content-sha1` | upload (small) / download | SHA-1 hex. |

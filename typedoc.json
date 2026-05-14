@@ -42,7 +42,7 @@
       "B2Client": "https://backblaze-labs.github.io/b2-typescript-sdk/classes/index.B2Client.html",
       "Bucket": "https://backblaze-labs.github.io/b2-typescript-sdk/classes/index.Bucket.html",
       "Bucket.deleteAll": "https://backblaze-labs.github.io/b2-typescript-sdk/classes/index.Bucket.html#deleteAll",
-      "Bucket.unhide": "https://backblaze-labs.github.io/b2-typescript-sdk/classes/index.Bucket.html#unhide",
+      "Bucket.unhideFile": "https://backblaze-labs.github.io/b2-typescript-sdk/classes/index.Bucket.html#unhideFile",
       "synchronize": "https://backblaze-labs.github.io/b2-typescript-sdk/functions/sync.synchronize.html",
       "EncryptionSetting": "https://backblaze-labs.github.io/b2-typescript-sdk/types/index.EncryptionSetting.html"
     }

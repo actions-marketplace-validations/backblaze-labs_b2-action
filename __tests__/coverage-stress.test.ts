@@ -788,9 +788,12 @@ describe('sync: orphan deletion (local-to-b2)', () => {
     await rm(fx.workDir, { recursive: true, force: true })
   })
 
-  it('removes a remote orphan when syncing up with keep-mode=delete', async () => {
-    // Seed a remote-only file, then sync up with `delete` keep-mode.
-    await seedFile(fx, 'site/orphan.txt', 'will be removed by sync')
+  it('emits a single delete-remote per orphan on a vanilla (no-lock) bucket', async () => {
+    // Seed a remote-only file at the bucket root; sync up with `delete`
+    // keep-mode. Because the bucket is vanilla `allPrivate` (no file lock),
+    // the SDK's `removeOrphan` factory routes to `deleteRemote` (not `hide`)
+    // and yields exactly one `delete-remote` event per orphan.
+    await seedFile(fx, 'orphan.txt', 'will be removed by sync')
 
     const localSrc = join(fx.workDir, 'src')
     await mkdir(localSrc, { recursive: true })
@@ -800,17 +803,101 @@ describe('sync: orphan deletion (local-to-b2)', () => {
       fx.bucket,
       makeInputs('sync', fx, {
         source: localSrc,
-        destination: 'site',
         syncDirection: 'up',
         keepMode: 'delete',
       }),
     )
-    // NB: the simulator currently routes orphan removal through `hide` events
-    // rather than `delete-remote` for unversioned files. The combined
-    // `deleted` counter aggregates both. Will revisit when the SDK simulator
-    // is updated.
-    expect(result.deleted).toBeGreaterThanOrEqual(1)
-    expect(result.uploaded).toBeGreaterThanOrEqual(1)
+    expect(result.uploaded).toBe(1)
+    expect(result.deleted).toBe(1)
+    expect(result.errors).toBe(0)
+    const removalEvents = result.events.filter(
+      (e) => e.type === 'delete-remote' || e.type === 'hide',
+    )
+    // P4 contract: exactly one removal event per orphan; on a vanilla bucket
+    // it must be `delete-remote`, not `hide`.
+    expect(removalEvents).toHaveLength(1)
+    expect(removalEvents[0]?.type).toBe('delete-remote')
+  })
+})
+
+// =========================================================================
+// sync: locked-bucket orphan removal yields a `hide` event (not delete).
+// Mirror of the test above but with `fileLockEnabled: true` on the bucket;
+// SDK's `removeOrphan` factory branches to `hide` for locked buckets.
+// =========================================================================
+
+describe('sync: orphan removal on a locked bucket yields hide events', () => {
+  let fx: TestFixture
+  beforeEach(async () => {
+    fx = await makeFixture('gh-action-stress-sync-locked-orphan')
+    // Mutate the cached bucket info directly so the synchronizer's
+    // `removeOrphan` factory reads `isFileLockEnabled: true`. Matches the
+    // pattern in the SDK's own `src/sync/synchronizer.test.ts` because the
+    // simulator's `createBucket({ fileLockEnabled: true })` doesn't yet
+    // propagate the flag into `info.fileLockConfiguration`.
+    const info = fx.bucket.info as {
+      fileLockConfiguration: { value: { isFileLockEnabled: boolean } }
+    }
+    info.fileLockConfiguration.value.isFileLockEnabled = true
+  })
+  afterEach(async () => {
+    await rm(fx.workDir, { recursive: true, force: true })
+  })
+
+  it('emits a hide event when the bucket has file lock enabled', async () => {
+    await seedFile(fx, 'orphan.txt', 'will be hidden, not deleted')
+
+    const localSrc = join(fx.workDir, 'src')
+    await mkdir(localSrc, { recursive: true })
+    await writeFile(join(localSrc, 'kept.txt'), 'present locally')
+
+    const result = await syncCommand(
+      fx.bucket,
+      makeInputs('sync', fx, {
+        source: localSrc,
+        syncDirection: 'up',
+        keepMode: 'delete',
+      }),
+    )
+    expect(result.deleted).toBe(1)
+    const removalEvents = result.events.filter(
+      (e) => e.type === 'delete-remote' || e.type === 'hide',
+    )
+    expect(removalEvents).toHaveLength(1)
+    expect(removalEvents[0]?.type).toBe('hide')
+  })
+})
+
+// =========================================================================
+// sync: error event branch fires when an orphan removal fails mid-sync.
+// =========================================================================
+
+describe('sync: error events surface through the action result', () => {
+  let fx: TestFixture
+  beforeEach(async () => {
+    fx = await makeFixture('gh-action-stress-sync-error')
+  })
+  afterEach(async () => {
+    await rm(fx.workDir, { recursive: true, force: true })
+  })
+
+  it('counts errors instead of crashing the whole sync', async () => {
+    await seedFile(fx, 'orphan.txt', 'will fail to delete')
+    const localSrc = join(fx.workDir, 'src')
+    await mkdir(localSrc, { recursive: true })
+    await writeFile(join(localSrc, 'kept.txt'), 'present')
+
+    fx.sim.injectFailure({ on: 'b2_delete_file_version', status: 500, code: 'internal_error' })
+
+    const result = await syncCommand(
+      fx.bucket,
+      makeInputs('sync', fx, {
+        source: localSrc,
+        syncDirection: 'up',
+        keepMode: 'delete',
+      }),
+    )
+    expect(result.errors).toBeGreaterThanOrEqual(1)
   })
 })
 

@@ -1,10 +1,11 @@
-import { readFile, stat } from 'node:fs/promises'
+import { createReadStream } from 'node:fs'
+import { stat } from 'node:fs/promises'
 import { basename, posix, relative, resolve, sep } from 'node:path'
+import { Readable } from 'node:stream'
 import * as core from '@actions/core'
 import * as glob from '@actions/glob'
 import type { Bucket } from '@backblaze/b2-sdk'
-import { BufferSource } from '@backblaze/b2-sdk/streams'
-import { normalizeSha1 } from '../format.ts'
+import { StreamSource } from '@backblaze/b2-sdk/streams'
 import { type ParsedInputs, requireSource } from '../inputs.ts'
 import { makeProgressListener } from '../progress.ts'
 
@@ -147,15 +148,14 @@ async function uploadOne(
   const fileStat = await stat(localPath)
   const size = fileStat.size
 
-  // Read the file into a BufferSource. The SDK's `bucket.upload` routes
-  // files larger than the recommended part size through `uploadLargeFile`,
-  // which slices the source into parts and uploads them in parallel. Stream
-  // sources cannot be sliced (a stream is read-once-sequential), so the
-  // multipart path requires a randomly-accessible source. BufferSource
-  // satisfies that. The cost is holding the file in runner memory; on
-  // ubuntu-latest (7 GB) that's fine up to multi-GB artifacts, which is
-  // well past the practical size for anything a CI workflow uploads.
-  const source = new BufferSource(await readFile(localPath))
+  // Stream the file from disk. The SDK's `bucket.upload` routes files larger
+  // than the recommended part size through `uploadLargeFile`, which now
+  // detects non-sliceable sources (StreamSource) and reads the stream once,
+  // shipping one part at a time. Peak memory ≈ partSize regardless of file
+  // size, so multi-GB uploads stay bounded.
+  const nodeStream = createReadStream(localPath)
+  const webStream = Readable.toWeb(nodeStream) as ReadableStream<Uint8Array>
+  const source = new StreamSource(webStream, size)
 
   const onProgress = makeProgressListener(`upload[${fileName}]`)
 
@@ -169,7 +169,9 @@ async function uploadOne(
     onProgress,
   })
 
-  const sha1 = normalizeSha1(result.contentSha1)
+  // SDK now normalizes multipart `'none'` to `null` at the boundary, so
+  // `result.contentSha1` is `string | null` directly.
+  const sha1 = result.contentSha1
   core.info(`  fileId=${result.fileId} sha1=${sha1 ?? 'multipart'}`)
 
   return {
