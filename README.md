@@ -72,7 +72,7 @@ For one self-contained example per verb (each is also a live integration test), 
 
 | Verb | What it does | Required inputs |
 | --- | --- | --- |
-| `upload` | Single-file or glob upload, with streaming + multipart-resume. | `source`, `bucket` |
+| `upload` | Single-file or glob upload. Streams the file from disk so multi-GB payloads stay memory-bounded; auto-routes to multipart for large files. | `source`, `bucket` |
 | `download` | Single-file or prefix-bulk download. | `source`, `bucket` |
 | `sync` | Mirror a local directory ↔ a B2 prefix. Direction auto-detected. | `source`, `destination`, `bucket` |
 | `copy` | Server-side copy. Same bucket by default; cross-bucket with `source-bucket`. | `source`, `destination`, `bucket` |
@@ -318,7 +318,7 @@ If you don't need customer-managed keys, **`sse: B2`** (SSE-B2, B2-managed) is t
 | `exclude` | no | `.git/**` | CSV of glob patterns to exclude (upload). |
 | `concurrency` | no | `4` | Parallel parts/files. |
 | `part-size` | no | SDK default | Multipart part size in bytes. |
-| `resume` | no | `true` | Resume an in-progress large-file upload. |
+| `resume` | no | `true` | Reserved. Currently not honored; the action's streaming upload source is non-sliceable, so retries do a full re-upload. Kept in the input surface so it can light up if a `BufferSource` fallback ships. |
 | `content-type` | no | `b2/x-auto` | MIME type for uploads. |
 | `dry-run` | no | `false` | Preview only (sync/delete). |
 | `presign-ttl` | no | `3600` | Presigned URL TTL in seconds. |

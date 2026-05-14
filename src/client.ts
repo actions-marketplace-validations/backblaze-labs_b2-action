@@ -37,7 +37,11 @@ export interface BuildClientOptions {
  *   1. Construct the client with `userAgent: 'b2-github-action/<version>'`. The
  *      SDK preserves its own `b2-sdk-ts/` and `@backblaze/b2-sdk` tokens before
  *      ours so Backblaze server-side logs see both attribution layers.
- *   2. `await client.authorize()`.
+ *   2. `await client.authorize()`. This is one-shot for the lifetime of the
+ *      action invocation. B2 auth tokens carry a 24h TTL; typical GitHub
+ *      Actions runs finish well inside that window. If a long-running job
+ *      outlives the token, the SDK transparently re-authorizes on the next
+ *      401, so the action layer does not need its own refresh loop.
  *   3. Mask the resulting authorization token via `core.setSecret` so any later
  *      log line that happens to include it (errors, debug traces) is redacted.
  *
@@ -83,6 +87,12 @@ export async function getBucket(authorized: AuthorizedClient) {
  * its exact name. Throws if no upload version exists (hidden / deleted /
  * never existed). Used by `copy`, `delete`, and `retention` to resolve a
  * file name to a `fileId` before operating on it.
+ *
+ * Consistency assumption: B2's `listFileNames` is read-after-write consistent
+ * for a recently-uploaded file in the same region. The simulator returns
+ * uploads immediately; production B2 in practice does the same, but a caller
+ * that chains "upload then operate on the same name" across two action steps
+ * is relying on observed behavior rather than a documented SLA.
  *
  * @param bucket - The bucket to search.
  * @param fileName - Exact file name (path) to look up.

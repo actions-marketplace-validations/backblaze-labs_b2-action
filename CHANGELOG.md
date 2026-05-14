@@ -35,8 +35,8 @@ Nothing has been released yet. The first tagged release will be `0.1.0`; everyth
 
 ### Added: quality gates
 
-- Vitest suite (104 tests across 13 files) running against the SDK's in-memory `B2Simulator`. No real network.
-- Coverage gate (`pnpm test:coverage`): 95 % statements / 85 % branches / 100 % functions / 95 % lines. Current run: **97.15 % / 87.58 % / 100 % / 97.15 %**.
+- Vitest suite (153 tests across 13 files) running against the SDK's in-memory `B2Simulator`. No real network.
+- Coverage gate (`pnpm test:coverage`): 95 % statements / 85 % branches / 100 % functions / 95 % lines. Current run: **100 % / 100 % / 100 % / 100 %**.
 - CI workflow with six jobs: `test` (Ubuntu / macOS / Windows matrix), `lint` (Biome `--error-on-warnings`), `coverage`, `build-and-check-dist` (with a 4 MiB bundle-size budget), `actionlint`, and `self-smoke` (offline bundle invocation).
 - Tag-driven release workflow (`.github/workflows/release.yml`) that runs the full gate, cuts a GitHub Release, and moves the floating major tag (`v0`, `v1`, …) to track the latest minor/patch.
 - Dependabot config for weekly npm + github-actions updates.

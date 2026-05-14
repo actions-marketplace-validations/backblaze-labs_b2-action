@@ -42,7 +42,7 @@ inputs:
     description: 'Multipart part size in bytes. Defaults to the SDK-recommended size.'
     required: false
   resume:
-    description: 'Resume an in-progress large-file upload (default true).'
+    description: 'Reserved. Accepted for forward compatibility but currently not honored: the action uploads through a streaming source that the SDK cannot slice for resume. Set, but expect a full re-upload on retry.'
     required: false
     default: 'true'
   content-type:
