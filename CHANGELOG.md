@@ -6,6 +6,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+## [1.0.1] - 2026-05-29
+
 ## [1.0.0] - 2026-05-28
 
 Initial release. Built on [`@backblaze-labs/b2-sdk`](https://github.com/backblaze-labs/b2-sdk-typescript) `^0.1.0`.
@@ -72,5 +74,6 @@ Initial release. Built on [`@backblaze-labs/b2-sdk`](https://github.com/backblaz
 
 `file-id`, `file-name`, `content-sha1`, `bytes-transferred`, `files-uploaded`, `files-downloaded`, `files-deleted`, `files-listed`, `presigned-url`, `verified`, `remote-sha1`, `local-sha1`, `summary-json`.
 
-[Unreleased]: https://github.com/backblaze-labs/b2-action/compare/v1.0.0...HEAD
+[Unreleased]: https://github.com/backblaze-labs/b2-action/compare/v1.0.1...HEAD
+[1.0.1]: https://github.com/backblaze-labs/b2-action/compare/v1.0.0...v1.0.1
 [1.0.0]: https://github.com/backblaze-labs/b2-action/releases/tag/v1.0.0
