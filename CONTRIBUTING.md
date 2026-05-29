@@ -13,7 +13,7 @@ Requirements: Node 24+, pnpm 10+. The action runs on Node 24 in the GitHub Actio
 
 `pnpm install` also wires up git hooks (via [husky](https://github.com/typicode/husky)):
 
-- **`pre-commit`** runs `lint + typecheck + test + build + dist/ freshness + actionlint + spellcheck`. Every check, every commit, no path-gating: earlier path-gating let a workflow tweak slip past actionlint. ≈ 5 s on a clean repo.
+- **`pre-commit`** runs `lint + typecheck + test + build + dist/ freshness + actionlint + lint:actions + spellcheck`. Every check, every commit, no path-gating: earlier path-gating let a workflow tweak slip past actionlint. ≈ 5 s on a clean repo.
 - **`pre-push`** runs `pnpm test:coverage`, which subsumes the plain `test` already done in `pre-commit`.
 
 Skip a hook with `--no-verify` if you absolutely need to. CI runs the same checks regardless. In the release workflow husky is disabled via `HUSKY=0` so the in-CI `git push` of the floating major tag doesn't re-trigger the local hooks.
