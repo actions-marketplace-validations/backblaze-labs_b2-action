@@ -84,6 +84,30 @@ The `build-and-check-dist` CI job also enforces a 4 MiB ceiling on `dist/index.j
 
 Releases are driven by `pnpm version` plus a `vX.Y.Z` tag push (see [`.github/workflows/release.yml`](./.github/workflows/release.yml)).
 
+### One-time setup
+
+**Signed tags.** Tags should be signed so they show as "Verified" on GitHub. This repo already signs commits with SSH; enable tag signing too (it reuses your existing key):
+
+```bash
+git config --global tag.gpgSign true   # signs annotated tags, including the one pnpm version creates
+```
+
+Make sure that SSH key is registered on GitHub as a **signing key** (Settings → SSH and GPG keys → New SSH key → Key type: *Signing Key*); if your commits already show "Verified", it is. Only the immutable `vX.Y.Z` tags are signed. The floating `vN` alias is moved server-side (below) and is **not** signed, so anyone who needs verification should pin an exact `vX.Y.Z`.
+
+**`FLOATING_TAG_TOKEN` secret.** Moving the floating major tag (`v1` → latest `1.x`) from CI needs a token with the `workflows` permission: the default `GITHUB_TOKEN` is refused when a ref's commit contains workflow files (rejected by both `git push` and the refs API). Create one and store it as a repo secret:
+
+- **Fine-grained PAT** (recommended): repo `backblaze-labs/b2-action`, permissions **Contents: Read and write** + **Workflows: Read and write** (an org may require admin approval); or
+- a **classic PAT** with the `repo` + `workflow` scopes; or
+- a **GitHub App** token via `actions/create-github-app-token` (no long-lived secret).
+
+```bash
+gh secret set FLOATING_TAG_TOKEN --repo backblaze-labs/b2-action   # paste the token
+```
+
+If the secret is absent the release still succeeds: the float step warns instead of failing, and you move the tag by hand with `git tag -f vN vX.Y.Z && git push origin vN --force`.
+
+### Cutting a release
+
 As you land PRs, add notes under the `## [Unreleased]` heading in [`CHANGELOG.md`](./CHANGELOG.md), grouped as `### Added` / `### Changed` / `### Fixed` / `### Removed` (Keep a Changelog style).
 
 To cut a release from a clean, up-to-date `main`:

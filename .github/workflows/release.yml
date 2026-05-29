@@ -112,21 +112,29 @@ jobs:
       - name: Move major-version floating tag (e.g. v1)
         if: steps.prerelease.outputs.is_prerelease == 'false'
         env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          # The default GITHUB_TOKEN CANNOT create/move a tag whose commit
+          # contains workflow files (`.github/workflows/`) -- rejected by both
+          # `git push` and the refs API (403), and the `workflows` permission
+          # can't be granted to it. So use a token that has it: create a
+          # fine-grained PAT on this repo with Contents + Workflows: Read and
+          # write (or a classic PAT with `repo` + `workflow`) and add it as the
+          # FLOATING_TAG_TOKEN secret. If the secret is absent the float is
+          # skipped with a warning instead of failing the release.
+          GH_TOKEN: ${{ secrets.FLOATING_TAG_TOKEN }}
         run: |
           MAJOR=$(echo "$REF" | sed -nE 's/^(v[0-9]+).*/\1/p')
           if [ -z "$MAJOR" ]; then
             echo "::warning::Could not derive major-version tag from '$REF'; skipping float."
             exit 0
           fi
+          if [ -z "${GH_TOKEN:-}" ]; then
+            echo "::warning::FLOATING_TAG_TOKEN secret not set; skipping float of $MAJOR. Move it by hand: git tag -f $MAJOR $REF && git push origin $MAJOR --force"
+            exit 0
+          fi
           SHA=$(git rev-parse "${REF}^{commit}")
           echo "Pointing floating tag $MAJOR at $REF ($SHA)"
-          # Move the tag via the REST API, not `git push`: the default
-          # GITHUB_TOKEN is refused when a pushed ref's commit contains workflow
-          # files (the `workflows` permission cannot be granted to it). Repointing
-          # a ref to an already-pushed commit sends no file content, so the API
-          # path is allowed. Update the tag if it exists, otherwise create it.
-          if gh api "repos/$GITHUB_REPOSITORY/git/refs/tags/$MAJOR" >/dev/null 2>&1; then
+          # Update the tag if it already exists, otherwise create it.
+          if git ls-remote --exit-code --tags origin "refs/tags/$MAJOR" >/dev/null 2>&1; then
             gh api --method PATCH "repos/$GITHUB_REPOSITORY/git/refs/tags/$MAJOR" \
               -f sha="$SHA" -F force=true
           else
