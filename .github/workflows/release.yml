@@ -111,12 +111,25 @@ jobs:
 
       - name: Move major-version floating tag (e.g. v1)
         if: steps.prerelease.outputs.is_prerelease == 'false'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           MAJOR=$(echo "$REF" | sed -nE 's/^(v[0-9]+).*/\1/p')
           if [ -z "$MAJOR" ]; then
             echo "::warning::Could not derive major-version tag from '$REF'; skipping float."
             exit 0
           fi
-          echo "Moving floating tag $MAJOR → $REF"
-          git tag -f "$MAJOR" "$REF"
-          git push origin "$MAJOR" --force
+          SHA=$(git rev-parse "${REF}^{commit}")
+          echo "Pointing floating tag $MAJOR at $REF ($SHA)"
+          # Move the tag via the REST API, not `git push`: the default
+          # GITHUB_TOKEN is refused when a pushed ref's commit contains workflow
+          # files (the `workflows` permission cannot be granted to it). Repointing
+          # a ref to an already-pushed commit sends no file content, so the API
+          # path is allowed. Update the tag if it exists, otherwise create it.
+          if gh api "repos/$GITHUB_REPOSITORY/git/refs/tags/$MAJOR" >/dev/null 2>&1; then
+            gh api --method PATCH "repos/$GITHUB_REPOSITORY/git/refs/tags/$MAJOR" \
+              -f sha="$SHA" -F force=true
+          else
+            gh api --method POST "repos/$GITHUB_REPOSITORY/git/refs" \
+              -f ref="refs/tags/$MAJOR" -f sha="$SHA"
+          fi
