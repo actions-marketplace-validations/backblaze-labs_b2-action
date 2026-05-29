@@ -105,6 +105,10 @@ precommit
 prepush
 preversion
 
+# Shell / git tag signing
+pipefail
+gpgsign
+
 # Codex / macOS dev env
 darwin
 codex

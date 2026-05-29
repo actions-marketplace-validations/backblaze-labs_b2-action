@@ -31,7 +31,7 @@ GitHub's workflow runner automatically masks these in the live log. However, **i
 
 ## Scope
 
-This policy covers the source under [`src/`](./src), the bundled [`dist/index.js`](./dist), and the workflows under [`.github/workflows/`](./.github/workflows). Vulnerabilities in [`@backblaze/b2-sdk`](https://github.com/backblaze/b2-sdk-typescript) should be reported through that repository's security policy. Vulnerabilities in the B2 service itself should go to [security@backblaze.com](mailto:security@backblaze.com) directly.
+This policy covers the source under [`src/`](./src), the bundled [`dist/index.js`](./dist), and the workflows under [`.github/workflows/`](./.github/workflows). Vulnerabilities in [`@backblaze-labs/b2-sdk`](https://github.com/backblaze-labs/b2-sdk-typescript) should be reported through that repository's security policy. Vulnerabilities in the B2 service itself should go to [security@backblaze.com](mailto:security@backblaze.com) directly.
 
 ## Out of scope
 

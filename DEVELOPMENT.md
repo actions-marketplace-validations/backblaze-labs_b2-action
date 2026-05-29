@@ -1,6 +1,6 @@
 # Development
 
-This document covers the internal architecture and local development workflow for the Action. If you're just using the action in your own workflows, the [README](./README.md) has everything you need. If you want to contribute, read this first, then jump to [CONTRIBUTING.md](./CONTRIBUTING.md) for the PR / release process.
+This document covers the internal architecture and local development workflow for the Action. If you're just using the action in your own workflows, the [README](./README.md) has everything you need. If you want to contribute, read this first, then jump to [CONTRIBUTING.md](./CONTRIBUTING.md) for the PR process and [RELEASE.md](./RELEASE.md) for the release process.
 
 ## How it works
 
@@ -53,9 +53,9 @@ __tests__/
   *.test.ts        # unit tests against the SDK's in-memory B2Simulator
 .github/workflows/
   ci.yml                # lint, typecheck, test, coverage, build, dist freshness, actionlint, smoke
-  release.yml           # tag-driven: gate + GitHub Release + floating major-tag move
+  release.yml           # see RELEASE.md
   daily-smoke.yml       # 03:13 UTC: real-B2 end-to-end against the test bucket
-  example-*.yml         # 10 copy-paste workflows that double as integration tests
+  example-*.yml         # 12 copy-paste workflows that double as integration tests
 action.yml         # Marketplace manifest (inputs, outputs, branding)
 dist/index.js      # ncc-bundled entrypoint (committed; CI fails if stale)
 ```
@@ -193,7 +193,7 @@ The pattern is the same every time:
 7. **README + CHANGELOG**: add a row to the verb table, a usage snippet, and an `[Unreleased]` CHANGELOG entry.
 8. **Rebuild** `dist/index.js` with `pnpm build` and commit it.
 
-The deeper "how to contribute" workflow (PR process, release flow, release tags) lives in [CONTRIBUTING.md](./CONTRIBUTING.md).
+The deeper "how to contribute" workflow lives in [CONTRIBUTING.md](./CONTRIBUTING.md); the release runbook is in [RELEASE.md](./RELEASE.md).
 
 ## Why ncc, not Vite
 
@@ -205,7 +205,7 @@ GitHub Actions runs the action's `main:` entrypoint directly from the repo: ther
 
 ## Bundle-size budget
 
-`dist/index.js` is gated at **4 MiB** in CI. The SDK has zero runtime deps, so the current bundle sits comfortably at ~2.3 MiB; the budget exists to force a deliberate decision (in the PR) before any dependency that would push it over.
+`dist/index.js` is gated at **4 MiB** in CI. The SDK has zero runtime deps, so the current bundle sits comfortably under 1.5 MiB; the budget exists to force a deliberate decision (in the PR) before any dependency that would push it over.
 
 ## User-Agent contract
 

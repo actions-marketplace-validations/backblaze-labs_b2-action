@@ -23,6 +23,8 @@ Every `example-*.yml` is two things at once: a copy-paste-runnable snippet you c
 | [example-cross-bucket-replicate.yml](./example-cross-bucket-replicate.yml) | Server-side copy between two buckets | `copy` |
 | [example-hide-unhide.yml](./example-hide-unhide.yml) | Soft-delete a file with restore capability | `hide`, `unhide` |
 | [example-sse-encryption.yml](./example-sse-encryption.yml) | Round-trip with SSE-B2 and SSE-C | `upload`, `download`, `sse` |
+| [example-head.yml](./example-head.yml) | Probe remote object metadata (size, sha1, contentType, fileInfo) without a body transfer | `head` |
+| [example-purge.yml](./example-purge.yml) | Permanent wipe of every file version under a prefix, including hide markers and history | `purge` |
 
 All are gated on `github.event.pull_request.head.repo.fork == false` so forks (which can't access repo secrets) skip silently. Maintainers can also dispatch each one manually from the Actions UI via `workflow_dispatch`.
 

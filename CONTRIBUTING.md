@@ -13,10 +13,10 @@ Requirements: Node 24+, pnpm 10+. The action runs on Node 24 in the GitHub Actio
 
 `pnpm install` also wires up git hooks (via [husky](https://github.com/typicode/husky)):
 
-- **`pre-commit`** runs lint + typecheck. If your staged changes touch `src/` (or `package.json`, `tsconfig.json`, `pnpm-lock.yaml`), it also rebuilds `dist/` and refuses the commit if `dist/` would change without being staged: the same gate `build-and-check-dist` enforces in CI. If staged changes touch `.github/workflows/` or `.github/actions/`, `actionlint` runs against the whole workflows tree. Total time ≈ 3 s on a clean repo.
-- **`pre-push`** runs the full vitest suite plus `--coverage`. Catches anything `pre-commit` skipped for speed.
+- **`pre-commit`** runs `lint + typecheck + test + build + dist/ freshness + actionlint + spellcheck`. Every check, every commit, no path-gating: earlier path-gating let a workflow tweak slip past actionlint. ≈ 5 s on a clean repo.
+- **`pre-push`** runs `pnpm test:coverage`, which subsumes the plain `test` already done in `pre-commit`.
 
-Skip a hook with `--no-verify` if you absolutely need to. CI runs the same checks regardless.
+Skip a hook with `--no-verify` if you absolutely need to. CI runs the same checks regardless. In the release workflow husky is disabled via `HUSKY=0` so the in-CI `git push` of the floating major tag doesn't re-trigger the local hooks.
 
 `actionlint` is downloaded once into `node_modules/.cache/actionlint/` on first invocation; later runs use the cached binary. Override the version via `ACTIONLINT_VERSION=1.7.x pnpm actionlint`.
 
@@ -37,7 +37,7 @@ __tests__/
 .github/workflows/
   ci.yml                       # lint, typecheck, test, coverage, build, dist-freshness, actionlint, smoke
   example-*.yml                # runnable examples that double as integration tests
-  release.yml                  # tag-driven release flow
+  release.yml                  # see RELEASE.md
 action.yml         # marketplace manifest: inputs, outputs, branding
 dist/index.js      # ncc-bundled entrypoint (committed; CI fails if stale)
 ```
@@ -79,49 +79,6 @@ The pattern is the same every time:
 `dist/index.js` is committed because GitHub Actions runs it directly from the repo (no install step). After any change under `src/`, run `pnpm build` and commit the updated `dist/`. CI fails on any PR where `pnpm build` would produce a diff.
 
 The `build-and-check-dist` CI job also enforces a 4 MiB ceiling on `dist/index.js`. If you add a dependency that pushes it over, you'll need to justify the bump in the same PR.
-
-## Release process
-
-Releases are driven by `pnpm version` plus a `vX.Y.Z` tag push (see [`.github/workflows/release.yml`](./.github/workflows/release.yml)).
-
-### One-time setup
-
-**Signed tags.** Tags should be signed so they show as "Verified" on GitHub. This repo already signs commits with SSH; enable tag signing too (it reuses your existing key):
-
-```bash
-git config --global tag.gpgSign true   # signs annotated tags, including the one pnpm version creates
-```
-
-Make sure that SSH key is registered on GitHub as a **signing key** (Settings → SSH and GPG keys → New SSH key → Key type: *Signing Key*); if your commits already show "Verified", it is. Only the immutable `vX.Y.Z` tags are signed. The floating `vN` alias is moved server-side (below) and is **not** signed, so anyone who needs verification should pin an exact `vX.Y.Z`.
-
-**`FLOATING_TAG_TOKEN` secret.** Moving the floating major tag (`v1` → latest `1.x`) from CI needs a token with the `workflows` permission: the default `GITHUB_TOKEN` is refused when a ref's commit contains workflow files (rejected by both `git push` and the refs API). Create one and store it as a repo secret:
-
-- **Fine-grained PAT** (recommended): repo `backblaze-labs/b2-action`, permissions **Contents: Read and write** + **Workflows: Read and write** (an org may require admin approval); or
-- a **classic PAT** with the `repo` + `workflow` scopes; or
-- a **GitHub App** token via `actions/create-github-app-token` (no long-lived secret).
-
-```bash
-gh secret set FLOATING_TAG_TOKEN --repo backblaze-labs/b2-action   # paste the token
-```
-
-If the secret is absent the release still succeeds: the float step warns instead of failing, and you move the tag by hand with `git tag -f vN vX.Y.Z && git push origin vN --force`.
-
-### Cutting a release
-
-As you land PRs, add notes under the `## [Unreleased]` heading in [`CHANGELOG.md`](./CHANGELOG.md), grouped as `### Added` / `### Changed` / `### Fixed` / `### Removed` (Keep a Changelog style).
-
-To cut a release from a clean, up-to-date `main`:
-
-1. `pnpm version <patch|minor|major>` (or an explicit `pnpm version X.Y.Z`). This:
-   - runs `preversion` (lint + typecheck + test) as a gate,
-   - bumps `package.json` `version`,
-   - runs the `version` script, which dates the `[Unreleased]` changelog section ([`scripts/cut-changelog.mjs`](./scripts/cut-changelog.mjs)), rebuilds `dist/` so the User-Agent and bundle carry the new version, and stages `CHANGELOG.md` + `dist/`,
-   - commits all of the above and creates the annotated `vX.Y.Z` tag.
-2. `git push --follow-tags` pushes the commit and the new tag. (`--follow-tags` pushes only the annotated version tag, never the lightweight floating `v1`.)
-3. The tag push fires `release.yml`: the full gate (including a `dist/`-freshness and version check), then it creates the GitHub Release and creates/moves the floating major tag (`v1`, `v2`, etc.) so users pinning `uses: backblaze-labs/b2-action@v1` track the latest minor/patch. Only three-component `vX.Y.Z` tags trigger it.
-4. **First release only:** publish the Action to the GitHub Marketplace by hand. Edit the GitHub Release, tick **Publish this Action to the GitHub Marketplace**, and accept the Marketplace Developer Agreement (`action.yml` already carries the required `name`, `description`, and `branding`). There is no API for this one-time step; every tagged release afterward appears on the Marketplace automatically through the Release the workflow creates.
-
-> The initial `1.0.0` is already set in `package.json`, so `pnpm version` can't produce it. For the first release, tag it directly: `git tag -a v1.0.0 -m v1.0.0 && git push --follow-tags`. Use `pnpm version` from `1.0.1` onward.
 
 ## Reporting bugs
 
