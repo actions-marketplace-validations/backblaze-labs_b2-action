@@ -9,8 +9,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 ### Security
 
 - Pin every third-party GitHub Action in `.github/workflows/` to a full commit SHA (with an exact `# vX.Y.Z` comment), so a moved or compromised upstream tag cannot alter our CI or the `contents: write` release job. Dependabot keeps the pins current. ([#18](https://github.com/backblaze-labs/b2-action/issues/18))
-- Add `scripts/check-action-pins.mjs` (`pnpm lint:actions`), wired into the pre-commit hook and the CI `actionlint` job, which fails the build if any third-party action regresses to a mutable tag, drops its full-SHA pin, or loses its exact `# vX.Y.Z` version comment. ([#18](https://github.com/backblaze-labs/b2-action/issues/18))
-- Harden the actionlint install: `scripts/actionlint.sh` now downloads the version-pinned release asset directly and verifies it against a hard-coded SHA-256 before use, instead of executing a `curl | bash` bootstrap downloader. CI runs that same script, so no unverified binary or mutable upstream script runs in the pipeline. ([#18](https://github.com/backblaze-labs/b2-action/issues/18))
+- Add `scripts/check-action-pins.mjs` (`pnpm lint:actions`), wired into the pre-commit hook and the CI `actionlint` job, which fails the build if any action reference (including a remote reference to this repo's own action, which must use `uses: ./`) regresses to a mutable tag, drops its full-SHA pin, or loses its exact `# vX.Y.Z` version comment. ([#18](https://github.com/backblaze-labs/b2-action/issues/18))
+- Harden the actionlint install: `scripts/actionlint.sh` downloads a version-pinned release asset and verifies the extracted binary against a hard-coded SHA-256 before every run (a stale or planted cache is rejected, not trusted by its self-reported version), instead of executing a `curl | bash` bootstrap. A system-installed actionlint is used only when `ACTIONLINT_USE_SYSTEM=1` is set explicitly. CI runs this same script, so no unverified binary or mutable upstream script runs in the pipeline. ([#18](https://github.com/backblaze-labs/b2-action/issues/18))
 
 ### Documentation
 

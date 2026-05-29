@@ -28,7 +28,6 @@ import { fileURLToPath } from 'node:url'
 const HERE = dirname(fileURLToPath(import.meta.url))
 const REPO = join(HERE, '..')
 
-const OWN_ACTION = 'backblaze-labs/b2-action'
 const FULL_SHA = /^[0-9a-f]{40}$/
 const EXACT_VERSION = /\bv\d+\.\d+\.\d+\b/
 const SCAN_DIRS = ['.github/workflows', '.github/actions']
@@ -68,10 +67,11 @@ for (const rel of SCAN_DIRS) {
         if (ref === null) return
         if (ref.startsWith('./') || ref.startsWith('../') || ref.startsWith('docker://')) return
         if (!ref.includes('@')) return
-        const name = ref.slice(0, ref.lastIndexOf('@'))
         const pin = ref.slice(ref.lastIndexOf('@') + 1)
-        if (name === OWN_ACTION) return
 
+        // No exemption for this repo's own action: in workflows it must be
+        // referenced locally as `uses: ./` (caught by the `./` skip above), so
+        // any remote `backblaze-labs/b2-action@<ref>` is held to the same rule.
         const where = `${relative(REPO, file)}:${i + 1}`
         if (!FULL_SHA.test(pin)) {
           violations.push({ where, ref, reason: `ref "${pin}" is not a full 40-char commit SHA` })

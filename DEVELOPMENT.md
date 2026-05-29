@@ -94,7 +94,7 @@ Requirements: Node 24+, pnpm 10+. The Action runs on Node 24 in the GitHub Actio
 
 Pre-commit runs everything because earlier path-gating turned out to be a foot-gun (a workflow tweak alongside a `src/` change could slip past actionlint). On a clean repo this takes ~5 s. Skip either hook with `--no-verify` if you need to; the same checks run in CI.
 
-`actionlint` is fetched into `node_modules/.cache/actionlint/` on first use and cached after. Override the version with `ACTIONLINT_VERSION=1.7.x pnpm actionlint`.
+`actionlint` is version-pinned in [`scripts/actionlint.sh`](./scripts/actionlint.sh), fetched into `node_modules/.cache/actionlint/`, and SHA-256-verified before every run (the binary checksum is hard-coded per platform; a stale or planted cache is rejected). To bump it, change `ACTIONLINT_VERSION` and regenerate the per-platform checksums (the script header documents the command). Set `ACTIONLINT_USE_SYSTEM=1` to opt into a system-installed binary instead.
 
 ## Conventions
 
