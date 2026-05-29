@@ -6,6 +6,14 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+### Security
+
+- Pin every third-party GitHub Action in `.github/workflows/` to a full commit SHA (with a `# vN` comment), so a moved or compromised upstream tag cannot alter our CI or the `contents: write` release job. Dependabot keeps the pins current. ([#18](https://github.com/backblaze-labs/b2-action/issues/18))
+
+### Documentation
+
+- README: added a "Pinning and versioning" section recommending consumers pin `backblaze-labs/b2-action` to a commit SHA (or a signed `@vX.Y.Z` tag) rather than the mutable `@v1` floating tag, mirroring the supply-chain practice the Action applies to its own workflows.
+
 ## [1.0.1] - 2026-05-29
 
 Release-pipeline, Marketplace metadata, and dependency hygiene. No runtime behavior changes; consumers pinning `uses: backblaze-labs/b2-action@v1` get this automatically.

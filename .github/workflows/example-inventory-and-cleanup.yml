@@ -20,7 +20,7 @@ jobs:
     env:
       PREFIX: examples/inventory/${{ github.run_id }}/
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
 
       - name: Seed the prefix with a few files
         run: |

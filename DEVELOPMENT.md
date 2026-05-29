@@ -125,6 +125,10 @@ Every PR runs:
 
 Plus, the [example workflows](./.github/workflows/README.md) are the integration test suite: they run against a real B2 test bucket on every PR (skipping forks because secrets aren't available there). The bucket itself is set up as described in the next section.
 
+### Pinning third-party actions
+
+Every third-party action under `.github/workflows/` is pinned to a full commit SHA with a trailing `# vN` comment (for example `uses: actions/checkout@<sha> # v6`), so a moved or compromised upstream tag cannot run in our CI or the `contents: write` release job. Dependabot's `github-actions` updates bump the SHA and the comment together. When you add a workflow step, pin it the same way: resolve the tag with `gh api repos/<owner>/<repo>/commits/<tag> -q .sha` and keep the `# vN` comment. The repo's own action is referenced as `uses: ./` and is not pinned.
+
 ## Test bucket setup
 
 The example workflows + `daily-smoke.yml` all hit a real B2 bucket. The upstream project uses:
