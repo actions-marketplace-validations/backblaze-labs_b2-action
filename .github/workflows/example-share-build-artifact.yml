@@ -20,7 +20,7 @@ jobs:
     env:
       ARTIFACT_KEY: pr-builds/${{ github.run_id }}/build.tar.gz
     steps:
-      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
 
       - name: Build a synthetic artifact
         run: |
@@ -52,7 +52,7 @@ jobs:
 
       - name: Comment URL on PR
         if: github.event_name == 'pull_request'
-        uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v9
+        uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v9.0.0
         env:
           ARTIFACT_URL: ${{ steps.link.outputs.presigned-url }}
         with:

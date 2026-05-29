@@ -6,9 +6,10 @@
 #   pnpm actionlint
 #   bash scripts/actionlint.sh
 #
-# CI uses the same `download-actionlint.bash` upstream script to avoid the
-# `npm install` issue that the JS-wrapper actionlint Actions trip on (our
-# `link:` SDK dep breaks npm).
+# CI runs this same script (see .github/workflows/ci.yml), so the pinned
+# downloader commit and the actionlint version live in one place. We fetch the
+# binary rather than use a JS-wrapper Action to keep the actionlint job
+# dependency-free.
 
 set -euo pipefail
 
@@ -26,7 +27,12 @@ if [ -z "$BIN" ]; then
   if [ ! -x "$BIN" ] || [ "$("$BIN" -version 2>/dev/null | head -n1 || true)" != "$ACTIONLINT_VERSION" ]; then
     echo "→ downloading actionlint v${ACTIONLINT_VERSION} to ${CACHE_DIR}"
     cd "$CACHE_DIR"
-    bash <(curl -fsSL https://raw.githubusercontent.com/rhysd/actionlint/main/scripts/download-actionlint.bash) \
+    # Bootstrap downloader pinned to the commit behind the actionlint v1.7.12
+    # tag (not `main`) so CI never executes code from a mutable upstream ref.
+    # The downloader verifies the release asset's SHA-256 before extracting.
+    # Bump this SHA together with ACTIONLINT_VERSION above.
+    DL_SHA="914e7df21a07ef503a81201c76d2b11c789d3fca" # actionlint v1.7.12
+    bash <(curl -fsSL "https://raw.githubusercontent.com/rhysd/actionlint/${DL_SHA}/scripts/download-actionlint.bash") \
       "$ACTIONLINT_VERSION" >/dev/null
     cd - >/dev/null
   fi

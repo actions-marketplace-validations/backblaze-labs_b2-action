@@ -69,7 +69,7 @@ For one self-contained example per verb (each is also a live integration test), 
 This Action follows [semantic versioning](https://semver.org) and maintains a floating major tag. Pick the ref style that matches your risk tolerance:
 
 - **`@v1`** tracks the latest `1.x` release. It is convenient and picks up patches automatically, but it is a **mutable** tag: it is moved to each new release, so the code that runs can change without any change to your workflow.
-- **`@v1.0.1`** is an immutable release tag. Our release tags are SSH-signed, so they show as **Verified** on GitHub.
+- **`@v1.0.1`** is a pinned, SSH-signed release tag, so it shows as **Verified** on GitHub and is easy to audit. Note that a Git tag is still a movable ref, so treat this as a stable, verifiable pointer rather than an immutability guarantee.
 - **`@<full-commit-sha>`** is fully immutable and is what we recommend for anything beyond experimentation. It guarantees the exact code that runs cannot change underneath you, even if a tag is moved. [Dependabot](https://docs.github.com/en/code-security/dependabot) keeps SHA pins current and rewrites the trailing version comment for you.
 
 ```yaml
