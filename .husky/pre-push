@@ -5,7 +5,9 @@
 #
 # Skip with `git push --no-verify` if you really need to.
 
-set -euo pipefail
+# No pipes below, so `pipefail` is unneeded; omit it because husky sources this
+# hook with `sh` (dash), where `set -o pipefail` is an illegal option.
+set -eu
 
 echo "▸ vitest --coverage"
 pnpm --silent test:coverage

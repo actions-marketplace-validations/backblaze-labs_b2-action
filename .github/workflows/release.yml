@@ -35,6 +35,10 @@ jobs:
     runs-on: ubuntu-latest
     env:
       REF: ${{ github.event_name == 'workflow_dispatch' && inputs.tag || github.ref_name }}
+      # Don't install/run git hooks in CI: the floating-tag `git push` below must
+      # not trigger the local pre-push coverage hook (which also breaks under the
+      # runner's dash shell). Husky honors HUSKY=0 by skipping installation.
+      HUSKY: '0'
     steps:
       - uses: actions/checkout@v6
         with:
