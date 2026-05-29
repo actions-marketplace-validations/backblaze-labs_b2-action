@@ -4,9 +4,9 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased]
+## [0.1.0] - 2026-05-28
 
-Nothing has been released yet. The first tagged release will be `0.1.0`; everything below is the planned content of that release.
+Initial release. Built on [`@backblaze-labs/b2-sdk`](https://github.com/backblaze-labs/b2-sdk-typescript) `^0.1.0`.
 
 ### Added: thirteen verbs
 

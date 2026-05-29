@@ -2,7 +2,7 @@
   "name": "b2",
   "version": "0.1.0",
   "private": true,
-  "description": "Upload, download, sync, copy, and manage Backblaze B2 Cloud Storage from GitHub Actions. Built on @backblaze/b2-sdk.",
+  "description": "Upload, download, sync, copy, and manage Backblaze B2 Cloud Storage from GitHub Actions. Built on @backblaze-labs/b2-sdk.",
   "type": "module",
   "engines": {
     "node": ">=24"
@@ -29,7 +29,7 @@
   "dependencies": {
     "@actions/core": "^3.0.1",
     "@actions/glob": "^0.7.0",
-    "@backblaze/b2-sdk": "link:../b2-typescript-sdk"
+    "@backblaze-labs/b2-sdk": "^0.1.0"
   },
   "devDependencies": {
     "@biomejs/biome": "^2.4.15",

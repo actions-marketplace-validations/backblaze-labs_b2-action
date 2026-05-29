@@ -1,6 +1,6 @@
 import { mkdir, rm, writeFile } from 'node:fs/promises'
 import { join } from 'node:path'
-import type { SyncEvent } from '@backblaze/b2-sdk/sync'
+import type { SyncEvent } from '@backblaze-labs/b2-sdk/sync'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import { summarizeSyncErrors, syncCommand } from '../../src/commands/sync.ts'
 import type { ParsedInputs } from '../../src/inputs.ts'

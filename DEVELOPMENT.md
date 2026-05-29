@@ -24,7 +24,7 @@ flowchart LR
     D --> Hd["head"]
     D --> Pg["purge"]
 
-    U & Dn & S & Cp & Dl & P & L & H & V & R & Hd & Pg --> SDK["@backblaze/b2-sdk"]
+    U & Dn & S & Cp & Dl & P & L & H & V & R & Hd & Pg --> SDK["@backblaze-labs/b2-sdk"]
     SDK --> B2[("Backblaze B2")]
 
     U & Dn & S & Cp & Dl & P & L & H & V & R & Hd & Pg --> O["outputs +<br/>$GITHUB_STEP_SUMMARY"]
@@ -34,7 +34,7 @@ flowchart LR
     style B2 fill:#EE3232,stroke:#fff,color:#fff
 ```
 
-The action is a thin dispatcher. Every verb lands in [`@backblaze/b2-sdk`](https://github.com/backblaze/b2-sdk-typescript); we add input parsing, credential masking (`::add-mask::`), throttled progress logging, and step-summary rendering on top.
+The action is a thin dispatcher. Every verb lands in [`@backblaze-labs/b2-sdk`](https://github.com/backblaze-labs/b2-sdk-typescript); we add input parsing, credential masking (`::add-mask::`), throttled progress logging, and step-summary rendering on top.
 
 ## Source layout
 
@@ -97,7 +97,7 @@ Pre-commit runs everything because earlier path-gating turned out to be a foot-g
 
 ## Conventions
 
-This repo mirrors the sibling [`b2-typescript-sdk`](https://github.com/backblaze/b2-sdk-typescript) style:
+This repo mirrors the [`b2-sdk-typescript`](https://github.com/backblaze-labs/b2-sdk-typescript) style:
 
 - Biome formatter / linter (2-space indent, single quotes, no semicolons, 100-char width). Run `pnpm lint:fix` before pushing.
 - `exactOptionalPropertyTypes` is ON. Use conditional-spread (`...(v !== undefined ? { k: v } : {})`) rather than passing `undefined`.
@@ -176,58 +176,9 @@ Once those are in place, the example workflows trigger on every PR (other than f
 
 The redundancy is deliberate: the simulator suite is what guarantees a contributor's fork PR gets validated end-to-end before secrets-gated workflows run.
 
-## Sibling-SDK CI scaffold (temporary)
-
-Until [`@backblaze/b2-sdk`](https://github.com/backblaze-labs/b2-typescript-sdk) is published to npm, this repo's `package.json` references the SDK via `"@backblaze/b2-sdk": "link:../b2-typescript-sdk"`. That works locally because the SDK lives alongside this repo, but it's empty on a clean GitHub runner.
-
-To unblock CI, a composite action at [`.github/actions/setup-sdk-sibling/`](./.github/actions/setup-sdk-sibling/action.yml) clones the SDK as a sibling and builds it before `pnpm install` runs in this repo. It uses a fine-grained PAT stored as `SDK_REPO_TOKEN`.
-
-### SDK ref tracking + dist drift policy
-
-The composite action's default `ref:` is **`main`**: every CI run rebuilds against the current SDK HEAD. Because the SDK is still in active development, every advance of SDK `main` changes the bundled bytes of `dist/index.js`, even when nothing in *this* repo changed.
-
-To avoid blocking every PR with a "dist out of sync" error, **`ci.yml`'s `build-and-check-dist` job emits a *warning*, not an error**, when a fresh `pnpm build` produces a different `dist/` than what's committed. The warning is surfaced both in the job log and in the run's step summary.
-
-The `release.yml` workflow's equivalent check **stays strict**: releases must ship with `dist/` built against the SDK ref they're tagged at. Before tagging a release:
-
-1. `cd ../b2-typescript-sdk && git pull` (or check out the specific SDK ref you're releasing against).
-2. `cd ../b2-action && pnpm build`.
-3. `git add dist/ && git commit -m "build: regenerate dist/ for vX.Y.Z"`.
-4. Tag and push.
-
-Once the SDK publishes to npm, pin a version range in `package.json`, restore `build-and-check-dist` to hard-failing, and delete this whole scaffold.
-
-### Coverage
+## Coverage
 
 Coverage is at **100 % statements / 100 % branches / 100 % functions / 100 % lines** across 156 tests. Zero `v8 ignore` annotations in `src/`. Every uncovered branch the SDK formerly exposed (multipart `contentSha1: null`, pagination handover, `delete-remote` on unversioned buckets, `error` events from `deleteAll`, `bucket.head()` shape, `pageSize` rename, `SyncEvent` narrowing) shipped in the SDK and the action's tests drive them against real simulator behavior. If you add a new code path, add a real test for it; do not introduce a `v8 ignore` without a documented external reason.
-
-### Wiring
-
-Only two workflows need this: the ones that actually run `pnpm install` and `pnpm build`:
-
-| Workflow | Uses the scaffold? |
-| --- | --- |
-| `ci.yml` | Yes (every job: test, coverage, lint, build-and-check-dist) |
-| `release.yml` | Yes |
-| `daily-smoke.yml` | No: `actions/checkout` + `uses: ./` is enough; the action reads from committed `dist/`. |
-| All 10 `example-*.yml` | No: same reason as daily-smoke. |
-
-### What the PAT needs
-
-A fine-grained Personal Access Token, owner `backblaze-labs`, scoped to *only* the SDK repository, with **`Contents: Read`** and nothing else. Stored as the `SDK_REPO_TOKEN` repository secret.
-
-### How to remove this scaffold
-
-Once `@backblaze/b2-sdk` is published to npm:
-
-1. Edit `package.json` and replace `"@backblaze/b2-sdk": "link:../b2-typescript-sdk"` with a real version range, e.g. `"@backblaze/b2-sdk": "^X.Y.Z"`.
-2. Re-run `pnpm install` locally so `pnpm-lock.yaml` updates.
-3. Delete the `.github/actions/setup-sdk-sibling/` directory.
-4. Remove every `uses: ./.github/actions/setup-sdk-sibling` block from `.github/workflows/ci.yml` and `.github/workflows/release.yml` (search for `TODO(sdk-published)` to find them).
-5. Delete the `SDK_REPO_TOKEN` secret from the repo settings.
-6. Commit.
-
-The composite action's own docstring repeats this checklist so future maintainers can find it without grepping.
 
 ## Step-by-step: adding a new verb
 
@@ -261,7 +212,7 @@ GitHub Actions runs the action's `main:` entrypoint directly from the repo: ther
 The SDK builds a User-Agent of the form:
 
 ```text
-b2-sdk-ts/<sdk-version> (typescript; @backblaze/b2-sdk; <runtime>; <os>; <arch>) b2-github-action/<action-version>
+b2-sdk-typescript/<sdk-version> (typescript; @backblaze-labs/b2-sdk; <runtime>; <os>; <arch>) b2-github-action/<action-version>
 ```
 
-We append the `b2-github-action/<v>` suffix so Backblaze's server-side logs can identify CI traffic originating from this Action. **Do not rename either the SDK's `b2-sdk-ts/` token or our `b2-github-action/` token**: both are stable product identifiers used for traffic analytics. The version constant is in [`src/version.ts`](./src/version.ts) and must be bumped in lockstep with `package.json` `version`.
+We append the `b2-github-action/<v>` suffix so Backblaze's server-side logs can identify CI traffic originating from this Action. **Do not rename either the SDK's `b2-sdk-typescript/` token or our `b2-github-action/` token**: both are stable product identifiers used for traffic analytics. The version constant is in [`src/version.ts`](./src/version.ts) and must be bumped in lockstep with `package.json` `version`.

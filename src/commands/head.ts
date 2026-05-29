@@ -1,5 +1,5 @@
 import * as core from '@actions/core'
-import type { Bucket } from '@backblaze/b2-sdk'
+import type { Bucket } from '@backblaze-labs/b2-sdk'
 import { type ParsedInputs, requireSource } from '../inputs.ts'
 
 /** Result of {@link headCommand}: metadata read from a HEAD request, no body. */

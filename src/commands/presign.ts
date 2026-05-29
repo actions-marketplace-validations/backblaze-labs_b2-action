@@ -1,6 +1,6 @@
 import * as core from '@actions/core'
-import type { B2Client, Bucket } from '@backblaze/b2-sdk'
-import { presignGetObjectUrl } from '@backblaze/b2-sdk/s3'
+import type { B2Client, Bucket } from '@backblaze-labs/b2-sdk'
+import { presignGetObjectUrl } from '@backblaze-labs/b2-sdk/s3'
 import { type ParsedInputs, requireSource } from '../inputs.ts'
 
 /** One entry in {@link PresignResult.files}. */

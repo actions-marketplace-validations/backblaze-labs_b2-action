@@ -1,8 +1,8 @@
 import { createReadStream } from 'node:fs'
 import { stat } from 'node:fs/promises'
 import * as core from '@actions/core'
-import type { Bucket } from '@backblaze/b2-sdk'
-import { IncrementalSha1 } from '@backblaze/b2-sdk/streams'
+import type { Bucket } from '@backblaze-labs/b2-sdk'
+import { IncrementalSha1 } from '@backblaze-labs/b2-sdk/streams'
 import { type ParsedInputs, requireSource } from '../inputs.ts'
 
 /** Result of {@link verifyCommand}. */

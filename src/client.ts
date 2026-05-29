@@ -1,6 +1,6 @@
 import * as core from '@actions/core'
-import type { FileVersion } from '@backblaze/b2-sdk'
-import { B2Client, type Bucket, type HttpTransport } from '@backblaze/b2-sdk'
+import type { FileVersion } from '@backblaze-labs/b2-sdk'
+import { B2Client, type Bucket, type HttpTransport } from '@backblaze-labs/b2-sdk'
 import { VERSION } from './version.ts'
 
 /**
@@ -35,7 +35,7 @@ export interface BuildClientOptions {
  *
  * Steps:
  *   1. Construct the client with `userAgent: 'b2-github-action/<version>'`. The
- *      SDK preserves its own `b2-sdk-ts/` and `@backblaze/b2-sdk` tokens before
+ *      SDK preserves its own `b2-sdk-typescript/` and `@backblaze-labs/b2-sdk` tokens before
  *      ours so Backblaze server-side logs see both attribution layers.
  *   2. `await client.authorize()`. This is one-shot for the lifetime of the
  *      action invocation. B2 auth tokens carry a 24h TTL; typical GitHub

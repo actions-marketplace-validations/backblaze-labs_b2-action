@@ -1142,7 +1142,7 @@ describe('progress listener: emits totalParts on multipart uploads', () => {
     const captured = await captureStdout(async () => {
       const onProgress = makeProgressListener('mp-test', 0)
       const { readFile } = await import('node:fs/promises')
-      const { BufferSource } = await import('@backblaze/b2-sdk/streams')
+      const { BufferSource } = await import('@backblaze-labs/b2-sdk/streams')
       await fx.bucket.upload({
         fileName: 'multi.bin',
         source: new BufferSource(await readFile(local)),
@@ -1543,7 +1543,7 @@ describe('download: multipart file logs `multipart` sentinel for sha1', () => {
     // Upload via the SDK directly with BufferSource so the multipart path is
     // exercised. Multipart files surface `contentSha1: null` on download,
     // which routes through the `sha1 ?? 'multipart'` log arm.
-    const { BufferSource } = await import('@backblaze/b2-sdk/streams')
+    const { BufferSource } = await import('@backblaze-labs/b2-sdk/streams')
     await fx.bucket.upload({
       fileName: 'big.bin',
       source: new BufferSource(new Uint8Array(MULTIPART_PART_SIZE * 3).fill(7)),
@@ -1626,7 +1626,7 @@ describe('download: walks pagination past the 1000-file page boundary', () => {
   // ~5x slower and routinely needs north of 30 s for the download walk; bump
   // the per-test budget so we don't flake there.
   it('downloads files split across two pages', { timeout: 90_000 }, async () => {
-    const { BufferSource } = await import('@backblaze/b2-sdk/streams')
+    const { BufferSource } = await import('@backblaze-labs/b2-sdk/streams')
     // 1001 tiny uploads: enough to force a second listFileNames page.
     // Parallelized via Promise.all; simulator is in-memory and serializes
     // internally where needed, so this stays under ~400ms in practice.

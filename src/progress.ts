@@ -1,5 +1,5 @@
 import * as core from '@actions/core'
-import type { ProgressEvent, ProgressListener } from '@backblaze/b2-sdk'
+import type { ProgressEvent, ProgressListener } from '@backblaze-labs/b2-sdk'
 import { formatBytes } from './format.ts'
 
 /**

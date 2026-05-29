@@ -52,7 +52,7 @@ jobs:
           node-version: 24
           cache: pnpm
       # We only need markdownlint-cli2 here, not the full dep tree. Install
-      # it directly so this job doesn't have to clone the sibling SDK.
+      # it directly to keep the job fast.
       - run: pnpm dlx markdownlint-cli2
 
   link-check:
@@ -82,7 +82,6 @@ jobs:
         with:
           node-version: 24
           cache: pnpm
-      # cspell is self-contained: it does not need the sibling SDK or any
-      # of our runtime deps. Install only what's required to keep the job
-      # fast and avoid cloning the b2-typescript-sdk sibling.
+      # cspell is self-contained: it does not need our runtime deps. Install
+      # only what's required to keep the job fast.
       - run: pnpm dlx cspell@9 --no-progress --no-must-find-files

@@ -8,7 +8,7 @@
 [![Coverage](https://img.shields.io/badge/coverage-100%25-brightgreen.svg)](./vitest.config.ts)
 [![Docs](https://img.shields.io/github/deployments/backblaze-labs/b2-action/github-pages?label=docs&logo=readthedocs&logoColor=white)](https://backblaze-labs.github.io/b2-action/)
 
-The Backblaze B2 GitHub Action. TypeScript-native, built on the official [`@backblaze/b2-sdk`](https://github.com/backblaze/b2-sdk-typescript). Thirteen verbs covering every B2 operation a CI workflow needs.
+The Backblaze B2 GitHub Action. TypeScript-native, built on the official [`@backblaze-labs/b2-sdk`](https://github.com/backblaze-labs/b2-sdk-typescript). Thirteen verbs covering every B2 operation a CI workflow needs.
 
 - **Node 24 action.** No Docker. Sub-second cold start.
 - **Thirteen verbs.** `upload`, `download`, `sync`, `copy`, `delete`, `list`, `hide`, `unhide`, `verify`, `presign`, `retention`, `head`, `purge`: pick via the `action` input.

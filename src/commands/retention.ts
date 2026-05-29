@@ -1,5 +1,5 @@
 import * as core from '@actions/core'
-import type { Bucket } from '@backblaze/b2-sdk'
+import type { Bucket } from '@backblaze-labs/b2-sdk'
 import { findFileByName } from '../client.ts'
 import { type ParsedInputs, requireSource } from '../inputs.ts'
 

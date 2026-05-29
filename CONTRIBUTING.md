@@ -1,6 +1,6 @@
 # Contributing to `backblaze-labs/b2-action`
 
-Thanks for your interest. The Action is intentionally small and built on the official [`@backblaze/b2-sdk`](https://github.com/backblaze/b2-sdk-typescript): most behavior changes happen there, not here. This file covers what to do when you genuinely need to change *this* repo.
+Thanks for your interest. The Action is intentionally small and built on the official [`@backblaze-labs/b2-sdk`](https://github.com/backblaze-labs/b2-sdk-typescript): most behavior changes happen there, not here. This file covers what to do when you genuinely need to change *this* repo.
 
 ## Local setup
 

@@ -4,13 +4,13 @@ Instructions for AI assistants working on `backblaze-labs/b2-action` (the Backbl
 
 ## Project overview
 
-A GitHub Action that wraps `@backblaze/b2-sdk` to upload, download, sync, copy, and manage Backblaze B2 Cloud Storage from a CI workflow. Node 24 JavaScript action, single `dist/index.js` produced by [`@vercel/ncc`](https://github.com/vercel/ncc).
+A GitHub Action that wraps `@backblaze-labs/b2-sdk` to upload, download, sync, copy, and manage Backblaze B2 Cloud Storage from a CI workflow. Node 24 JavaScript action, single `dist/index.js` produced by [`@vercel/ncc`](https://github.com/vercel/ncc).
 
-The sibling SDK at `../b2-typescript-sdk` is the source of truth for B2 wire-protocol concerns. Whenever you'd reach for raw HTTP, `fetch`, `boto3`, the `b2` CLI, or a shelled-out subprocess: stop and use the SDK instead.
+The SDK at [`@backblaze-labs/b2-sdk`](https://github.com/backblaze-labs/b2-sdk-typescript) is the source of truth for B2 wire-protocol concerns. Whenever you'd reach for raw HTTP, `fetch`, `boto3`, the `b2` CLI, or a shelled-out subprocess: stop and use the SDK instead.
 
 ## Conventions
 
-This repo mirrors `../b2-typescript-sdk` style as closely as practical:
+This repo mirrors the SDK's style as closely as practical:
 
 - Biome formatter / linter, 2-space indent, single quotes, no semicolons, 100-char line width.
 - `exactOptionalPropertyTypes` ON. Use conditional spread `...(v !== undefined ? { k: v } : {})` instead of passing `undefined`.
@@ -47,7 +47,7 @@ Each `src/commands/<verb>.ts` exports one async function that takes `(bucket: Bu
 
 ## User-Agent
 
-The SDK enforces a stable `b2-sdk-ts/<v>` + `@backblaze/b2-sdk` prefix in the User-Agent. We append `b2-github-action/<v>` so Backblaze server-side logs can identify CI traffic. **Do not rename either token.** The version constant lives in `src/version.ts` and must be bumped in lockstep with `package.json` `version`.
+The SDK enforces a stable `b2-sdk-typescript/<v>` + `@backblaze-labs/b2-sdk` prefix in the User-Agent. We append `b2-github-action/<v>` so Backblaze server-side logs can identify CI traffic. **Do not rename either token.** The version constant lives in `src/version.ts` and must be bumped in lockstep with `package.json` `version`.
 
 ## dist/
 
@@ -55,7 +55,7 @@ The SDK enforces a stable `b2-sdk-ts/<v>` + `@backblaze/b2-sdk` prefix in the Us
 
 ## Testing
 
-Tests run against the SDK's in-memory `B2Simulator` (`@backblaze/b2-sdk/simulator`). No real network. Pattern (see `__tests__/commands/upload-download.test.ts`):
+Tests run against the SDK's in-memory `B2Simulator` (`@backblaze-labs/b2-sdk/simulator`). No real network. Pattern (see `__tests__/commands/upload-download.test.ts`):
 
 ```ts
 const sim = new B2Simulator()

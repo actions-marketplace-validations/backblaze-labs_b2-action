@@ -14,9 +14,9 @@ importers:
       '@actions/glob':
         specifier: ^0.7.0
         version: 0.7.0
-      '@backblaze/b2-sdk':
-        specifier: link:../b2-typescript-sdk
-        version: link:../b2-typescript-sdk
+      '@backblaze-labs/b2-sdk':
+        specifier: ^0.1.0
+        version: 0.1.0
     devDependencies:
       '@biomejs/biome':
         specifier: ^2.4.15
@@ -82,6 +82,15 @@ packages:
   '@babel/types@7.29.0':
     resolution: {integrity: sha512-LwdZHpScM4Qz8Xw2iKSzS+cfglZzJGvofQICy7W7v4caru4EaAmyUuO6BGrbyQ2mYV11W0U8j5mBhd14dd3B0A==}
     engines: {node: '>=6.9.0'}
+
+  '@backblaze-labs/b2-sdk@0.1.0':
+    resolution: {integrity: sha512-cpXLay7OTkalGUPmROBZrjvPrwVgUxDwEKZkpYoLwCTyxr6ykhP2y6X4uZ7BUZsn3EyRqPhXEk9U3RDC2VhgDw==}
+    engines: {node: '>=22'}
+    peerDependencies:
+      '@aws-sdk/client-s3': ^3.0.0
+    peerDependenciesMeta:
+      '@aws-sdk/client-s3':
+        optional: true
 
   '@bcoe/v8-coverage@1.0.2':
     resolution: {integrity: sha512-6zABk/ECA/QYSCQ1NGiVwwbQerUCZ+TQbp64Q3AgmfNvurHH0j8TtXa1qbShXA6qqkpAj4V5W8pP6mLe1mcMqA==}
@@ -1513,6 +1522,8 @@ snapshots:
     dependencies:
       '@babel/helper-string-parser': 7.27.1
       '@babel/helper-validator-identifier': 7.28.5
+
+  '@backblaze-labs/b2-sdk@0.1.0': {}
 
   '@bcoe/v8-coverage@1.0.2': {}
 

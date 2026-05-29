@@ -42,11 +42,6 @@ jobs:
           node-version: 24
           cache: pnpm
 
-      # TODO(sdk-published): remove once @backblaze/b2-sdk is on npm.
-      - uses: ./.github/actions/setup-sdk-sibling
-        with:
-          token: ${{ secrets.SDK_REPO_TOKEN }}
-
       - run: pnpm install --frozen-lockfile
       - run: pnpm lint
       - run: pnpm typecheck

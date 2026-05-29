@@ -1,8 +1,8 @@
 import { mkdtemp, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { B2Client, type Bucket } from '@backblaze/b2-sdk'
-import { B2Simulator } from '@backblaze/b2-sdk/simulator'
+import { B2Client, type Bucket } from '@backblaze-labs/b2-sdk'
+import { B2Simulator } from '@backblaze-labs/b2-sdk/simulator'
 import { uploadCommand } from '../src/commands/upload.ts'
 import type { ActionName, ParsedInputs } from '../src/inputs.ts'
 

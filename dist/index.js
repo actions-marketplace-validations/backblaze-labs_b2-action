@@ -30998,7 +30998,7 @@ function getIDToken(aud) {
  */
 
 //# sourceMappingURL=core.js.map
-;// CONCATENATED MODULE: ../b2-typescript-sdk/dist/auth/upload-url-pool.js
+;// CONCATENATED MODULE: ./node_modules/.pnpm/@backblaze-labs+b2-sdk@0.1.0/node_modules/@backblaze-labs/b2-sdk/dist/auth/upload-url-pool.js
 class UploadUrlPool {
   /** Map from key (bucket ID or file ID) to a stack of available entries. */
   pools = /* @__PURE__ */ new Map();
@@ -31050,7 +31050,7 @@ class UploadUrlPool {
 
 //# sourceMappingURL=upload-url-pool.js.map
 
-;// CONCATENATED MODULE: ../b2-typescript-sdk/dist/auth/in-memory.js
+;// CONCATENATED MODULE: ./node_modules/.pnpm/@backblaze-labs+b2-sdk@0.1.0/node_modules/@backblaze-labs/b2-sdk/dist/auth/in-memory.js
 
 class InMemoryAccountInfo {
   /** Cached authorization response, or null before authorize() is called. */
@@ -31234,7 +31234,7 @@ class InMemoryAccountInfo {
 
 //# sourceMappingURL=in-memory.js.map
 
-;// CONCATENATED MODULE: ../b2-typescript-sdk/dist/auth/realms.js
+;// CONCATENATED MODULE: ./node_modules/.pnpm/@backblaze-labs+b2-sdk@0.1.0/node_modules/@backblaze-labs/b2-sdk/dist/auth/realms.js
 const REALM_URLS = {
   production: "https://api.backblazeb2.com",
   staging: "https://api.backblazeb2.com"
@@ -31245,7 +31245,7 @@ function getRealmUrl(realm) {
 
 //# sourceMappingURL=realms.js.map
 
-;// CONCATENATED MODULE: ../b2-typescript-sdk/dist/types/ids.js
+;// CONCATENATED MODULE: ./node_modules/.pnpm/@backblaze-labs+b2-sdk@0.1.0/node_modules/@backblaze-labs/b2-sdk/dist/types/ids.js
 function accountId(raw) {
   return raw;
 }
@@ -31267,7 +31267,7 @@ function largeFileId(raw) {
 
 //# sourceMappingURL=ids.js.map
 
-;// CONCATENATED MODULE: ../b2-typescript-sdk/dist/util/best-effort.js
+;// CONCATENATED MODULE: ./node_modules/.pnpm/@backblaze-labs+b2-sdk@0.1.0/node_modules/@backblaze-labs/b2-sdk/dist/util/best-effort.js
 async function bestEffort(fn) {
   try {
     await fn();
@@ -31277,7 +31277,7 @@ async function bestEffort(fn) {
 
 //# sourceMappingURL=best-effort.js.map
 
-;// CONCATENATED MODULE: ../b2-typescript-sdk/dist/upload/cancel.js
+;// CONCATENATED MODULE: ./node_modules/.pnpm/@backblaze-labs+b2-sdk@0.1.0/node_modules/@backblaze-labs/b2-sdk/dist/upload/cancel.js
 
 async function cancelLargeFileBestEffort(raw, accountInfo, fileId) {
   await bestEffort(
@@ -31287,7 +31287,7 @@ async function cancelLargeFileBestEffort(raw, accountInfo, fileId) {
 
 //# sourceMappingURL=cancel.js.map
 
-;// CONCATENATED MODULE: ../b2-typescript-sdk/dist/upload/concurrency.js
+;// CONCATENATED MODULE: ./node_modules/.pnpm/@backblaze-labs+b2-sdk@0.1.0/node_modules/@backblaze-labs/b2-sdk/dist/upload/concurrency.js
 class Semaphore {
   /**
    * @param limit - Maximum number of concurrent acquisitions. Must be a
@@ -31341,7 +31341,7 @@ class Semaphore {
 
 //# sourceMappingURL=concurrency.js.map
 
-;// CONCATENATED MODULE: ../b2-typescript-sdk/dist/util/defaults.js
+;// CONCATENATED MODULE: ./node_modules/.pnpm/@backblaze-labs+b2-sdk@0.1.0/node_modules/@backblaze-labs/b2-sdk/dist/util/defaults.js
 const DEFAULT_TRANSFER_CONCURRENCY = 4;
 const DEFAULT_BULK_CONCURRENCY = 10;
 const DEFAULT_PAGE_SIZE = 1e3;
@@ -31349,7 +31349,7 @@ const DEFAULT_CONTENT_TYPE = "b2/x-auto";
 
 //# sourceMappingURL=defaults.js.map
 
-;// CONCATENATED MODULE: ../b2-typescript-sdk/dist/util/plan-ranges.js
+;// CONCATENATED MODULE: ./node_modules/.pnpm/@backblaze-labs+b2-sdk@0.1.0/node_modules/@backblaze-labs/b2-sdk/dist/util/plan-ranges.js
 function planRanges(totalSize, chunkSize) {
   const plans = [];
   let offset = 0;
@@ -31376,7 +31376,7 @@ function byteRangeHeader(start, end) {
 
 //# sourceMappingURL=plan-ranges.js.map
 
-;// CONCATENATED MODULE: ../b2-typescript-sdk/dist/copy/large.js
+;// CONCATENATED MODULE: ./node_modules/.pnpm/@backblaze-labs+b2-sdk@0.1.0/node_modules/@backblaze-labs/b2-sdk/dist/copy/large.js
 
 
 
@@ -31450,13 +31450,13 @@ async function copyLargeFile(raw, accountInfo, options) {
 
 //# sourceMappingURL=large.js.map
 
-;// CONCATENATED MODULE: ../b2-typescript-sdk/dist/util/text-codec.js
+;// CONCATENATED MODULE: ./node_modules/.pnpm/@backblaze-labs+b2-sdk@0.1.0/node_modules/@backblaze-labs/b2-sdk/dist/util/text-codec.js
 const utf8Encoder = new TextEncoder();
 const utf8Decoder = new TextDecoder();
 
 //# sourceMappingURL=text-codec.js.map
 
-;// CONCATENATED MODULE: ../b2-typescript-sdk/dist/raw/encoding.js
+;// CONCATENATED MODULE: ./node_modules/.pnpm/@backblaze-labs+b2-sdk@0.1.0/node_modules/@backblaze-labs/b2-sdk/dist/raw/encoding.js
 
 const SAFE_CHARS = new Set(
   "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789-._~!$&'()*+,;=:@/".split("")
@@ -31500,7 +31500,7 @@ function parseFileInfoHeaders(headers) {
 
 //# sourceMappingURL=encoding.js.map
 
-;// CONCATENATED MODULE: ../b2-typescript-sdk/dist/streams/progress.js
+;// CONCATENATED MODULE: ./node_modules/.pnpm/@backblaze-labs+b2-sdk@0.1.0/node_modules/@backblaze-labs/b2-sdk/dist/streams/progress.js
 class ProgressTracker {
   /**
    * Creates a new ProgressTracker.
@@ -31547,7 +31547,7 @@ class ProgressTracker {
 
 //# sourceMappingURL=progress.js.map
 
-;// CONCATENATED MODULE: ../b2-typescript-sdk/dist/util/normalize.js
+;// CONCATENATED MODULE: ./node_modules/.pnpm/@backblaze-labs+b2-sdk@0.1.0/node_modules/@backblaze-labs/b2-sdk/dist/util/normalize.js
 function normalizeSha1(raw) {
   if (raw === null || raw === void 0 || raw === "none") return null;
   return raw;
@@ -31561,7 +31561,7 @@ function normalizeFileVersionListSha1(resp) {
 
 //# sourceMappingURL=normalize.js.map
 
-;// CONCATENATED MODULE: ../b2-typescript-sdk/dist/download/single.js
+;// CONCATENATED MODULE: ./node_modules/.pnpm/@backblaze-labs+b2-sdk@0.1.0/node_modules/@backblaze-labs/b2-sdk/dist/download/single.js
 
 
 
@@ -31675,7 +31675,7 @@ function extractDownloadHeaders(headers) {
 
 //# sourceMappingURL=single.js.map
 
-;// CONCATENATED MODULE: ../b2-typescript-sdk/dist/http/retry.js
+;// CONCATENATED MODULE: ./node_modules/.pnpm/@backblaze-labs+b2-sdk@0.1.0/node_modules/@backblaze-labs/b2-sdk/dist/http/retry.js
 const DEFAULT_RETRY_OPTIONS = {
   maxRetries: 5,
   maxRetryDelayMs: 64e3,
@@ -31709,7 +31709,7 @@ function sleep(ms, signal) {
 
 //# sourceMappingURL=retry.js.map
 
-;// CONCATENATED MODULE: ../b2-typescript-sdk/dist/streams/collect.js
+;// CONCATENATED MODULE: ./node_modules/.pnpm/@backblaze-labs+b2-sdk@0.1.0/node_modules/@backblaze-labs/b2-sdk/dist/streams/collect.js
 async function collectStream(stream) {
   const reader = stream.getReader();
   try {
@@ -31735,7 +31735,7 @@ async function collectStream(stream) {
 
 //# sourceMappingURL=collect.js.map
 
-;// CONCATENATED MODULE: ../b2-typescript-sdk/dist/download/parallel.js
+;// CONCATENATED MODULE: ./node_modules/.pnpm/@backblaze-labs+b2-sdk@0.1.0/node_modules/@backblaze-labs/b2-sdk/dist/download/parallel.js
 
 
 
@@ -31857,7 +31857,7 @@ async function fetchRangeWithRetry(raw, accountInfo, fileId, start, end, retryOp
 
 //# sourceMappingURL=parallel.js.map
 
-;// CONCATENATED MODULE: ../b2-typescript-sdk/dist/streams/hash.js
+;// CONCATENATED MODULE: ./node_modules/.pnpm/@backblaze-labs+b2-sdk@0.1.0/node_modules/@backblaze-labs/b2-sdk/dist/streams/hash.js
 let nodeCreateHash;
 async function getNodeCreateHash() {
   if (nodeCreateHash !== void 0) return nodeCreateHash;
@@ -31957,7 +31957,7 @@ async function sha1Hex(data) {
 
 //# sourceMappingURL=hash.js.map
 
-;// CONCATENATED MODULE: ../b2-typescript-sdk/dist/upload/resume.js
+;// CONCATENATED MODULE: ./node_modules/.pnpm/@backblaze-labs+b2-sdk@0.1.0/node_modules/@backblaze-labs/b2-sdk/dist/upload/resume.js
 
 async function findResumeCandidate(raw, accountInfo, bucketId, fileName) {
   const unfinished = await raw.listUnfinishedLargeFiles(
@@ -31990,7 +31990,7 @@ async function collectPartSha1s(raw, accountInfo, fileId) {
 
 //# sourceMappingURL=resume.js.map
 
-;// CONCATENATED MODULE: ../b2-typescript-sdk/dist/upload/large.js
+;// CONCATENATED MODULE: ./node_modules/.pnpm/@backblaze-labs+b2-sdk@0.1.0/node_modules/@backblaze-labs/b2-sdk/dist/upload/large.js
 
 
 
@@ -32212,7 +32212,7 @@ async function uploadPartsSequentially(raw, accountInfo, options, largeFileId, p
 
 //# sourceMappingURL=large.js.map
 
-;// CONCATENATED MODULE: ../b2-typescript-sdk/dist/upload/single.js
+;// CONCATENATED MODULE: ./node_modules/.pnpm/@backblaze-labs+b2-sdk@0.1.0/node_modules/@backblaze-labs/b2-sdk/dist/upload/single.js
 
 
 
@@ -32259,14 +32259,14 @@ async function uploadSmallFile(raw, accountInfo, options) {
 
 //# sourceMappingURL=single.js.map
 
-;// CONCATENATED MODULE: ../b2-typescript-sdk/dist/util/to-error.js
+;// CONCATENATED MODULE: ./node_modules/.pnpm/@backblaze-labs+b2-sdk@0.1.0/node_modules/@backblaze-labs/b2-sdk/dist/util/to-error.js
 function toError(value) {
   return value instanceof Error ? value : new Error(String(value));
 }
 
 //# sourceMappingURL=to-error.js.map
 
-;// CONCATENATED MODULE: ../b2-typescript-sdk/dist/upload/stream.js
+;// CONCATENATED MODULE: ./node_modules/.pnpm/@backblaze-labs+b2-sdk@0.1.0/node_modules/@backblaze-labs/b2-sdk/dist/upload/stream.js
 
 
 
@@ -32293,6 +32293,8 @@ function createWriteStream(raw, accountInfo, options) {
     resolve: resolveDone,
     reject: rejectDone
   } = Promise.withResolvers();
+  done.catch(() => {
+  });
   function ensureStarted() {
     if (largeFileId !== null) return Promise.resolve(largeFileId);
     if (startPromise !== null) return startPromise;
@@ -32462,7 +32464,7 @@ function carveExact(chunks, size) {
 
 //# sourceMappingURL=stream.js.map
 
-;// CONCATENATED MODULE: ../b2-typescript-sdk/dist/object.js
+;// CONCATENATED MODULE: ./node_modules/.pnpm/@backblaze-labs+b2-sdk@0.1.0/node_modules/@backblaze-labs/b2-sdk/dist/object.js
 
 
 
@@ -32674,7 +32676,7 @@ class B2Object {
 
 //# sourceMappingURL=object.js.map
 
-;// CONCATENATED MODULE: ../b2-typescript-sdk/dist/util/paginator.js
+;// CONCATENATED MODULE: ./node_modules/.pnpm/@backblaze-labs+b2-sdk@0.1.0/node_modules/@backblaze-labs/b2-sdk/dist/util/paginator.js
 async function* paginatePages(fetcher, signal) {
   let cursor;
   while (true) {
@@ -32693,7 +32695,7 @@ async function* paginateItems(fetcher, extractItems, signal) {
 
 //# sourceMappingURL=paginator.js.map
 
-;// CONCATENATED MODULE: ../b2-typescript-sdk/dist/bucket.js
+;// CONCATENATED MODULE: ./node_modules/.pnpm/@backblaze-labs+b2-sdk@0.1.0/node_modules/@backblaze-labs/b2-sdk/dist/bucket.js
 
 
 
@@ -33482,7 +33484,7 @@ class Bucket {
 
 //# sourceMappingURL=bucket.js.map
 
-;// CONCATENATED MODULE: ../b2-typescript-sdk/dist/errors/index.js
+;// CONCATENATED MODULE: ./node_modules/.pnpm/@backblaze-labs+b2-sdk@0.1.0/node_modules/@backblaze-labs/b2-sdk/dist/errors/index.js
 class B2Error extends Error {
   /** HTTP status code returned by the B2 API. */
   status;
@@ -33734,7 +33736,7 @@ function classifyError(response, options) {
 
 //# sourceMappingURL=index.js.map
 
-;// CONCATENATED MODULE: ../b2-typescript-sdk/dist/http/url-guard.js
+;// CONCATENATED MODULE: ./node_modules/.pnpm/@backblaze-labs+b2-sdk@0.1.0/node_modules/@backblaze-labs/b2-sdk/dist/http/url-guard.js
 
 class UrlGuard {
   allowedSuffixes = [];
@@ -33830,24 +33832,24 @@ function isInternalHostname(host) {
 
 //# sourceMappingURL=url-guard.js.map
 
-;// CONCATENATED MODULE: ../b2-typescript-sdk/dist/package.json.js
-const version = "0.0.0";
+;// CONCATENATED MODULE: ./node_modules/.pnpm/@backblaze-labs+b2-sdk@0.1.0/node_modules/@backblaze-labs/b2-sdk/dist/package.json.js
+const version = "0.1.0";
 const pkg = {
   version
 };
 
 //# sourceMappingURL=package.json.js.map
 
-;// CONCATENATED MODULE: ../b2-typescript-sdk/dist/version.js
+;// CONCATENATED MODULE: ./node_modules/.pnpm/@backblaze-labs+b2-sdk@0.1.0/node_modules/@backblaze-labs/b2-sdk/dist/version.js
 
 const VERSION = pkg.version;
 
 //# sourceMappingURL=version.js.map
 
-;// CONCATENATED MODULE: ../b2-typescript-sdk/dist/http/user-agent.js
+;// CONCATENATED MODULE: ./node_modules/.pnpm/@backblaze-labs+b2-sdk@0.1.0/node_modules/@backblaze-labs/b2-sdk/dist/http/user-agent.js
 
-const SDK_PRODUCT = "b2-sdk-ts";
-const SDK_PACKAGE = "@backblaze/b2-sdk";
+const SDK_PRODUCT = "b2-sdk-typescript";
+const SDK_PACKAGE = "@backblaze-labs/b2-sdk";
 function detectPlatform() {
   const g = globalThis;
   if (typeof g["Deno"] !== "undefined") {
@@ -33893,7 +33895,7 @@ function getUserAgent(custom) {
 
 //# sourceMappingURL=user-agent.js.map
 
-;// CONCATENATED MODULE: ../b2-typescript-sdk/dist/http/transport.js
+;// CONCATENATED MODULE: ./node_modules/.pnpm/@backblaze-labs+b2-sdk@0.1.0/node_modules/@backblaze-labs/b2-sdk/dist/http/transport.js
 
 
 
@@ -34035,7 +34037,7 @@ class RetryTransport {
 
 //# sourceMappingURL=transport.js.map
 
-;// CONCATENATED MODULE: ../b2-typescript-sdk/dist/types/encryption.js
+;// CONCATENATED MODULE: ./node_modules/.pnpm/@backblaze-labs+b2-sdk@0.1.0/node_modules/@backblaze-labs/b2-sdk/dist/types/encryption.js
 const EncryptionAlgorithm = {
   /** AES with a 256-bit key. The only algorithm B2 currently supports. */
   Aes256: "AES256"
@@ -34351,7 +34353,7 @@ class EncryptionKey {
 
 //# sourceMappingURL=encryption.js.map
 
-;// CONCATENATED MODULE: ../b2-typescript-sdk/dist/raw/index.js
+;// CONCATENATED MODULE: ./node_modules/.pnpm/@backblaze-labs+b2-sdk@0.1.0/node_modules/@backblaze-labs/b2-sdk/dist/raw/index.js
 
 
 
@@ -34948,7 +34950,7 @@ function applyLegalHoldHeader(headers, legalHold) {
 
 //# sourceMappingURL=index.js.map
 
-;// CONCATENATED MODULE: ../b2-typescript-sdk/dist/client.js
+;// CONCATENATED MODULE: ./node_modules/.pnpm/@backblaze-labs+b2-sdk@0.1.0/node_modules/@backblaze-labs/b2-sdk/dist/client.js
 
 
 
@@ -35205,7 +35207,7 @@ const version_VERSION = package_namespaceObject.rE;
  *
  * Steps:
  *   1. Construct the client with `userAgent: 'b2-github-action/<version>'`. The
- *      SDK preserves its own `b2-sdk-ts/` and `@backblaze/b2-sdk` tokens before
+ *      SDK preserves its own `b2-sdk-typescript/` and `@backblaze-labs/b2-sdk` tokens before
  *      ours so Backblaze server-side logs see both attribution layers.
  *   2. `await client.authorize()`. This is one-shot for the lifetime of the
  *      action invocation. B2 auth tokens carry a 24h TTL; typical GitHub
@@ -35352,7 +35354,7 @@ const VALID_LEGAL_HOLD = ['on', 'off'];
  *
  *   1. `application-key-id` / `application-key` action inputs
  *   2. `B2_APPLICATION_KEY_ID` / `B2_APPLICATION_KEY` env vars (the official
- *      contract used by the Backblaze b2 CLI and the @backblaze/b2-sdk).
+ *      contract used by the Backblaze b2 CLI and the @backblaze-labs/b2-sdk).
  *
  * The credential value, once resolved, is immediately masked via `core.setSecret`
  * so any accidental echo (including from a misbehaving sub-process) is redacted
@@ -35991,7 +35993,7 @@ async function listCommand(bucket, inputs) {
     }
 }
 
-;// CONCATENATED MODULE: ../b2-typescript-sdk/dist/s3/index.js
+;// CONCATENATED MODULE: ./node_modules/.pnpm/@backblaze-labs+b2-sdk@0.1.0/node_modules/@backblaze-labs/b2-sdk/dist/s3/index.js
 function createS3ClientConfig(config) {
   const s3Url = config.accountInfo.getS3ApiUrl();
   const regionMatch = s3Url.match(/s3\.([^.]+)\.backblazeb2\.com/);
@@ -36238,7 +36240,7 @@ async function retentionCommand(bucket, inputs) {
     }
 }
 
-;// CONCATENATED MODULE: ../b2-typescript-sdk/dist/streams/source.js
+;// CONCATENATED MODULE: ./node_modules/.pnpm/@backblaze-labs+b2-sdk@0.1.0/node_modules/@backblaze-labs/b2-sdk/dist/streams/source.js
 
 class BlobSource {
   /**
@@ -36390,7 +36392,7 @@ function toContentSource(input, size) {
 
 //# sourceMappingURL=source.js.map
 
-;// CONCATENATED MODULE: ../b2-typescript-sdk/dist/sync/actions/index.js
+;// CONCATENATED MODULE: ./node_modules/.pnpm/@backblaze-labs+b2-sdk@0.1.0/node_modules/@backblaze-labs/b2-sdk/dist/sync/actions/index.js
 class UploadAction {
   /**
    * Creates a new UploadAction for the given relative path.
@@ -36575,7 +36577,7 @@ class SkipAction {
 
 //# sourceMappingURL=index.js.map
 
-;// CONCATENATED MODULE: ../b2-typescript-sdk/dist/sync/pairing.js
+;// CONCATENATED MODULE: ./node_modules/.pnpm/@backblaze-labs+b2-sdk@0.1.0/node_modules/@backblaze-labs/b2-sdk/dist/sync/pairing.js
 async function* zipFolders(source, dest) {
   const sourceIter = source.scan()[Symbol.asyncIterator]();
   const destIter = dest.scan()[Symbol.asyncIterator]();
@@ -36606,7 +36608,7 @@ async function* zipFolders(source, dest) {
 
 //# sourceMappingURL=pairing.js.map
 
-;// CONCATENATED MODULE: ../b2-typescript-sdk/dist/sync/policies/compare.js
+;// CONCATENATED MODULE: ./node_modules/.pnpm/@backblaze-labs+b2-sdk@0.1.0/node_modules/@backblaze-labs/b2-sdk/dist/sync/policies/compare.js
 function filesAreDifferent(source, dest, compareMode, threshold = 0) {
   switch (compareMode) {
     case "none":
@@ -36620,7 +36622,7 @@ function filesAreDifferent(source, dest, compareMode, threshold = 0) {
 
 //# sourceMappingURL=compare.js.map
 
-;// CONCATENATED MODULE: ../b2-typescript-sdk/dist/sync/policies/index.js
+;// CONCATENATED MODULE: ./node_modules/.pnpm/@backblaze-labs+b2-sdk@0.1.0/node_modules/@backblaze-labs/b2-sdk/dist/sync/policies/index.js
 
 
 function* generateActions(pair, direction, compareMode, keepMode, keepDays, nowMillis, factory, compareThreshold) {
@@ -36694,7 +36696,7 @@ function* actionsForBoth(source, dest, direction, compareMode, compareThreshold,
 
 //# sourceMappingURL=index.js.map
 
-;// CONCATENATED MODULE: ../b2-typescript-sdk/dist/sync/synchronizer.js
+;// CONCATENATED MODULE: ./node_modules/.pnpm/@backblaze-labs+b2-sdk@0.1.0/node_modules/@backblaze-labs/b2-sdk/dist/sync/synchronizer.js
 
 
 
@@ -36875,7 +36877,7 @@ function createActionFactory(config) {
 
 //# sourceMappingURL=synchronizer.js.map
 
-;// CONCATENATED MODULE: ../b2-typescript-sdk/dist/sync/scanners/local.js
+;// CONCATENATED MODULE: ./node_modules/.pnpm/@backblaze-labs+b2-sdk@0.1.0/node_modules/@backblaze-labs/b2-sdk/dist/sync/scanners/local.js
 
 
 class LocalFolder {
@@ -36933,7 +36935,7 @@ class LocalFolder {
 
 //# sourceMappingURL=local.js.map
 
-;// CONCATENATED MODULE: ../b2-typescript-sdk/dist/types/file.js
+;// CONCATENATED MODULE: ./node_modules/.pnpm/@backblaze-labs+b2-sdk@0.1.0/node_modules/@backblaze-labs/b2-sdk/dist/types/file.js
 const FileAction = {
   /** Large file upload started but not yet finished. */
   Start: "start",
@@ -36955,7 +36957,7 @@ const MetadataDirective = {
 
 //# sourceMappingURL=file.js.map
 
-;// CONCATENATED MODULE: ../b2-typescript-sdk/dist/sync/scanners/b2.js
+;// CONCATENATED MODULE: ./node_modules/.pnpm/@backblaze-labs+b2-sdk@0.1.0/node_modules/@backblaze-labs/b2-sdk/dist/sync/scanners/b2.js
 
 class B2Folder {
   type = "b2";

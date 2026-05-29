@@ -1,4 +1,4 @@
-import type { ProgressEvent } from '@backblaze/b2-sdk'
+import type { ProgressEvent } from '@backblaze-labs/b2-sdk'
 import { describe, expect, it, vi } from 'vitest'
 import { makeProgressListener } from '../src/progress.ts'
 

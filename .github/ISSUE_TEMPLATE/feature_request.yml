@@ -6,7 +6,7 @@ body:
   - type: markdown
     attributes:
       value: |
-        Quick context: this Action wraps the [`@backblaze/b2-sdk`](https://github.com/backblaze/b2-sdk-typescript). If the capability you want already exists in the SDK and just isn't exposed here, that's an easy add. If it doesn't exist in the SDK yet, we'll probably need to land it there first.
+        Quick context: this Action wraps the [`@backblaze-labs/b2-sdk`](https://github.com/backblaze-labs/b2-sdk-typescript). If the capability you want already exists in the SDK and just isn't exposed here, that's an easy add. If it doesn't exist in the SDK yet, we'll probably need to land it there first.
 
   - type: textarea
     id: problem
