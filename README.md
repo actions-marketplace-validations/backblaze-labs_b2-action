@@ -22,6 +22,7 @@ The **official** Backblaze B2 GitHub Action. TypeScript-native, built on [`@back
 - [Backblaze B2 GitHub Action](#backblaze-b2-github-action)
   - [Table of contents](#table-of-contents)
   - [Quick start](#quick-start)
+  - [Pinning and versioning](#pinning-and-versioning)
   - [Verbs](#verbs)
   - [Worked examples](#worked-examples)
     - [Upload a single file](#upload-a-single-file)
@@ -49,7 +50,7 @@ The **official** Backblaze B2 GitHub Action. TypeScript-native, built on [`@back
 ## Quick start
 
 ```yaml
-- uses: backblaze-labs/b2-action@v1
+- uses: backblaze-labs/b2-action@v1 # tip: pin to a commit SHA for production; see Pinning and versioning
   with:
     action: upload
     application-key-id: ${{ secrets.B2_APPLICATION_KEY_ID }}
@@ -60,6 +61,24 @@ The **official** Backblaze B2 GitHub Action. TypeScript-native, built on [`@back
 ```
 
 For one self-contained example per verb (each is also a live integration test), see [.github/workflows/](./.github/workflows/README.md). Below is the full reference.
+
+---
+
+## Pinning and versioning
+
+This Action follows [semantic versioning](https://semver.org) and maintains a floating major tag. Pick the ref style that matches your risk tolerance:
+
+- **`@v1`** tracks the latest `1.x` release. It is convenient and picks up patches automatically, but it is a **mutable** tag: it is moved to each new release, so the code that runs can change without any change to your workflow.
+- **`@v1.0.1`** is a pinned, SSH-signed release tag, so it shows as **Verified** on GitHub and is easy to audit. Note that a Git tag is still a movable ref, so treat this as a stable, verifiable pointer rather than an immutability guarantee.
+- **`@<full-commit-sha>`** is fully immutable and is what we recommend for anything beyond experimentation. It guarantees the exact code that runs cannot change underneath you, even if a tag is moved. If you enable [Dependabot](https://docs.github.com/en/code-security/dependabot) GitHub Actions updates in your repository, it keeps SHA pins current and rewrites the trailing version comment for you.
+
+```yaml
+# Recommended for production: pin to a full-length commit SHA.
+# With Dependabot GitHub Actions updates enabled, it bumps the SHA + comment for you.
+- uses: backblaze-labs/b2-action@<commit-sha> # v1.0.1
+```
+
+This is the same supply-chain practice this Action applies to its own workflows: every third-party action it depends on is SHA-pinned. The worked examples below use `@v1` for brevity; swap in a commit SHA (or a pinned `@vX.Y.Z`) for production workflows.
 
 ---
 
@@ -84,6 +103,8 @@ For one self-contained example per verb (each is also a live integration test), 
 ---
 
 ## Worked examples
+
+> These examples use `@v1` for brevity. For production, pin to a commit SHA; see [Pinning and versioning](#pinning-and-versioning).
 
 ### Upload a single file
 

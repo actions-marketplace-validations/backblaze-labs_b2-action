@@ -33,6 +33,9 @@ fi
 echo "▸ actionlint"
 pnpm --silent actionlint
 
+echo "▸ action SHA-pin check"
+pnpm --silent lint:actions
+
 echo "▸ cspell"
 pnpm --silent spellcheck
 

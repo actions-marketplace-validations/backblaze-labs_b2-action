@@ -71,8 +71,9 @@ pnpm test           # vitest run: drives against the SDK's in-memory B2Simulator
 pnpm test:coverage  # same + the 95/85/100/95 coverage gate
 pnpm build          # ncc build src/main.ts -o dist
 pnpm actionlint     # validate every workflow under .github/workflows/
+pnpm lint:actions   # fail if any third-party action isn't pinned to a commit SHA
 pnpm spellcheck     # cspell across src/, __tests__/, *.md, *.yml, action.yml
-pnpm all            # lint + typecheck + test + build + spellcheck
+pnpm all            # lint + typecheck + test + build + spellcheck + lint:actions
 pnpm verify-dist    # build, then `git diff --exit-code dist/` (must be clean)
 pnpm docs           # typedoc (strict): generates docs/ for GitHub Pages
 pnpm docs:watch     # typedoc in watch mode for local authoring
@@ -88,12 +89,12 @@ Requirements: Node 24+, pnpm 10+. The Action runs on Node 24 in the GitHub Actio
 
 | Hook | What it runs | Triggers on |
 | --- | --- | --- |
-| `pre-commit` | `pnpm lint` + `pnpm typecheck` + `pnpm test` + `pnpm build` + `dist/` freshness check + `pnpm actionlint` + `pnpm spellcheck`. Every check, every commit, no path-gating. | Every `git commit` |
+| `pre-commit` | `pnpm lint` + `pnpm typecheck` + `pnpm test` + `pnpm build` + `dist/` freshness check + `pnpm actionlint` + `pnpm lint:actions` + `pnpm spellcheck`. Every check, every commit, no path-gating. | Every `git commit` |
 | `pre-push` | `pnpm test:coverage` (subsumes plain `test`, so we don't double-run). | Every `git push` |
 
 Pre-commit runs everything because earlier path-gating turned out to be a foot-gun (a workflow tweak alongside a `src/` change could slip past actionlint). On a clean repo this takes ~5 s. Skip either hook with `--no-verify` if you need to; the same checks run in CI.
 
-`actionlint` is fetched into `node_modules/.cache/actionlint/` on first use and cached after. Override the version with `ACTIONLINT_VERSION=1.7.x pnpm actionlint`.
+`actionlint` is version-pinned in [`scripts/actionlint.sh`](./scripts/actionlint.sh), fetched into `node_modules/.cache/actionlint/`, and SHA-256-verified before every run (the binary checksum is hard-coded per platform; a stale or planted cache is rejected). To bump it, change `ACTIONLINT_VERSION` and regenerate the per-platform checksums (the script header documents the command). Set `ACTIONLINT_USE_SYSTEM=1` to opt into a system-installed binary instead.
 
 ## Conventions
 
@@ -115,7 +116,7 @@ Every PR runs:
 | `lint` | biome `--error-on-warnings` |
 | `coverage` | vitest with v8 coverage, threshold 95 % statements / 85 % branches / 100 % functions / 95 % lines |
 | `build-and-check-dist` | ncc build, then `git diff --exit-code dist/`. **Drift fails CI**: rebuild with `pnpm build` and commit `dist/`. Bundle size is gated hard at 4 MiB. |
-| `actionlint` | validates every workflow file under `.github/workflows/` |
+| `actionlint` | validates every workflow file under `.github/workflows/`, then runs `scripts/check-action-pins.mjs` to fail if any third-party action is on a mutable tag instead of a full commit SHA (see [Pinning third-party actions](#pinning-third-party-actions)) |
 | `self-smoke` | runs `node dist/index.js` with no inputs, expects the missing-input error |
 | `sync-check` ([docs-lint.yml](./.github/workflows/docs-lint.yml)) | every input/output in `action.yml` also appears in the README reference tables. Drift fails CI. |
 | `markdownlint` ([docs-lint.yml](./.github/workflows/docs-lint.yml)) | prose-style consistency across `**/*.md`. Config in [`.markdownlint-cli2.jsonc`](./.markdownlint-cli2.jsonc). |
@@ -124,6 +125,10 @@ Every PR runs:
 | `docs` ([docs.yml](./.github/workflows/docs.yml)) | TypeDoc with `treatWarningsAsErrors: true`; every export must have JSDoc. Published to GitHub Pages on push to `main`. |
 
 Plus, the [example workflows](./.github/workflows/README.md) are the integration test suite: they run against a real B2 test bucket on every PR (skipping forks because secrets aren't available there). The bucket itself is set up as described in the next section.
+
+### Pinning third-party actions
+
+Every third-party action under `.github/workflows/` is pinned to a full commit SHA with a trailing exact-version comment (for example `uses: actions/checkout@<sha> # v6.0.2`), so a moved or compromised upstream tag cannot run in our CI or the `contents: write` release job. The comment names the precise release the SHA represents, so a reviewer can confirm it at a glance. Dependabot's `github-actions` updates bump the SHA and the comment together. When you add a workflow step, pin it the same way: resolve the tag with `gh api repos/<owner>/<repo>/commits/<tag> -q .sha` and add the `# vX.Y.Z` comment. The repo's own action is referenced as `uses: ./` and is not pinned. This is enforced automatically: `pnpm lint:actions` ([`scripts/check-action-pins.mjs`](./scripts/check-action-pins.mjs)) runs in the pre-commit hook and the CI `actionlint` job and fails on any third-party action that is not SHA-pinned or is missing its exact `# vX.Y.Z` comment, so an accidental regression to `@v1` (or a major-only comment) cannot merge.
 
 ## Test bucket setup
 
