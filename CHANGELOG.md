@@ -4,7 +4,9 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [0.1.0] - 2026-05-28
+## [Unreleased]
+
+## [1.0.0] - 2026-05-28
 
 Initial release. Built on [`@backblaze-labs/b2-sdk`](https://github.com/backblaze-labs/b2-sdk-typescript) `^0.1.0`.
 
@@ -38,7 +40,7 @@ Initial release. Built on [`@backblaze-labs/b2-sdk`](https://github.com/backblaz
 - Vitest suite (156 tests across 13 files) running against the SDK's in-memory `B2Simulator`. No real network.
 - Coverage gate (`pnpm test:coverage`): 95 % statements / 85 % branches / 100 % functions / 95 % lines. Current run: **100 % / 100 % / 100 % / 100 %**.
 - CI workflow with six jobs: `test` (Ubuntu / macOS / Windows matrix), `lint` (Biome `--error-on-warnings`), `coverage`, `build-and-check-dist` (with a 4 MiB bundle-size budget), `actionlint`, and `self-smoke` (offline bundle invocation).
-- Tag-driven release workflow (`.github/workflows/release.yml`) that runs the full gate, cuts a GitHub Release, and moves the floating major tag (`v0`, `v1`, …) to track the latest minor/patch.
+- Tag-driven release workflow (`.github/workflows/release.yml`) that runs the full gate, cuts a GitHub Release, and moves the floating major tag (`v1`, `v2`, …) to track the latest minor/patch.
 - Dependabot config for weekly npm + github-actions updates.
 - Twelve example workflows under `.github/workflows/example-*.yml` that double as live integration tests against a real B2 test bucket. See [.github/workflows/README.md](.github/workflows/README.md) for the catalogue. There is no separate `integration.yml`; the examples *are* the integration suite.
 
@@ -58,7 +60,7 @@ Initial release. Built on [`@backblaze-labs/b2-sdk`](https://github.com/backblaz
 
 - `daily-smoke.yml` workflow: runs the most-used verbs end-to-end against a real B2 test bucket once a day. Catches B2 API drift or SDK regressions before user-reported issues.
 
-### Deferred (not planned for v0.x)
+### Deferred (not planned for v1.x)
 
 - Bucket-level admin verbs (`create-bucket`, `update-bucket-lifecycle`, `set-notification-rules`, replication config). Their inputs are arrays-of-objects that don't fit the flat `with:` input shape; an admin-focused Action or Terraform provider is a better home.
 
@@ -69,3 +71,6 @@ Initial release. Built on [`@backblaze-labs/b2-sdk`](https://github.com/backblaz
 ### Outputs
 
 `file-id`, `file-name`, `content-sha1`, `bytes-transferred`, `files-uploaded`, `files-downloaded`, `files-deleted`, `files-listed`, `presigned-url`, `verified`, `remote-sha1`, `local-sha1`, `summary-json`.
+
+[Unreleased]: https://github.com/backblaze-labs/b2-action/compare/v1.0.0...HEAD
+[1.0.0]: https://github.com/backblaze-labs/b2-action/releases/tag/v1.0.0

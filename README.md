@@ -47,6 +47,7 @@ The Backblaze B2 GitHub Action. TypeScript-native, built on the official [`@back
   - [Outputs (full reference)](#outputs-full-reference)
   - [Other Backblaze B2 Actions on the Marketplace](#other-backblaze-b2-actions-on-the-marketplace)
   - [Development \& contributing](#development--contributing)
+  - [Running locally from the CLI](#running-locally-from-the-cli)
   - [License](#license)
 
 ---
@@ -54,7 +55,7 @@ The Backblaze B2 GitHub Action. TypeScript-native, built on the official [`@back
 ## Quick start
 
 ```yaml
-- uses: backblaze-labs/b2-action@v0
+- uses: backblaze-labs/b2-action@v1
   with:
     action: upload
     application-key-id: ${{ secrets.B2_APPLICATION_KEY_ID }}
@@ -93,7 +94,7 @@ For one self-contained example per verb (each is also a live integration test), 
 ### Upload a single file
 
 ```yaml
-- uses: backblaze-labs/b2-action@v0
+- uses: backblaze-labs/b2-action@v1
   with:
     action: upload
     application-key-id: ${{ secrets.B2_APPLICATION_KEY_ID }}
@@ -106,7 +107,7 @@ For one self-contained example per verb (each is also a live integration test), 
 ### Upload a directory with globs
 
 ```yaml
-- uses: backblaze-labs/b2-action@v0
+- uses: backblaze-labs/b2-action@v1
   with:
     action: upload
     application-key-id: ${{ secrets.B2_APPLICATION_KEY_ID }}
@@ -121,7 +122,7 @@ For one self-contained example per verb (each is also a live integration test), 
 
 ```yaml
 # Single file
-- uses: backblaze-labs/b2-action@v0
+- uses: backblaze-labs/b2-action@v1
   with:
     action: download
     bucket: my-bucket
@@ -129,7 +130,7 @@ For one self-contained example per verb (each is also a live integration test), 
     destination: ./node_modules.tar
 
 # Prefix (note the trailing slash)
-- uses: backblaze-labs/b2-action@v0
+- uses: backblaze-labs/b2-action@v1
   with:
     action: download
     bucket: my-bucket
@@ -141,7 +142,7 @@ For one self-contained example per verb (each is also a live integration test), 
 
 ```yaml
 # Auto: local-dir source → upload sync. Remote prefix → download sync.
-- uses: backblaze-labs/b2-action@v0
+- uses: backblaze-labs/b2-action@v1
   with:
     action: sync
     bucket: my-bucket
@@ -151,7 +152,7 @@ For one self-contained example per verb (each is also a live integration test), 
     keep-mode: delete   # remove remote files not present locally
 
 # Force B2 → local (cache restore)
-- uses: backblaze-labs/b2-action@v0
+- uses: backblaze-labs/b2-action@v1
   with:
     action: sync
     bucket: my-bucket
@@ -163,7 +164,7 @@ For one self-contained example per verb (each is also a live integration test), 
 ### Server-side copy (same-bucket or cross-bucket)
 
 ```yaml
-- uses: backblaze-labs/b2-action@v0
+- uses: backblaze-labs/b2-action@v1
   with:
     action: copy
     bucket: my-bucket
@@ -171,7 +172,7 @@ For one self-contained example per verb (each is also a live integration test), 
     destination: releases/latest/app.tar.gz
 
 # Cross-bucket: promote staging → prod
-- uses: backblaze-labs/b2-action@v0
+- uses: backblaze-labs/b2-action@v1
   with:
     action: copy
     bucket: my-prod-bucket          # destination
@@ -184,14 +185,14 @@ For one self-contained example per verb (each is also a live integration test), 
 
 ```yaml
 - id: ls
-  uses: backblaze-labs/b2-action@v0
+  uses: backblaze-labs/b2-action@v1
   with:
     action: list
     bucket: my-bucket
     source: tmp/
     max-results: 5000
 
-- uses: backblaze-labs/b2-action@v0
+- uses: backblaze-labs/b2-action@v1
   with:
     action: delete
     bucket: my-bucket
@@ -202,17 +203,17 @@ For one self-contained example per verb (each is also a live integration test), 
 ### Hide / unhide
 
 ```yaml
-- uses: backblaze-labs/b2-action@v0
+- uses: backblaze-labs/b2-action@v1
   with: { action: hide, bucket: my-bucket, source: legacy/old.tar.gz }
 
-- uses: backblaze-labs/b2-action@v0
+- uses: backblaze-labs/b2-action@v1
   with: { action: unhide, bucket: my-bucket, source: legacy/old.tar.gz }
 ```
 
 ### Verify SHA-1 without downloading
 
 ```yaml
-- uses: backblaze-labs/b2-action@v0
+- uses: backblaze-labs/b2-action@v1
   with:
     action: verify
     bucket: my-bucket
@@ -226,7 +227,7 @@ For one self-contained example per verb (each is also a live integration test), 
 
 ```yaml
 - id: link
-  uses: backblaze-labs/b2-action@v0
+  uses: backblaze-labs/b2-action@v1
   with:
     action: presign
     bucket: my-bucket
@@ -240,11 +241,11 @@ For one self-contained example per verb (each is also a live integration test), 
 
 ```yaml
 # SSE-B2 (B2-managed key, no cost)
-- uses: backblaze-labs/b2-action@v0
+- uses: backblaze-labs/b2-action@v1
   with: { action: upload, bucket: my-bucket, source: ./private.tar.gz, destination: private.tar.gz, sse: B2 }
 
 # SSE-C (customer-provided 256-bit key, base64)
-- uses: backblaze-labs/b2-action@v0
+- uses: backblaze-labs/b2-action@v1
   with:
     action: upload
     bucket: my-bucket
@@ -275,7 +276,7 @@ If you don't need customer-managed keys, **`sse: B2`** (SSE-B2, B2-managed) is t
 ### Object Lock retention + legal hold
 
 ```yaml
-- uses: backblaze-labs/b2-action@v0
+- uses: backblaze-labs/b2-action@v1
   with:
     action: retention
     bucket: my-locked-bucket
@@ -289,7 +290,7 @@ If you don't need customer-managed keys, **`sse: B2`** (SSE-B2, B2-managed) is t
 
 ```yaml
 - id: up
-  uses: backblaze-labs/b2-action@v0
+  uses: backblaze-labs/b2-action@v1
   with:
     action: upload
     bucket: my-bucket
@@ -374,6 +375,16 @@ If this Action doesn't fit your workflow, here are other community-maintained op
 The internal architecture (dispatcher flow, source layout, conventions, CI gates) and local commands live in [DEVELOPMENT.md](./DEVELOPMENT.md). The PR / release process is in [CONTRIBUTING.md](./CONTRIBUTING.md).
 
 Security reports: see [SECURITY.md](./SECURITY.md).
+
+## Running locally from the CLI
+
+This is a GitHub Action, not a published CLI, but the bundle is a plain Node script you can run directly for a local smoke test. It reads the same `INPUT_*` variables Actions sets (each `action.yml` input maps to `INPUT_<NAME>`, upper-cased), and falls back to `B2_APPLICATION_KEY_ID` / `B2_APPLICATION_KEY` for credentials:
+
+```bash
+INPUT_ACTION=list INPUT_BUCKET=my-bucket \
+  B2_APPLICATION_KEY_ID=... B2_APPLICATION_KEY=... \
+  node dist/index.js
+```
 
 ## License
 

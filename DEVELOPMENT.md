@@ -114,7 +114,7 @@ Every PR runs:
 | `test` (matrix: ubuntu/macos/windows) | typecheck + vitest unit suite |
 | `lint` | biome `--error-on-warnings` |
 | `coverage` | vitest with v8 coverage, threshold 95 % statements / 85 % branches / 100 % functions / 95 % lines |
-| `build-and-check-dist` | ncc build, then `git diff dist/`. **Drift is a warning, not an error**, while the SDK is on `main`-tracking (see [Sibling-SDK CI scaffold](#sibling-sdk-ci-scaffold-temporary)). Bundle size is gated hard at 4 MiB. |
+| `build-and-check-dist` | ncc build, then `git diff --exit-code dist/`. **Drift fails CI**: rebuild with `pnpm build` and commit `dist/`. Bundle size is gated hard at 4 MiB. |
 | `actionlint` | validates every workflow file under `.github/workflows/` |
 | `self-smoke` | runs `node dist/index.js` with no inputs, expects the missing-input error |
 | `sync-check` ([docs-lint.yml](./.github/workflows/docs-lint.yml)) | every input/output in `action.yml` also appears in the README reference tables. Drift fails CI. |

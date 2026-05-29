@@ -9,14 +9,14 @@ body:
         Thanks for taking the time to file a bug. Before submitting, please:
 
         - **Redact credentials.** This Action calls `core.setSecret` on your app key, auth token, and any presigned URL, so the workflow live log masks them: but those masks do not survive copy-paste into this form. Replace any sensitive values with `<REDACTED>` before posting.
-        - Confirm you're on a recent version. Try pinning to a specific SHA or the latest `v0.x` tag to rule out an in-flight fix.
+        - Confirm you're on a recent version. Try pinning to a specific SHA or the latest `v1.x` tag to rule out an in-flight fix.
 
   - type: input
     id: version
     attributes:
       label: Action version
       description: The `uses:` line from your workflow.
-      placeholder: 'backblaze-labs/b2-action@v0.1.0'
+      placeholder: 'backblaze-labs/b2-action@v1.0.0'
     validations:
       required: true
 
@@ -50,7 +50,7 @@ body:
       description: The relevant step(s) from your workflow file.
       render: yaml
       placeholder: |
-        - uses: backblaze-labs/b2-action@v0
+        - uses: backblaze-labs/b2-action@v1
           with:
             action: upload
             ...

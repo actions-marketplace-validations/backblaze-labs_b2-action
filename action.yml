@@ -1,4 +1,4 @@
-name: 'backblaze-b2'
+name: 'Backblaze B2'
 description: 'Thirteen verbs for Backblaze B2: upload, download, sync, copy, delete, list, hide, unhide, verify, presign, retention, head, purge. TypeScript-native, built on the official b2-sdk.'
 author: 'Backblaze, Inc.'
 branding:

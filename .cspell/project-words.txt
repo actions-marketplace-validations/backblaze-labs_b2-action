@@ -103,6 +103,7 @@ preinstall
 postinstall
 precommit
 prepush
+preversion
 
 # Codex / macOS dev env
 darwin

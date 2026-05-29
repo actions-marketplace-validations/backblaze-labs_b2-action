@@ -1,3 +1,9 @@
 allowBuilds:
   '@biomejs/biome': true
   esbuild: true
+
+# Trust our own first-party SDK immediately (published from a sibling repo);
+# exempt @backblaze-labs/* from the supply-chain minimum-release-age gate so a
+# freshly published version does not block `pnpm install --frozen-lockfile`.
+minimumReleaseAgeExclude:
+  - '@backblaze-labs/*'

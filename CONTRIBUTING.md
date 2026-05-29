@@ -82,13 +82,22 @@ The `build-and-check-dist` CI job also enforces a 4 MiB ceiling on `dist/index.j
 
 ## Release process
 
-Releases are tag-driven (see [`.github/workflows/release.yml`](./.github/workflows/release.yml)):
+Releases are driven by `pnpm version` plus a `vX.Y.Z` tag push (see [`.github/workflows/release.yml`](./.github/workflows/release.yml)).
 
-1. Bump `package.json` `version` and `src/version.ts` `VERSION` in lockstep (the User-Agent token depends on the constant).
-2. Move the `[Unreleased]` section in [`CHANGELOG.md`](./CHANGELOG.md) to a dated `[X.Y.Z]` heading.
-3. Run `pnpm all` to rebuild `dist/` and confirm everything is green.
-4. Commit, then tag with `git tag vX.Y.Z && git push --tags`.
-5. The release workflow runs the full gate, creates the GitHub Release, and moves the floating major tag (`v0`, `v1`, etc.) so users pinning `uses: backblaze-labs/b2-action@v0` track the latest minor/patch.
+As you land PRs, add notes under the `## [Unreleased]` heading in [`CHANGELOG.md`](./CHANGELOG.md), grouped as `### Added` / `### Changed` / `### Fixed` / `### Removed` (Keep a Changelog style).
+
+To cut a release from a clean, up-to-date `main`:
+
+1. `pnpm version <patch|minor|major>` (or an explicit `pnpm version X.Y.Z`). This:
+   - runs `preversion` (lint + typecheck + test) as a gate,
+   - bumps `package.json` `version`,
+   - runs the `version` script, which dates the `[Unreleased]` changelog section ([`scripts/cut-changelog.mjs`](./scripts/cut-changelog.mjs)), rebuilds `dist/` so the User-Agent and bundle carry the new version, and stages `CHANGELOG.md` + `dist/`,
+   - commits all of the above and creates the annotated `vX.Y.Z` tag.
+2. `git push --follow-tags` pushes the commit and the new tag. (`--follow-tags` pushes only the annotated version tag, never the lightweight floating `v1`.)
+3. The tag push fires `release.yml`: the full gate (including a `dist/`-freshness and version check), then it creates the GitHub Release and creates/moves the floating major tag (`v1`, `v2`, etc.) so users pinning `uses: backblaze-labs/b2-action@v1` track the latest minor/patch. Only three-component `vX.Y.Z` tags trigger it.
+4. **First release only:** publish the Action to the GitHub Marketplace by hand. Edit the GitHub Release, tick **Publish this Action to the GitHub Marketplace**, and accept the Marketplace Developer Agreement (`action.yml` already carries the required `name`, `description`, and `branding`). There is no API for this one-time step; every tagged release afterward appears on the Marketplace automatically through the Release the workflow creates.
+
+> The initial `1.0.0` is already set in `package.json`, so `pnpm version` can't produce it. For the first release, tag it directly: `git tag -a v1.0.0 -m v1.0.0 && git push --follow-tags`. Use `pnpm version` from `1.0.1` onward.
 
 ## Reporting bugs
 

@@ -3,7 +3,7 @@
 This folder contains:
 
 - **`ci.yml`**: runs on every PR: typecheck, lint, vitest (Ubuntu / macOS / Windows), coverage gate, build, `dist/` freshness, bundle-size budget, actionlint, offline self-smoke.
-- **`release.yml`**: fires on `v*` tags: full gate + GitHub Release + floats the major-version tag (`v0`, `v1`, …).
+- **`release.yml`**: fires on three-component `vX.Y.Z` tags (a bare `v1` does **not** trigger it): full gate + GitHub Release + floats the major-version tag (`v1`, `v2`, …).
 - **`daily-smoke.yml`**: 03:13 UTC cron: real-B2 end-to-end smoke against the test bucket.
 - **`example-*.yml`**: twelve **example workflows that are also the integration test suite**. See the table below.
 
@@ -30,7 +30,7 @@ All are gated on `github.event.pull_request.head.repo.fork == false` so forks (w
 
 Copy any `example-*.yml` into your own `.github/workflows/`, then:
 
-1. Replace `uses: ./` with `uses: backblaze-labs/b2-action@v0` (or whichever ref you pin to).
+1. Replace `uses: ./` with `uses: backblaze-labs/b2-action@v1` (or whichever ref you pin to).
 2. Replace `${{ secrets.B2_TEST_BUCKET }}` etc. with your own bucket secret names.
 3. Adjust the `on:` triggers, paths, and cleanup behavior to match your workflow.
 
