@@ -109,8 +109,8 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
-      # Runs scripts/actionlint.sh, which fetches a version-pinned actionlint via
-      # a SHA-pinned bootstrap downloader (no `curl | bash` from a mutable branch).
+      # Runs scripts/actionlint.sh, which downloads a version-pinned actionlint
+      # release asset and verifies its SHA-256 before use (no `curl | bash`).
       - name: actionlint
         shell: bash
         run: bash scripts/actionlint.sh

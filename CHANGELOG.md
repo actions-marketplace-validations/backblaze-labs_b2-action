@@ -9,8 +9,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 ### Security
 
 - Pin every third-party GitHub Action in `.github/workflows/` to a full commit SHA (with an exact `# vX.Y.Z` comment), so a moved or compromised upstream tag cannot alter our CI or the `contents: write` release job. Dependabot keeps the pins current. ([#18](https://github.com/backblaze-labs/b2-action/issues/18))
-- Add `scripts/check-action-pins.mjs` (`pnpm lint:actions`), wired into the pre-commit hook and the CI `actionlint` job, which fails the build if any third-party action regresses to a mutable tag instead of a full commit SHA. ([#18](https://github.com/backblaze-labs/b2-action/issues/18))
-- Harden the actionlint install: pin the upstream `download-actionlint.bash` bootstrap to a commit SHA (the actionlint v1.7.12 release) instead of `main`, and route CI through `scripts/actionlint.sh`, removing the last `curl | bash`-from-a-mutable-branch path. ([#18](https://github.com/backblaze-labs/b2-action/issues/18))
+- Add `scripts/check-action-pins.mjs` (`pnpm lint:actions`), wired into the pre-commit hook and the CI `actionlint` job, which fails the build if any third-party action regresses to a mutable tag, drops its full-SHA pin, or loses its exact `# vX.Y.Z` version comment. ([#18](https://github.com/backblaze-labs/b2-action/issues/18))
+- Harden the actionlint install: `scripts/actionlint.sh` now downloads the version-pinned release asset directly and verifies it against a hard-coded SHA-256 before use, instead of executing a `curl | bash` bootstrap downloader. CI runs that same script, so no unverified binary or mutable upstream script runs in the pipeline. ([#18](https://github.com/backblaze-labs/b2-action/issues/18))
 
 ### Documentation
 
