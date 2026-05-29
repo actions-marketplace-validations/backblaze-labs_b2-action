@@ -70,11 +70,11 @@ This Action follows [semantic versioning](https://semver.org) and maintains a fl
 
 - **`@v1`** tracks the latest `1.x` release. It is convenient and picks up patches automatically, but it is a **mutable** tag: it is moved to each new release, so the code that runs can change without any change to your workflow.
 - **`@v1.0.1`** is a pinned, SSH-signed release tag, so it shows as **Verified** on GitHub and is easy to audit. Note that a Git tag is still a movable ref, so treat this as a stable, verifiable pointer rather than an immutability guarantee.
-- **`@<full-commit-sha>`** is fully immutable and is what we recommend for anything beyond experimentation. It guarantees the exact code that runs cannot change underneath you, even if a tag is moved. [Dependabot](https://docs.github.com/en/code-security/dependabot) keeps SHA pins current and rewrites the trailing version comment for you.
+- **`@<full-commit-sha>`** is fully immutable and is what we recommend for anything beyond experimentation. It guarantees the exact code that runs cannot change underneath you, even if a tag is moved. If you enable [Dependabot](https://docs.github.com/en/code-security/dependabot) GitHub Actions updates in your repository, it keeps SHA pins current and rewrites the trailing version comment for you.
 
 ```yaml
 # Recommended for production: pin to a full-length commit SHA.
-# Dependabot updates the SHA and the trailing version comment together.
+# With Dependabot GitHub Actions updates enabled, it bumps the SHA + comment for you.
 - uses: backblaze-labs/b2-action@<commit-sha> # v1.0.1
 ```
 

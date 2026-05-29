@@ -73,7 +73,7 @@ pnpm build          # ncc build src/main.ts -o dist
 pnpm actionlint     # validate every workflow under .github/workflows/
 pnpm lint:actions   # fail if any third-party action isn't pinned to a commit SHA
 pnpm spellcheck     # cspell across src/, __tests__/, *.md, *.yml, action.yml
-pnpm all            # lint + typecheck + test + build + spellcheck
+pnpm all            # lint + typecheck + test + build + spellcheck + lint:actions
 pnpm verify-dist    # build, then `git diff --exit-code dist/` (must be clean)
 pnpm docs           # typedoc (strict): generates docs/ for GitHub Pages
 pnpm docs:watch     # typedoc in watch mode for local authoring
