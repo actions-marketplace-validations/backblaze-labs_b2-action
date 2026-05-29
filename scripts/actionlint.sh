@@ -19,12 +19,15 @@
 #
 # CI runs this same script (see .github/workflows/ci.yml).
 #
-# To bump actionlint: change ACTIONLINT_VERSION and regenerate every entry in
-# binary_sha_for() (download each release asset, extract, sha256 the binary):
+# To bump actionlint: change ACTIONLINT_VERSION and regenerate EVERY entry in
+# binary_sha_for(), including the windows_amd64 zip (it extracts differently
+# from the *.tar.gz assets):
+#   V=<VER>; B="https://github.com/rhysd/actionlint/releases/download/v$V"
 #   for k in darwin_amd64 darwin_arm64 linux_amd64 linux_arm64; do
-#     curl -fsSL "https://github.com/rhysd/actionlint/releases/download/v<VER>/actionlint_<VER>_$k.tar.gz" \
-#       | tar -xzO actionlint | shasum -a 256
+#     printf '%s %s\n' "$k" "$(curl -fsSL "$B/actionlint_${V}_$k.tar.gz" | tar -xzO actionlint | shasum -a 256 | cut -d' ' -f1)"
 #   done
+#   t=$(mktemp -d); curl -fsSL -o "$t/w.zip" "$B/actionlint_${V}_windows_amd64.zip"
+#   printf 'windows_amd64 %s\n' "$(unzip -p "$t/w.zip" actionlint.exe | shasum -a 256 | cut -d' ' -f1)"
 
 set -euo pipefail
 
