@@ -56,6 +56,7 @@ export function makeInputs(
     resume: true,
     contentType: undefined,
     dryRun: false,
+    allowBucketPurge: false,
     presignTtlSeconds: 3600,
     endpoint: undefined,
     failOnEmpty: true,

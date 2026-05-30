@@ -77,8 +77,10 @@ describe('purge command', () => {
     expect(after.files.length).toBeGreaterThan(0)
   })
 
-  it('refuses to run without an explicit source input', async () => {
-    await expect(purgeCommand(fx.bucket, inputs('purge'))).rejects.toThrow(/'source' input/)
+  it('refuses bucket-wide purge without explicit confirmation', async () => {
+    await expect(purgeCommand(fx.bucket, inputs('purge'))).rejects.toThrow(
+      /'allow-bucket-purge' must be true/,
+    )
   })
 })
 

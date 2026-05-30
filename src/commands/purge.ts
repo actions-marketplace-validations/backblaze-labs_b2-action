@@ -28,10 +28,9 @@ export interface PurgeResult {
  * implementation streams over `listFileVersions` and removes all versions,
  * but `purge` makes the wipe-the-prefix intent explicit and warns loudly.
  *
- * If `source` is empty or `/`, this purges the **entire bucket**, and
- * we require `dry-run: false` to be set _intentionally_ to do so. (Default
- * behavior is to refuse a bucket-wide purge unless `source` is explicitly
- * an empty string in inputs, not undefined.)
+ * If `source` is empty or `/`, this purges the **entire bucket** only when
+ * `allow-bucket-purge: true` is also set. Default behavior is to require a
+ * scoped prefix so an omitted source cannot become a bucket-wide wipe.
  *
  * Supports `dry-run` to preview what would be deleted.
  */
@@ -40,19 +39,19 @@ export async function purgeCommand(
   inputs: ParsedInputs,
   signal?: AbortSignal,
 ): Promise<PurgeResult> {
-  // Normalize: treat undefined source as "missing" to avoid accidental bucket-wide purges.
-  if (inputs.source === undefined) {
+  const bucketWide = inputs.source === undefined || inputs.source === '' || inputs.source === '/'
+  if (bucketWide && !inputs.allowBucketPurge) {
     throw new Error(
-      "'source' input is required for 'purge' (use empty string explicitly for whole-bucket purge)",
+      "'allow-bucket-purge' must be true for whole-bucket purge (set 'source' to a prefix for scoped purge)",
     )
   }
-  const prefix =
-    inputs.source.endsWith('/') || inputs.source === '' ? inputs.source : `${inputs.source}/`
+  const source = inputs.source ?? ''
+  const prefix = bucketWide ? '' : source.endsWith('/') ? source : `${source}/`
   const dryRun = inputs.dryRun
 
   if (prefix === '' && !dryRun) {
     core.warning(
-      `purge will permanently delete EVERY version in bucket "${bucket.name}". Continuing because dry-run is false.`,
+      `purge will permanently delete EVERY version in bucket "${bucket.name}". Continuing because allow-bucket-purge is true.`,
     )
   }
 
