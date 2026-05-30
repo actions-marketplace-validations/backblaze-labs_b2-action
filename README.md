@@ -94,7 +94,7 @@ This is the same supply-chain practice this Action applies to its own workflows:
 | `list` | List files under a prefix; emits JSON for downstream steps. | `bucket` (and usually `source`) |
 | `hide` | Soft-delete via hide marker. Underlying data preserved until lifecycle. | `source`, `bucket` |
 | `unhide` | Restore a hidden file by deleting its top hide marker. | `source`, `bucket` |
-| `verify` | HEAD-request the remote SHA-1 and compare to `expected-sha1` or `destination` (local file). No body transfer. | `source`, `bucket`, plus one of `expected-sha1` / `destination` |
+| `verify` | HEAD-request the remote whole-file SHA-1 and compare to `expected-sha1` or `destination` (local file). No body transfer; multipart objects cannot be verified when B2 does not expose a whole-file SHA-1. | `source`, `bucket`, plus one of `expected-sha1` / `destination` |
 | `presign` | Time-limited download URL via `b2_get_download_authorization`. URL is masked. Prefix mode returns one URL per file. | `source`, `bucket` |
 | `retention` | Apply Object Lock retention + legal hold to a file. | `source`, `bucket`, plus `retention-mode` and/or `legal-hold` |
 | `head` | Fetch object metadata (size, sha1, contentType, fileInfo) via HEAD. No body transfer. | `source`, `bucket` |
@@ -238,6 +238,11 @@ This is the same supply-chain practice this Action applies to its own workflows:
     # expected-sha1: 3b1d2e8c9...
 ```
 
+`verify` is HEAD-only: it compares against the whole-file SHA-1 that B2 exposes
+in object metadata. Multipart-uploaded objects may have no whole-file SHA-1 in
+B2, so `verify` cannot validate them without downloading and hashing the object;
+supplying `expected-sha1` does not help when the remote digest is unavailable.
+
 ### Presign a download URL
 
 ```yaml
@@ -367,7 +372,7 @@ If you don't need customer-managed keys, **`sse: B2`** (SSE-B2, B2-managed) is t
 | `files-listed` | list | Count returned (capped by `max-results`). |
 | `presigned-url` | presign | Time-limited download URL. Masked as a secret. |
 | `verified` | verify | `true` / `false`. |
-| `remote-sha1` | verify | The remote object's SHA-1. |
+| `remote-sha1` | verify | The remote object's whole-file SHA-1, or empty for multipart objects when B2 does not expose one. |
 | `local-sha1` | verify | Local file SHA-1 (when computed from `destination`). |
 | `summary-json` | every command | JSON array with per-file details. |
 
