@@ -72,6 +72,7 @@ pnpm test:coverage  # same + the 95/85/100/95 coverage gate
 pnpm build          # ncc build src/main.ts -o dist
 pnpm actionlint     # validate every workflow under .github/workflows/
 pnpm lint:actions   # fail if any third-party action isn't pinned to a commit SHA
+pnpm run audit      # pnpm audit --prod --audit-level high (CI gate; needs network)
 pnpm spellcheck     # cspell across src/, __tests__/, *.md, *.yml, action.yml
 pnpm all            # lint + typecheck + test + build + spellcheck + lint:actions
 pnpm verify-dist    # build, then `git diff --exit-code dist/` (must be clean)
@@ -118,6 +119,7 @@ Every PR runs:
 | `build-and-check-dist` | ncc build, then `git diff --exit-code dist/`. **Drift fails CI**: rebuild with `pnpm build` and commit `dist/`. Bundle size is gated hard at 4 MiB. |
 | `actionlint` | validates every workflow file under `.github/workflows/`, then runs `scripts/check-action-pins.mjs` to fail if any third-party action is on a mutable tag instead of a full commit SHA (see [Pinning third-party actions](#pinning-third-party-actions)) |
 | `self-smoke` | runs `node dist/index.js` with no inputs, expects the missing-input error |
+| `audit` | `pnpm audit --prod --audit-level high`: fails on a high/critical advisory in a **production** dependency. Scoped to prod (not devDeps) so a dev-tool advisory can't block an unrelated PR; devDep updates are handled by Dependabot. CI calls the builtin `pnpm audit` directly (resolves against the lockfile, no install); `pnpm run audit` is the local-convenience equivalent. |
 | `sync-check` ([docs-lint.yml](./.github/workflows/docs-lint.yml)) | every input/output in `action.yml` also appears in the README reference tables. Drift fails CI. |
 | `markdownlint` ([docs-lint.yml](./.github/workflows/docs-lint.yml)) | prose-style consistency across `**/*.md`. Config in [`.markdownlint-cli2.jsonc`](./.markdownlint-cli2.jsonc). |
 | `link-check` ([docs-lint.yml](./.github/workflows/docs-lint.yml)) | lychee runs in `--offline` mode against `**/*.md`; catches broken relative paths and anchor fragments. External URLs are not pinged. |

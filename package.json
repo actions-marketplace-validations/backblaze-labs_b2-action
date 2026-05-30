@@ -21,6 +21,7 @@
     "version": "node scripts/cut-changelog.mjs && pnpm build && git add CHANGELOG.md dist",
     "actionlint": "bash scripts/actionlint.sh",
     "lint:actions": "node scripts/check-action-pins.mjs",
+    "audit": "pnpm audit --prod --audit-level high",
     "docs": "typedoc",
     "docs:watch": "typedoc --watch",
     "docs:check-action-yml": "node scripts/check-action-yml-vs-readme.mjs",
