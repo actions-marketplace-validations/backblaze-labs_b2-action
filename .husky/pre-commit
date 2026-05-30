@@ -1,10 +1,9 @@
 #!/usr/bin/env bash
-# Pre-commit: every check, every commit, no path-gating.
+# Pre-commit: local code checks, every commit, no path-gating.
 #
-# Earlier we gated each step by staged-file patterns to keep the hook fast.
-# That turned out to be a foot-gun: a workflow tweak committed alongside a
-# src/ change could slip past actionlint. Running everything every time is
-# ~5 s on a clean repo, well worth the safety.
+# Workflow security checks live in .github/workflows/security.yml through the
+# shared backblaze-labs/github-actions composite action, so this hook stays
+# focused on repo-local code and docs.
 #
 # Skip with `git commit --no-verify` only if you have a damn good reason.
 
@@ -29,12 +28,6 @@ if ! git diff --quiet -- dist/; then
 EOF
   exit 1
 fi
-
-echo "▸ actionlint"
-pnpm --silent actionlint
-
-echo "▸ action SHA-pin check"
-pnpm --silent lint:actions
 
 echo "▸ cspell"
 pnpm --silent spellcheck

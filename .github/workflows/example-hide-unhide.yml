@@ -13,14 +13,21 @@ on:
 permissions:
   contents: read
 
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
 jobs:
   soft-delete:
+    name: soft delete
     if: github.event_name == 'workflow_dispatch' || github.event_name == 'push' || github.event.pull_request.head.repo.fork == false
     runs-on: ubuntu-latest
     env:
       KEY: examples/hide/${{ github.run_id }}/masked.txt
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
 
       - name: Create payload
         run: echo "this is the visible content" > masked.txt
@@ -55,7 +62,9 @@ jobs:
           source: ${{ env.KEY }}
 
       - name: Assert list is empty
-        run: test "${{ steps.ls-hidden.outputs.files-listed }}" = "0"
+        env:
+          FILES_LISTED: ${{ steps.ls-hidden.outputs.files-listed }}
+        run: test "$FILES_LISTED" = "0"
 
       - name: Unhide
         uses: ./
@@ -77,7 +86,9 @@ jobs:
           source: ${{ env.KEY }}
 
       - name: Assert list is non-empty
-        run: test "${{ steps.ls-visible.outputs.files-listed }}" = "1"
+        env:
+          FILES_LISTED: ${{ steps.ls-visible.outputs.files-listed }}
+        run: test "$FILES_LISTED" = "1"
 
       - name: Cleanup
         if: always()

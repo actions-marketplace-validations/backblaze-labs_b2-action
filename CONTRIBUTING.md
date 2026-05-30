@@ -6,19 +6,19 @@ Thanks for your interest. The Action is intentionally small and built on the off
 
 ```bash
 pnpm install
-pnpm all        # lint + typecheck + test + build (the same gates CI runs)
+pnpm all        # lint + typecheck + test + build + spellcheck
 ```
 
 Requirements: Node 24+, pnpm 10+. The action runs on Node 24 in the GitHub Actions runtime; we test against Node 24 on Linux, macOS, and Windows.
 
 `pnpm install` also wires up git hooks (via [husky](https://github.com/typicode/husky)):
 
-- **`pre-commit`** runs `lint + typecheck + test + build + dist/ freshness + actionlint + lint:actions + spellcheck`. Every check, every commit, no path-gating: earlier path-gating let a workflow tweak slip past actionlint. ≈ 5 s on a clean repo.
+- **`pre-commit`** runs `lint + typecheck + test + build + dist/ freshness + spellcheck`. Every local code/doc check, every commit, no path-gating.
 - **`pre-push`** runs `pnpm test:coverage`, which subsumes the plain `test` already done in `pre-commit`.
 
 Skip a hook with `--no-verify` if you absolutely need to. CI runs the same checks regardless. In the release workflow husky is disabled via `HUSKY=0` so the in-CI `git push` of the floating major tag doesn't re-trigger the local hooks.
 
-`actionlint` is pinned to a specific version, downloaded into `node_modules/.cache/actionlint/`, and SHA-256-verified before every run. Set `ACTIONLINT_USE_SYSTEM=1` to use a system-installed `actionlint` instead (opt-in; not verified).
+GitHub Actions workflow security is centralized in [`.github/workflows/security.yml`](./.github/workflows/security.yml), which calls the shared `backblaze-labs/github-actions` composite action pinned to a commit SHA. That shared action owns actionlint, third-party action pin checks, and zizmor audits so this repo does not carry local copies of those scripts.
 
 ## Project shape
 
@@ -35,7 +35,8 @@ __tests__/
   _helpers.ts      # shared `makeInputs()` for tests
   *.test.ts        # unit tests (run against the SDK's B2Simulator, no network)
 .github/workflows/
-  ci.yml                       # lint, typecheck, test, coverage, build, dist-freshness, actionlint, smoke
+  ci.yml                       # lint, typecheck, test, coverage, build, dist-freshness, smoke
+  security.yml                 # shared GitHub Actions workflow security checks
   example-*.yml                # runnable examples that double as integration tests
   release.yml                  # see RELEASE.md
 action.yml         # marketplace manifest: inputs, outputs, branding

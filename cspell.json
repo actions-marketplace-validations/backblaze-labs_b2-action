@@ -22,7 +22,6 @@
     "pnpm-lock.yaml",
     "package-lock.json",
     ".husky/_/**",
-    "scripts/actionlint.sh",
     "*.min.*",
     "*.map",
     "LICENSE",

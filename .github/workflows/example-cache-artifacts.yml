@@ -13,8 +13,13 @@ on:
 permissions:
   contents: read
 
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
 jobs:
   cache:
+    name: cache
     if: github.event_name == 'workflow_dispatch' || github.event_name == 'push' || github.event.pull_request.head.repo.fork == false
     runs-on: ubuntu-latest
     # We hardcode `Linux` rather than `${{ runner.os }}` because the `runner`
@@ -24,6 +29,8 @@ jobs:
       CACHE_KEY: cache/Linux/example-${{ github.run_id }}.tar.gz
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
 
       - name: Build a synthetic cache payload
         run: |
@@ -56,10 +63,13 @@ jobs:
           destination: payload.restored.tar.gz
 
       - name: Verify cache integrity
+        env:
+          SAVED_FILE_ID: ${{ steps.save.outputs.file-id }}
+          SAVED_SHA1: ${{ steps.save.outputs.content-sha1 }}
         run: |
           tar -tzf payload.restored.tar.gz | grep _cache/blob
-          echo "Saved file-id: ${{ steps.save.outputs.file-id }}"
-          echo "SHA-1:         ${{ steps.save.outputs.content-sha1 }}"
+          echo "Saved file-id: $SAVED_FILE_ID"
+          echo "SHA-1:         $SAVED_SHA1"
 
       - name: Cleanup
         if: always()

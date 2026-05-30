@@ -13,14 +13,21 @@ on:
 permissions:
   contents: read
 
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
 jobs:
   replicate:
+    name: replicate
     if: github.event_name == 'workflow_dispatch' || github.event_name == 'push' || github.event.pull_request.head.repo.fork == false
     runs-on: ubuntu-latest
     env:
       KEY: examples/cross-bucket/${{ github.run_id }}/artifact.tar.gz
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
 
       - name: Build a synthetic artifact
         run: |
@@ -49,7 +56,9 @@ jobs:
           destination: ${{ env.KEY }}
 
       - name: Confirm copy produced a file-id
-        run: test -n "${{ steps.copy.outputs.file-id }}"
+        env:
+          COPIED_FILE_ID: ${{ steps.copy.outputs.file-id }}
+        run: test -n "$COPIED_FILE_ID"
 
       - name: Cleanup both buckets
         if: always()

@@ -14,14 +14,21 @@ on:
 permissions:
   contents: read
 
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
 jobs:
   head:
+    name: head
     if: github.event_name == 'workflow_dispatch' || github.event_name == 'push' || github.event.pull_request.head.repo.fork == false
     runs-on: ubuntu-latest
     env:
       KEY: examples/head/${{ github.run_id }}/probe.bin
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
 
       - name: Create asset
         run: dd if=/dev/urandom of=probe.bin bs=1024 count=8
@@ -49,14 +56,21 @@ jobs:
           source: ${{ env.KEY }}
 
       - name: Assert HEAD outputs match upload
+        env:
+          PROBE_FILE_ID: ${{ steps.probe.outputs.file-id }}
+          UPLOAD_FILE_ID: ${{ steps.up.outputs.file-id }}
+          PROBE_SHA1: ${{ steps.probe.outputs.content-sha1 }}
+          UPLOAD_SHA1: ${{ steps.up.outputs.content-sha1 }}
+          BYTES_TRANSFERRED: ${{ steps.probe.outputs.bytes-transferred }}
+          SUMMARY_JSON: ${{ steps.probe.outputs.summary-json }}
         run: |
           set -euo pipefail
-          test "${{ steps.probe.outputs.file-id }}" = "${{ steps.up.outputs.file-id }}"
-          test "${{ steps.probe.outputs.content-sha1 }}" = "${{ steps.up.outputs.content-sha1 }}"
+          test "$PROBE_FILE_ID" = "$UPLOAD_FILE_ID"
+          test "$PROBE_SHA1" = "$UPLOAD_SHA1"
           # HEAD transfers no bytes:
-          test "${{ steps.probe.outputs.bytes-transferred }}" = "0"
+          test "$BYTES_TRANSFERRED" = "0"
           # summary-json is an array of HeadResults (one entry); spot-check shape:
-          echo '${{ steps.probe.outputs.summary-json }}' | jq -e '.[0].contentType, .[0].uploadTimestamp, .[0].size'
+          echo "$SUMMARY_JSON" | jq -e '.[0].contentType, .[0].uploadTimestamp, .[0].size'
 
       - name: Cleanup
         if: always()
