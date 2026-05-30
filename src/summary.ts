@@ -62,8 +62,8 @@ export async function writeStepSummary(opts: {
     lines.push('|------|------|---------|-------|--------|')
     for (const r of opts.rows) {
       lines.push(
-        `| \`${escapePipes(r.fileName)}\` | ${r.size !== undefined ? formatBytes(r.size) : ''} | ${
-          r.fileId !== undefined ? `\`${escapePipes(r.fileId)}\`` : ''
+        `| ${inlineCodeCell(r.fileName)} | ${r.size !== undefined ? formatBytes(r.size) : ''} | ${
+          r.fileId !== undefined ? inlineCodeCell(r.fileId) : ''
         } | ${r.sha1 !== undefined && r.sha1 !== null ? `\`${r.sha1.slice(0, 12)}…\`` : ''} | ${
           r.status ?? ''
         } |`,
@@ -84,6 +84,10 @@ export async function writeStepSummary(opts: {
   }
 }
 
-function escapePipes(s: string): string {
-  return s.replace(/\|/g, '\\|')
+function inlineCodeCell(value: string): string {
+  return `<code>${escapeHtml(value).replaceAll('|', '&#124;')}</code>`
+}
+
+function escapeHtml(value: string): string {
+  return value.replaceAll('&', '&amp;').replaceAll('<', '&lt;').replaceAll('>', '&gt;')
 }

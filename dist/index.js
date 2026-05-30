@@ -40865,7 +40865,7 @@ async function writeStepSummary(opts) {
         lines.push('| File | Size | File ID | SHA-1 | Status |');
         lines.push('|------|------|---------|-------|--------|');
         for (const r of opts.rows) {
-            lines.push(`| \`${escapePipes(r.fileName)}\` | ${r.size !== undefined ? formatBytes(r.size) : ''} | ${r.fileId !== undefined ? `\`${escapePipes(r.fileId)}\`` : ''} | ${r.sha1 !== undefined && r.sha1 !== null ? `\`${r.sha1.slice(0, 12)}…\`` : ''} | ${r.status ?? ''} |`);
+            lines.push(`| ${inlineCodeCell(r.fileName)} | ${r.size !== undefined ? formatBytes(r.size) : ''} | ${r.fileId !== undefined ? inlineCodeCell(r.fileId) : ''} | ${r.sha1 !== undefined && r.sha1 !== null ? `\`${r.sha1.slice(0, 12)}…\`` : ''} | ${r.status ?? ''} |`);
         }
     }
     lines.push('');
@@ -40880,8 +40880,11 @@ async function writeStepSummary(opts) {
         warning(`Failed to write step summary: ${err.message}`);
     }
 }
-function escapePipes(s) {
-    return s.replace(/\|/g, '\\|');
+function inlineCodeCell(value) {
+    return `<code>${escapeHtml(value).replaceAll('|', '&#124;')}</code>`;
+}
+function escapeHtml(value) {
+    return value.replaceAll('&', '&amp;').replaceAll('<', '&lt;').replaceAll('>', '&gt;');
 }
 
 ;// CONCATENATED MODULE: ./src/main.ts
