@@ -1,6 +1,6 @@
 import { rm, writeFile } from 'node:fs/promises'
 import { join } from 'node:path'
-import { afterEach, beforeEach, describe, expect, it } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { retentionCommand } from '../../src/commands/retention.ts'
 import { uploadCommand } from '../../src/commands/upload.ts'
 import { boundInputs, makeFixture, makeInputs, seedFile, type TestFixture } from '../_helpers.ts'
@@ -39,6 +39,36 @@ describe('retention command', () => {
 
     expect(result.appliedMode).toBe('governance')
     expect(result.retainUntilTimestamp).toBe(Date.parse(tomorrow))
+  })
+
+  it('forwards bypass-governance to the SDK retention call', async () => {
+    await seedFile(fx, 'governance.txt', 'governed')
+
+    const tomorrow = new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString()
+    const spy = vi.spyOn(fx.bucket, 'updateFileRetention')
+    try {
+      await retentionCommand(
+        fx.bucket,
+        inputs({
+          source: 'governance.txt',
+          retentionMode: 'governance',
+          retentionUntil: tomorrow,
+          bypassGovernance: true,
+        }),
+      )
+
+      expect(spy).toHaveBeenCalledWith(
+        'governance.txt',
+        expect.any(String),
+        {
+          mode: 'governance',
+          retainUntilTimestamp: Date.parse(tomorrow),
+        },
+        { bypassGovernance: true },
+      )
+    } finally {
+      spy.mockRestore()
+    }
   })
 
   it('applies a legal hold without retention', async () => {

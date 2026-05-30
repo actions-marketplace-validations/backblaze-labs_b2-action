@@ -36214,10 +36214,15 @@ async function retentionCommand(bucket, inputs) {
     startGroup(`retention b2://${bucket.name}/${source}`);
     try {
         if (mode !== undefined) {
-            const result = await bucket.updateFileRetention(source, hit.fileId, {
+            const retention = {
                 mode: mode === 'none' ? null : mode,
                 retainUntilTimestamp: retainUntilMillis,
-            });
+            };
+            const result = inputs.bypassGovernance
+                ? await bucket.updateFileRetention(source, hit.fileId, retention, {
+                    bypassGovernance: true,
+                })
+                : await bucket.updateFileRetention(source, hit.fileId, retention);
             appliedMode = mode;
             retainUntilTimestamp = result.fileRetention.retainUntilTimestamp;
             info(`  retention: mode=${mode} retainUntil=${retainUntilMillis}`);
