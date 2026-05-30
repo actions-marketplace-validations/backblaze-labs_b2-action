@@ -405,13 +405,16 @@ describe('purge: wide-scope warning path', () => {
     await rm(fx.workDir, { recursive: true, force: true })
   })
 
-  it('rejects when source is undefined (no accidental bucket-wide purges)', async () => {
+  it('rejects bucket-wide purge scope without confirmation', async () => {
     await expect(
       purgeCommand(fx.bucket, makeInputs('purge', { bucket: 'gh-action-purge-wide' })),
-    ).rejects.toThrow(/'source' input is required/)
+    ).rejects.toThrow(/'allow-bucket-purge' must be true/)
+    await expect(purgeCommand(fx.bucket, makeInputs('purge', fx, { source: '' }))).rejects.toThrow(
+      /'allow-bucket-purge' must be true/,
+    )
   })
 
-  it('purges the entire bucket when source is explicitly empty', async () => {
+  it('purges the entire bucket when allow-bucket-purge confirms bucket scope', async () => {
     for (const name of ['x.txt', 'y.txt', 'sub/z.txt']) {
       const local = join(fx.workDir, name.replace('/', '_'))
       await writeFile(local, name)
@@ -424,7 +427,10 @@ describe('purge: wide-scope warning path', () => {
       )
     }
 
-    const result = await purgeCommand(fx.bucket, makeInputs('purge', fx, { source: '' }))
+    const result = await purgeCommand(
+      fx.bucket,
+      makeInputs('purge', fx, { source: '/', allowBucketPurge: true }),
+    )
     expect(result.errors).toBe(0)
     expect(result.files.length).toBeGreaterThanOrEqual(3)
     const after = await fx.bucket.listFileVersions({ prefix: '' })

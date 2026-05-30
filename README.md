@@ -98,7 +98,7 @@ This is the same supply-chain practice this Action applies to its own workflows:
 | `presign` | Time-limited download URL via `b2_get_download_authorization`. URL is masked. Prefix mode returns one URL per file. | `source`, `bucket` |
 | `retention` | Apply Object Lock retention + legal hold to a file. | `source`, `bucket`, plus `retention-mode` and/or `legal-hold` |
 | `head` | Fetch object metadata (size, sha1, contentType, fileInfo) via HEAD. No body transfer. | `source`, `bucket` |
-| `purge` | Permanently delete every file version under a prefix, including hide markers and history. Supports `dry-run`. | `source`, `bucket` |
+| `purge` | Permanently delete every file version under a prefix, including hide markers and history. Whole-bucket purge requires `allow-bucket-purge: true`. Supports `dry-run`. | `source` or `allow-bucket-purge`, `bucket` |
 
 ---
 
@@ -333,7 +333,7 @@ If you don't need customer-managed keys, **`sse: B2`** (SSE-B2, B2-managed) is t
 | `application-key` | no\* | | B2 application key. Falls back to `$B2_APPLICATION_KEY`. |
 | `bucket` | yes | | Destination bucket name. |
 | `source-bucket` | copy only | `bucket` | Source bucket for cross-bucket copy. |
-| `source` | command-dependent | | Local path/glob (upload/sync up); B2 file name or prefix (everything else). |
+| `source` | command-dependent | | Local path/glob (upload/sync up); B2 file name or prefix (everything else). For whole-bucket purge, omit `source` or set `/` and set `allow-bucket-purge: true`. |
 | `destination` | command-dependent | | B2 file/prefix (upload/sync up/copy); local path (download/sync down/verify). |
 | `include` | no | | CSV of glob patterns to include (upload). |
 | `exclude` | no | `.git/**` | CSV of glob patterns to exclude (upload). |
@@ -341,7 +341,8 @@ If you don't need customer-managed keys, **`sse: B2`** (SSE-B2, B2-managed) is t
 | `part-size` | no | SDK default | Multipart part size in bytes. |
 | `resume` | no | `true` | Reserved. Currently not honored; the action's streaming upload source is non-sliceable, so retries do a full re-upload. Kept in the input surface so it can light up if a `BufferSource` fallback ships. |
 | `content-type` | no | `b2/x-auto` | MIME type for uploads. |
-| `dry-run` | no | `false` | Preview only (sync/delete). |
+| `dry-run` | no | `false` | Preview only (sync/delete/purge). |
+| `allow-bucket-purge` | purge only | `false` | Permit `purge` to target the entire bucket when `source` is empty or `/`. |
 | `presign-ttl` | no | `3600` | Presigned URL TTL in seconds. |
 | `endpoint` | no | | Override B2 realm (staging/custom). |
 | `fail-on-empty` | no | `true` | Fail if an upload glob matches zero files. |

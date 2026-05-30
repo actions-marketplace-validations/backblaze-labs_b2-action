@@ -22,7 +22,7 @@ inputs:
     description: 'Source bucket for cross-bucket copy. Defaults to `bucket`.'
     required: false
   source:
-    description: 'Command-dependent. upload/sync (up): local path or glob. download/sync (down)/copy/delete/presign/list/hide/unhide/verify/retention: B2 file name or prefix.'
+    description: 'Command-dependent. upload/sync (up): local path or glob. download/sync (down)/copy/delete/presign/list/hide/unhide/verify/retention/head/purge: B2 file name or prefix. For whole-bucket purge, omit source or set `/` and set allow-bucket-purge: true.'
     required: false
   destination:
     description: 'Command-dependent. upload/sync (up): B2 file name or prefix. download/sync (down): local path or directory. copy: destination B2 file name. verify: local file to compare against the remote SHA-1.'
@@ -49,7 +49,11 @@ inputs:
     description: 'Content-Type for uploads. Defaults to "b2/x-auto" (B2 auto-detects).'
     required: false
   dry-run:
-    description: 'Preview what would happen without executing (sync/delete). Default false.'
+    description: 'Preview what would happen without executing (sync/delete/purge). Default false.'
+    required: false
+    default: 'false'
+  allow-bucket-purge:
+    description: 'Permit `purge` to target the entire bucket when `source` is empty or `/`. Default false; ignored by other actions.'
     required: false
     default: 'false'
   presign-ttl:

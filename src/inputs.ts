@@ -101,6 +101,8 @@ export interface ParsedInputs {
   contentType: string | undefined
   /** Preview without executing (sync/delete/purge). */
   dryRun: boolean
+  /** Permit whole-bucket purge when `source` is empty or `/`. */
+  allowBucketPurge: boolean
   /** Presigned-URL TTL in seconds. */
   presignTtlSeconds: number
   /** Override B2 realm endpoint for staging / custom realms. */
@@ -158,7 +160,11 @@ export function parseInputs(): ParsedInputs {
 
   const bucket = required('bucket')
   const sourceBucket = optional('source-bucket')
-  const source = optional('source')
+  const allowBucketPurge = parseBool(
+    'allow-bucket-purge',
+    core.getInput('allow-bucket-purge') || 'false',
+  )
+  const source = optionalSource(action, allowBucketPurge)
   const destination = optional('destination')
 
   const include = splitCsv(optional('include'))
@@ -228,6 +234,7 @@ export function parseInputs(): ParsedInputs {
     resume,
     contentType,
     dryRun,
+    allowBucketPurge,
     presignTtlSeconds,
     endpoint,
     failOnEmpty,
@@ -300,6 +307,12 @@ function required(name: string): string {
 function optional(name: string): string | undefined {
   const v = core.getInput(name)
   return v === '' ? undefined : v
+}
+
+function optionalSource(action: ActionName, allowBucketPurge: boolean): string | undefined {
+  const v = core.getInput('source')
+  if (v !== '') return v
+  return action === 'purge' && allowBucketPurge ? '' : undefined
 }
 
 function resolveCredential(inputName: string, envName: string): string {

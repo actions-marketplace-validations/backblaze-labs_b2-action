@@ -78,4 +78,28 @@ describe('parseInputs', () => {
     expect(r.resume).toBe(false)
     expect(r.dryRun).toBe(true)
   })
+
+  it('keeps an empty purge source only when whole-bucket purge is confirmed', () => {
+    setInput('action', 'purge')
+    setInput('application-key-id', 'k')
+    setInput('application-key', 's')
+    setInput('bucket', 'b')
+    setInput('source', '')
+
+    const unconfirmed = parseInputs()
+    expect(unconfirmed.source).toBeUndefined()
+    expect(unconfirmed.allowBucketPurge).toBe(false)
+
+    resetInputEnv()
+    setInput('action', 'purge')
+    setInput('application-key-id', 'k')
+    setInput('application-key', 's')
+    setInput('bucket', 'b')
+    setInput('source', '')
+    setInput('allow-bucket-purge', 'true')
+
+    const confirmed = parseInputs()
+    expect(confirmed.source).toBe('')
+    expect(confirmed.allowBucketPurge).toBe(true)
+  })
 })
