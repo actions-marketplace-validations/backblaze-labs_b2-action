@@ -83,7 +83,7 @@ inputs:
     required: false
     default: '1000'
   expected-sha1:
-    description: 'Expected SHA-1 hex digest for `verify`. If unset, the SHA-1 is computed from `destination` (a local file).'
+    description: 'Expected SHA-1 hex digest for `verify`. If unset, the SHA-1 is computed from `destination` (a local file). Requires B2 to expose a remote whole-file SHA-1; HEAD-only verify cannot validate multipart objects when that digest is unavailable.'
     required: false
   retention-mode:
     description: 'Object Lock retention mode for `retention`: compliance | governance | none.'
@@ -121,7 +121,7 @@ outputs:
   verified:
     description: 'true/false: whether `verify` succeeded.'
   remote-sha1:
-    description: 'Remote object SHA-1 retrieved by `verify`.'
+    description: 'Remote whole-file SHA-1 retrieved by `verify`, or empty when B2 does not expose one for a multipart object.'
   local-sha1:
     description: 'Local file SHA-1 computed by `verify`.'
   summary-json:

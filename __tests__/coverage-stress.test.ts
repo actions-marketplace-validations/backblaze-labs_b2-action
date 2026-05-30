@@ -1097,7 +1097,8 @@ describe('multipart upload: null contentSha1 surfaces through upload/head/verify
     expect(headResult.contentSha1).toBeNull()
 
     // verify against any expected SHA-1 should hit the "remote sha1
-    // unavailable" warning branch because the remote has no whole-file hash.
+    // unavailable" warning branch because there is no remote whole-file hash
+    // to compare against.
     const verifyResult = await verifyCommand(
       fx.bucket,
       makeInputs('verify', fx, {
@@ -1108,6 +1109,7 @@ describe('multipart upload: null contentSha1 surfaces through upload/head/verify
     expect(verifyResult.verified).toBe(false)
     expect(verifyResult.remoteSha1).toBeNull()
     expect(verifyResult.reason).toMatch(/remote SHA-1 is unavailable/)
+    expect(verifyResult.reason).toMatch(/even with expected-sha1/)
   })
 })
 

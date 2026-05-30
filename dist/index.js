@@ -40796,8 +40796,8 @@ async function uploadOne(bucket, localPath, fileName, inputs, signal) {
  * In all modes, the remote SHA-1 is fetched via a HEAD request (header
  * `x-bz-content-sha1`). Large files uploaded via multipart return `null` from
  * B2 here because B2 stores the per-part SHA-1s but not a whole-file SHA-1;
- * the verify will fail with a clear message in that case (you should instead
- * compare a known-good `expected-sha1` from your release manifest).
+ * HEAD-only verification cannot validate those objects, even when
+ * `expected-sha1` is supplied.
  */
 async function verifyCommand(bucket, inputs) {
     const source = requireSource(inputs.source, 'verify', 'the B2 file name');
@@ -40818,7 +40818,7 @@ async function verifyCommand(bucket, inputs) {
             throw new Error("verify needs either 'expected-sha1' (literal) or 'destination' (local file path) to compare against");
         }
         if (remoteSha1 === null) {
-            const reason = 'remote SHA-1 is unavailable (multipart-uploaded file; supply a known-good expected-sha1 from your release manifest instead)';
+            const reason = 'remote SHA-1 is unavailable because B2 does not expose a whole-file SHA-1 for multipart-uploaded files; HEAD-only verify cannot validate this object, even with expected-sha1';
             warning(`  ${reason}`);
             return {
                 fileName: source,
