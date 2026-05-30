@@ -80,10 +80,12 @@ jobs:
       # Fail on high/critical advisories in PRODUCTION dependencies only, so a
       # devDep advisory can't block an unrelated PR. The action ships only its
       # runtime deps (plus the bundled dist/), so prod scope is what users get.
-      # Call the builtin `pnpm audit` directly: it resolves against
-      # pnpm-lock.yaml with no install. Do NOT use `pnpm run audit` here, which
-      # would first install the full dev dependency tree and run lifecycle
-      # scripts (esbuild postinstall, husky) before auditing.
+      # Invoke the builtin `pnpm audit` directly; it resolves against
+      # pnpm-lock.yaml with no install. Do NOT switch this to `pnpm run audit`:
+      # pnpm 11 (pinned above) installs the full dependency tree and runs
+      # lifecycle scripts (esbuild postinstall, husky) before running a script,
+      # so on a fresh runner the script form would install + build just to audit.
+      # (Verified on pnpm 11.5.0; pnpm 10 did not do this.)
       - run: pnpm audit --prod --audit-level high
 
   build-and-check-dist:
