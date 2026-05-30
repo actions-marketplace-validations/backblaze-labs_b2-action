@@ -6,7 +6,7 @@ import { listCommand } from '../../src/commands/list.ts'
 import { unhideCommand } from '../../src/commands/unhide.ts'
 import { uploadCommand } from '../../src/commands/upload.ts'
 import { verifyCommand } from '../../src/commands/verify.ts'
-import { makeFixture, makeInputs, type TestFixture } from '../_helpers.ts'
+import { makeFixture, makeInputs, seedFile, type TestFixture } from '../_helpers.ts'
 
 function inputs(action: Parameters<typeof makeInputs>[0], over: Record<string, unknown> = {}) {
   return makeInputs(action, { bucket: 'gh-action-listhide', ...over })
@@ -44,6 +44,19 @@ describe('list command', () => {
     const result = await listCommand(fx.bucket, inputs('list', { maxResults: 2 }))
     expect(result.files).toHaveLength(2)
     expect(result.truncated).toBe(true)
+  })
+
+  it('does not report truncation when remaining pages contain only hide markers', async () => {
+    for (const name of ['a.txt', 'b.txt', 'c.txt', 'd.txt']) {
+      await seedFile(fx, name, name)
+    }
+    await fx.bucket.hideFile('c.txt')
+    await fx.bucket.hideFile('d.txt')
+
+    const result = await listCommand(fx.bucket, inputs('list', { maxResults: 2 }))
+
+    expect(result.files.map((f) => f.fileName)).toEqual(['a.txt', 'b.txt'])
+    expect(result.truncated).toBe(false)
   })
 })
 
