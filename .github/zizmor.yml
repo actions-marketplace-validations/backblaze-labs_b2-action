@@ -1,6 +1,8 @@
 rules:
   cache-poisoning:
     ignore:
-      # The release validation job is read-only, and the privileged publish job
-      # does not consume artifacts, caches, or node_modules from validation.
+      # setup-node enables runtime dependency installation behavior that
+      # zizmor treats as cache-poisoning risk. This validation job is read-only,
+      # and the privileged publish job does not consume its artifacts, caches,
+      # or node_modules.
       - release.yml:56

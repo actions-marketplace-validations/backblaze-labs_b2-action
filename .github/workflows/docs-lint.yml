@@ -28,10 +28,10 @@ on:
 permissions:
   contents: read
 
-
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
+
 jobs:
   sync-check:
     name: action.yml <> README
