@@ -27,13 +27,17 @@ const REPO = join(HERE, '..')
 const actionYml = readFileSync(join(REPO, 'action.yml'), 'utf8')
 const readme = readFileSync(join(REPO, 'README.md'), 'utf8')
 
+function escapeRegExpLiteral(value) {
+  return value.replace(/[\\^$.*+?()[\]{}|]/g, '\\$&')
+}
+
 /**
  * Extract top-level keys from a section of action.yml. Looks for the
  * `^section:` header, then every `^  <name>:` line until the next
  * top-level key.
  */
 function extractActionYmlKeys(section) {
-  const start = actionYml.search(new RegExp(`^${section}:\\s*$`, 'm'))
+  const start = actionYml.search(new RegExp(`^${escapeRegExpLiteral(section)}:\\s*$`, 'm'))
   if (start === -1) return []
   const rest = actionYml.slice(start + section.length + 1)
   const end = rest.search(/^[a-z]+:\s*$/m)
@@ -54,7 +58,7 @@ const declaredOutputs = extractActionYmlKeys('outputs')
  * markdown table that sits under the given heading.
  */
 function extractKeysFromSection(heading) {
-  const re = new RegExp(`^##\\s+${heading.replace(/[()]/g, '\\$&')}.*$`, 'm')
+  const re = new RegExp(`^##\\s+${escapeRegExpLiteral(heading)}.*$`, 'm')
   const start = readme.search(re)
   if (start === -1) {
     throw new Error(`Heading not found in README.md: ${heading}`)

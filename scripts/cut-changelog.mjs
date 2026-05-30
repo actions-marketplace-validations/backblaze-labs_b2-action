@@ -49,9 +49,13 @@ if (version.includes('-')) {
 const date = new Date().toISOString().slice(0, 10) // YYYY-MM-DD (UTC)
 let text = await fs.readFile(changelogPath, 'utf8')
 
+function escapeRegExpLiteral(value) {
+  return value.replace(/[\\^$.*+?()[\]{}|]/g, '\\$&')
+}
+
 // --- Guard: a `## [<version>]` heading must not already exist (idempotency /
 // double-run protection).
-if (new RegExp(`^## \\[${version.replace(/\./g, '\\.')}\\]`, 'm').test(text)) {
+if (new RegExp(`^## \\[${escapeRegExpLiteral(version)}\\]`, 'm').test(text)) {
   console.error(
     `cut-changelog: CHANGELOG.md already has a "## [${version}]" section. Nothing to do.`,
   )
