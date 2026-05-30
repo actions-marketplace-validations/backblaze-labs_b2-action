@@ -26,11 +26,14 @@ concurrency:
 
 jobs:
   smoke:
+    name: smoke
     runs-on: ubuntu-latest
     env:
       RUN_PREFIX: smoke/daily/${{ github.run_id }}-${{ github.run_attempt }}
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
       # No `pnpm install` / `pnpm build`: this workflow only invokes the
       # action via `uses: ./`, which reads the committed `dist/index.js`. The
       # build-and-check-dist CI job already guarantees `dist/` is in sync with
@@ -88,9 +91,10 @@ jobs:
           source: ${{ env.RUN_PREFIX }}/
 
       - name: Assert at least 5 files
+        env:
+          FILES_LISTED: ${{ steps.ls.outputs.files-listed }}
         run: |
-          COUNT=${{ steps.ls.outputs.files-listed }}
-          test "$COUNT" -ge 5 || { echo "Expected ≥5 files listed, got $COUNT"; exit 1; }
+          test "$FILES_LISTED" -ge 5 || { echo "Expected ≥5 files listed, got $FILES_LISTED"; exit 1; }
 
       - name: Verify SHA-1 (HEAD, no body transfer)
         uses: ./
@@ -114,7 +118,9 @@ jobs:
           presign-ttl: 600
 
       - name: Confirm presigned URL is set
-        run: test -n "${{ steps.link.outputs.presigned-url }}"
+        env:
+          PRESIGNED_URL: ${{ steps.link.outputs.presigned-url }}
+        run: test -n "$PRESIGNED_URL"
 
       - name: Download and diff
         uses: ./

@@ -13,8 +13,13 @@ on:
 permissions:
   contents: read
 
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
   promote:
+    name: promote
     if: github.event_name == 'workflow_dispatch' || github.event_name == 'push' || github.event.pull_request.head.repo.fork == false
     runs-on: ubuntu-latest
     env:
@@ -22,6 +27,8 @@ jobs:
       RELEASE_KEY: examples/promote/${{ github.run_id }}/releases/latest/app.tar.gz
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
 
       - name: Build synthetic artifact
         run: |
@@ -51,8 +58,10 @@ jobs:
           destination: ${{ env.RELEASE_KEY }}
 
       - name: Assert promotion produced a file-id
+        env:
+          PROMOTED_FILE_ID: ${{ steps.promote.outputs.file-id }}
         run: |
-          test -n "${{ steps.promote.outputs.file-id }}" || { echo "no file-id"; exit 1; }
+          test -n "$PROMOTED_FILE_ID" || { echo "no file-id"; exit 1; }
 
       - name: Cleanup
         if: always()

@@ -13,14 +13,21 @@ on:
 permissions:
   contents: read
 
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
   verify:
+    name: verify
     if: github.event_name == 'workflow_dispatch' || github.event_name == 'push' || github.event.pull_request.head.repo.fork == false
     runs-on: ubuntu-latest
     env:
       KEY: examples/verify/${{ github.run_id }}/asset.bin
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
 
       - name: Create asset
         run: dd if=/dev/urandom of=asset.bin bs=1024 count=32
@@ -69,8 +76,10 @@ jobs:
           expected-sha1: '0000000000000000000000000000000000000000'
 
       - name: Confirm drift step failed
+        env:
+          DRIFT_OUTCOME: ${{ steps.drift.outcome }}
         run: |
-          if [ "${{ steps.drift.outcome }}" != "failure" ]; then
+          if [ "$DRIFT_OUTCOME" != "failure" ]; then
             echo "::error::drift verify should have failed"
             exit 1
           fi
