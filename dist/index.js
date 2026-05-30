@@ -35977,8 +35977,14 @@ async function listCommand(bucket, inputs) {
                     contentType: f.contentType,
                     fileInfo: f.fileInfo,
                 });
-                if (files.length >= maxResults)
-                    break;
+                if (files.length >= maxResults) {
+                    if (!page.nextFileName)
+                        return { files, truncated: false };
+                    return {
+                        files,
+                        truncated: await hasVisibleUploadAfter(bucket, prefix, page.nextFileName),
+                    };
+                }
             }
             if (!page.nextFileName) {
                 return { files, truncated: false };
@@ -35991,6 +35997,20 @@ async function listCommand(bucket, inputs) {
         info(`  ${files.length} file(s) listed`);
         endGroup();
     }
+}
+async function hasVisibleUploadAfter(bucket, prefix, startFileName) {
+    let cursor = startFileName;
+    while (cursor !== undefined) {
+        const page = await bucket.listFileNames({
+            prefix,
+            pageSize: 1000,
+            startFileName: cursor,
+        });
+        if (page.files.some((f) => f.action === 'upload'))
+            return true;
+        cursor = page.nextFileName ?? undefined;
+    }
+    return false;
 }
 
 ;// CONCATENATED MODULE: ./node_modules/.pnpm/@backblaze-labs+b2-sdk@0.1.0/node_modules/@backblaze-labs/b2-sdk/dist/s3/index.js

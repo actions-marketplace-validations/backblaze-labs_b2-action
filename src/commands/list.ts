@@ -24,7 +24,7 @@ export interface ListedFile {
 export interface ListResult {
   /** Files matching the prefix, capped by `maxResults`. */
   files: ListedFile[]
-  /** True when more files exist beyond `maxResults`. Use to detect pagination. */
+  /** True when more visible upload files exist beyond `maxResults`. Use to detect pagination. */
   truncated: boolean
 }
 
@@ -68,7 +68,13 @@ export async function listCommand(bucket: Bucket, inputs: ParsedInputs): Promise
           contentType: f.contentType,
           fileInfo: f.fileInfo,
         })
-        if (files.length >= maxResults) break
+        if (files.length >= maxResults) {
+          if (!page.nextFileName) return { files, truncated: false }
+          return {
+            files,
+            truncated: await hasVisibleUploadAfter(bucket, prefix, page.nextFileName),
+          }
+        }
       }
 
       if (!page.nextFileName) {
@@ -82,4 +88,24 @@ export async function listCommand(bucket: Bucket, inputs: ParsedInputs): Promise
     core.info(`  ${files.length} file(s) listed`)
     core.endGroup()
   }
+}
+
+async function hasVisibleUploadAfter(
+  bucket: Bucket,
+  prefix: string,
+  startFileName: string,
+): Promise<boolean> {
+  let cursor: string | undefined = startFileName
+
+  while (cursor !== undefined) {
+    const page = await bucket.listFileNames({
+      prefix,
+      pageSize: 1000,
+      startFileName: cursor,
+    })
+    if (page.files.some((f) => f.action === 'upload')) return true
+    cursor = page.nextFileName ?? undefined
+  }
+
+  return false
 }
