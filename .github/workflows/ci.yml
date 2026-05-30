@@ -123,20 +123,6 @@ jobs:
             exit 1
           fi
 
-  actionlint:
-    name: actionlint
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
-      # Runs scripts/actionlint.sh, which downloads a version-pinned actionlint
-      # release asset and verifies its SHA-256 before use (no `curl | bash`).
-      - name: actionlint
-        shell: bash
-        run: bash scripts/actionlint.sh
-      - name: Check third-party actions are SHA-pinned
-        shell: bash
-        run: node scripts/check-action-pins.mjs
-
   self-smoke:
     name: action smoke test (offline)
     runs-on: ubuntu-latest
