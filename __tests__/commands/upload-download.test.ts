@@ -109,8 +109,10 @@ describe('upload + download commands (B2Simulator)', () => {
 
     let active = 0
     let maxActive = 0
+    const partConcurrencyValues: Array<number | undefined> = []
     const originalUpload = fx.bucket.upload.bind(fx.bucket)
     fx.bucket.upload = async (...args: Parameters<typeof fx.bucket.upload>) => {
+      partConcurrencyValues.push(args[0].concurrency)
       active++
       maxActive = Math.max(maxActive, active)
       await new Promise((resolve) => setTimeout(resolve, 25))
@@ -130,6 +132,63 @@ describe('upload + download commands (B2Simulator)', () => {
     expect(result.files.map((file) => file.fileName)).toEqual(['a.txt', 'b.txt', 'c.txt'])
     expect(result.bytesTransferred).toBe('payload-a.txt'.length * 3)
     expect(maxActive).toBe(2)
+    expect(partConcurrencyValues).toEqual([1, 1, 1])
+  })
+
+  it('uses concurrency as multipart part concurrency for explicit single-file uploads', async () => {
+    const local = join(fx.workDir, 'large.bin')
+    await writeFile(local, randomBytes(256 * 1024))
+
+    let partConcurrency: number | undefined
+    const originalUpload = fx.bucket.upload.bind(fx.bucket)
+    fx.bucket.upload = async (...args: Parameters<typeof fx.bucket.upload>) => {
+      partConcurrency = args[0].concurrency
+      return await originalUpload(...args)
+    }
+
+    await uploadCommand(fx.bucket, {
+      ...baseInputs(),
+      source: local,
+      concurrency: 3,
+    })
+
+    expect(partConcurrency).toBe(3)
+  })
+
+  it('waits for active glob uploads before rethrowing the first failure', async () => {
+    const srcDir = join(fx.workDir, 'failing-bundle')
+    await mkdir(srcDir)
+    for (const name of ['a.txt', 'b.txt', 'c.txt']) {
+      await writeFile(join(srcDir, name), `payload-${name}`)
+    }
+
+    const started: string[] = []
+    const completed: string[] = []
+    const originalUpload = fx.bucket.upload.bind(fx.bucket)
+    fx.bucket.upload = async (...args: Parameters<typeof fx.bucket.upload>) => {
+      const fileName = args[0].fileName
+      started.push(fileName)
+      if (fileName === 'b.txt') {
+        await new Promise((resolve) => setTimeout(resolve, 50))
+      }
+      const result = await originalUpload(...args)
+      completed.push(fileName)
+      if (fileName === 'a.txt') {
+        throw new Error('upload failed')
+      }
+      return result
+    }
+
+    await expect(
+      uploadCommand(fx.bucket, {
+        ...baseInputs(),
+        source: srcDir,
+        concurrency: 2,
+      }),
+    ).rejects.toThrow('upload failed')
+
+    expect(started).toEqual(['a.txt', 'b.txt'])
+    expect(completed).toEqual(['a.txt', 'b.txt'])
   })
 
   it('fails when an upload glob matches no files and fail-on-empty is true', async () => {

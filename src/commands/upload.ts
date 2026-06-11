@@ -55,7 +55,7 @@ export async function uploadCommand(
 ): Promise<UploadResult> {
   const source = requireSource(inputs.source, 'upload')
 
-  const files = await resolveFiles(source, inputs.include, inputs.exclude)
+  const { files, isSingleExplicitFile } = await resolveFiles(source, inputs.include, inputs.exclude)
   if (files.length === 0) {
     if (inputs.failOnEmpty) {
       throw new Error(`No files matched: ${source}`)
@@ -64,22 +64,21 @@ export async function uploadCommand(
     return { files: [], bytesTransferred: 0 }
   }
 
-  const first = files[0]
-  const isSingleExplicitFile =
-    files.length === 1 && first !== undefined && first.fileName === basename(first.localPath)
+  const fileConcurrency = isSingleExplicitFile ? 1 : inputs.concurrency
+  const partConcurrency = isSingleExplicitFile ? inputs.concurrency : 1
 
-  const uploaded = await mapWithConcurrency(files, inputs.concurrency, async (f) => {
+  const uploaded = await mapWithConcurrency(files, fileConcurrency, async (f) => {
     signal?.throwIfAborted()
     const fileName = remapFileName(f, inputs.destination, isSingleExplicitFile)
     const uploadLabel = `upload ${f.localPath} → b2://${bucket.name}/${fileName}`
-    const groupedLog = files.length === 1 || inputs.concurrency === 1
+    const groupedLog = files.length === 1 || fileConcurrency === 1
     if (groupedLog) {
       core.startGroup(uploadLabel)
     } else {
       core.info(uploadLabel)
     }
     try {
-      return await uploadOne(bucket, f.localPath, fileName, inputs, signal)
+      return await uploadOne(bucket, f.localPath, fileName, inputs, partConcurrency, signal)
     } finally {
       if (groupedLog) core.endGroup()
     }
@@ -96,18 +95,31 @@ async function mapWithConcurrency<T, U>(
 ): Promise<U[]> {
   const results = new Array<U>(items.length)
   let next = 0
+  let firstError: unknown
 
   async function worker(): Promise<void> {
     while (true) {
+      if (firstError !== undefined) return
       const index = next++
       if (index >= items.length) return
-      results[index] = await mapper(items[index] as T)
+      try {
+        results[index] = await mapper(items[index] as T)
+      } catch (error) {
+        firstError ??= error
+        return
+      }
     }
   }
 
   const workerCount = Math.min(concurrency, items.length)
   await Promise.all(Array.from({ length: workerCount }, () => worker()))
+  if (firstError !== undefined) throw firstError
   return results
+}
+
+interface ResolvedFiles {
+  files: ResolvedFile[]
+  isSingleExplicitFile: boolean
 }
 
 interface ResolvedFile {
@@ -120,12 +132,15 @@ async function resolveFiles(
   source: string,
   include: string[],
   exclude: string[],
-): Promise<ResolvedFile[]> {
+): Promise<ResolvedFiles> {
   const explicitFile = await tryStat(source)
   const looksLikeGlob = /[*?[\]]/.test(source)
 
   if (explicitFile?.isFile() && !looksLikeGlob && include.length === 0) {
-    return [{ localPath: resolve(source), fileName: basename(source) }]
+    return {
+      files: [{ localPath: resolve(source), fileName: basename(source) }],
+      isSingleExplicitFile: true,
+    }
   }
 
   const patterns: string[] = []
@@ -153,7 +168,7 @@ async function resolveFiles(
     const rel = relative(root, m).split(sep).join(posix.sep)
     out.push({ localPath: m, fileName: rel })
   }
-  return out
+  return { files: out, isSingleExplicitFile: false }
 }
 
 function remapFileName(
@@ -172,6 +187,7 @@ async function uploadOne(
   localPath: string,
   fileName: string,
   inputs: ParsedInputs,
+  partConcurrency: number,
   signal?: AbortSignal,
 ): Promise<UploadedFile> {
   const fileStat = await stat(localPath)
@@ -200,7 +216,7 @@ async function uploadOne(
   const result = await bucket.upload({
     fileName,
     source,
-    concurrency: inputs.concurrency,
+    concurrency: partConcurrency,
     ...(inputs.partSize !== undefined ? { partSize: inputs.partSize } : {}),
     ...(inputs.contentType !== undefined ? { contentType: inputs.contentType } : {}),
     ...(inputs.encryption !== undefined ? { serverSideEncryption: inputs.encryption } : {}),

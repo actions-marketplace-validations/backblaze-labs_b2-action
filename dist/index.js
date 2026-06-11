@@ -40670,7 +40670,7 @@ function glob_hashFiles(patterns_1) {
  */
 async function uploadCommand(bucket, inputs, signal) {
     const source = requireSource(inputs.source, 'upload');
-    const files = await resolveFiles(source, inputs.include, inputs.exclude);
+    const { files, isSingleExplicitFile } = await resolveFiles(source, inputs.include, inputs.exclude);
     if (files.length === 0) {
         if (inputs.failOnEmpty) {
             throw new Error(`No files matched: ${source}`);
@@ -40678,13 +40678,13 @@ async function uploadCommand(bucket, inputs, signal) {
         warning(`No files matched: ${source}`);
         return { files: [], bytesTransferred: 0 };
     }
-    const first = files[0];
-    const isSingleExplicitFile = files.length === 1 && first !== undefined && first.fileName === (0,external_node_path_.basename)(first.localPath);
-    const uploaded = await mapWithConcurrency(files, inputs.concurrency, async (f) => {
+    const fileConcurrency = isSingleExplicitFile ? 1 : inputs.concurrency;
+    const partConcurrency = isSingleExplicitFile ? inputs.concurrency : 1;
+    const uploaded = await mapWithConcurrency(files, fileConcurrency, async (f) => {
         signal?.throwIfAborted();
         const fileName = remapFileName(f, inputs.destination, isSingleExplicitFile);
         const uploadLabel = `upload ${f.localPath} → b2://${bucket.name}/${fileName}`;
-        const groupedLog = files.length === 1 || inputs.concurrency === 1;
+        const groupedLog = files.length === 1 || fileConcurrency === 1;
         if (groupedLog) {
             startGroup(uploadLabel);
         }
@@ -40692,7 +40692,7 @@ async function uploadCommand(bucket, inputs, signal) {
             info(uploadLabel);
         }
         try {
-            return await uploadOne(bucket, f.localPath, fileName, inputs, signal);
+            return await uploadOne(bucket, f.localPath, fileName, inputs, partConcurrency, signal);
         }
         finally {
             if (groupedLog)
@@ -40705,23 +40705,37 @@ async function uploadCommand(bucket, inputs, signal) {
 async function mapWithConcurrency(items, concurrency, mapper) {
     const results = new Array(items.length);
     let next = 0;
+    let firstError;
     async function worker() {
         while (true) {
+            if (firstError !== undefined)
+                return;
             const index = next++;
             if (index >= items.length)
                 return;
-            results[index] = await mapper(items[index]);
+            try {
+                results[index] = await mapper(items[index]);
+            }
+            catch (error) {
+                firstError ??= error;
+                return;
+            }
         }
     }
     const workerCount = Math.min(concurrency, items.length);
     await Promise.all(Array.from({ length: workerCount }, () => worker()));
+    if (firstError !== undefined)
+        throw firstError;
     return results;
 }
 async function resolveFiles(source, include, exclude) {
     const explicitFile = await tryStat(source);
     const looksLikeGlob = /[*?[\]]/.test(source);
     if (explicitFile?.isFile() && !looksLikeGlob && include.length === 0) {
-        return [{ localPath: (0,external_node_path_.resolve)(source), fileName: (0,external_node_path_.basename)(source) }];
+        return {
+            files: [{ localPath: (0,external_node_path_.resolve)(source), fileName: (0,external_node_path_.basename)(source) }],
+            isSingleExplicitFile: true,
+        };
     }
     const patterns = [];
     if (explicitFile?.isDirectory()) {
@@ -40750,7 +40764,7 @@ async function resolveFiles(source, include, exclude) {
         const rel = (0,external_node_path_.relative)(root, m).split(external_node_path_.sep).join(external_node_path_.posix.sep);
         out.push({ localPath: m, fileName: rel });
     }
-    return out;
+    return { files: out, isSingleExplicitFile: false };
 }
 function remapFileName(file, destination, isSingleExplicitFile) {
     if (destination === undefined || destination === '')
@@ -40760,7 +40774,7 @@ function remapFileName(file, destination, isSingleExplicitFile) {
         return dest;
     return `${dest}/${file.fileName}`;
 }
-async function uploadOne(bucket, localPath, fileName, inputs, signal) {
+async function uploadOne(bucket, localPath, fileName, inputs, partConcurrency, signal) {
     const fileStat = await (0,promises_.stat)(localPath);
     const size = fileStat.size;
     // Stream the file from disk. The SDK's `bucket.upload` routes files larger
@@ -40784,7 +40798,7 @@ async function uploadOne(bucket, localPath, fileName, inputs, signal) {
     const result = await bucket.upload({
         fileName,
         source,
-        concurrency: inputs.concurrency,
+        concurrency: partConcurrency,
         ...(inputs.partSize !== undefined ? { partSize: inputs.partSize } : {}),
         ...(inputs.contentType !== undefined ? { contentType: inputs.contentType } : {}),
         ...(inputs.encryption !== undefined ? { serverSideEncryption: inputs.encryption } : {}),
