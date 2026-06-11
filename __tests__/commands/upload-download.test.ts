@@ -1,5 +1,5 @@
 import { randomBytes } from 'node:crypto'
-import { readFile, rm, writeFile } from 'node:fs/promises'
+import { mkdir, readFile, rm, writeFile } from 'node:fs/promises'
 import { join } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import { downloadCommand } from '../../src/commands/download.ts'
@@ -98,6 +98,38 @@ describe('upload + download commands (B2Simulator)', () => {
       const got = await readFile(join(destDir, name), 'utf8')
       expect(got).toBe(`payload-${name}`)
     }
+  })
+
+  it('uploads glob matches with bounded file-level concurrency', async () => {
+    const srcDir = join(fx.workDir, 'bundle')
+    await mkdir(srcDir)
+    for (const name of ['a.txt', 'b.txt', 'c.txt']) {
+      await writeFile(join(srcDir, name), `payload-${name}`)
+    }
+
+    let active = 0
+    let maxActive = 0
+    const originalUpload = fx.bucket.upload.bind(fx.bucket)
+    fx.bucket.upload = async (...args: Parameters<typeof fx.bucket.upload>) => {
+      active++
+      maxActive = Math.max(maxActive, active)
+      await new Promise((resolve) => setTimeout(resolve, 25))
+      try {
+        return await originalUpload(...args)
+      } finally {
+        active--
+      }
+    }
+
+    const result = await uploadCommand(fx.bucket, {
+      ...baseInputs(),
+      source: srcDir,
+      concurrency: 2,
+    })
+
+    expect(result.files.map((file) => file.fileName)).toEqual(['a.txt', 'b.txt', 'c.txt'])
+    expect(result.bytesTransferred).toBe('payload-a.txt'.length * 3)
+    expect(maxActive).toBe(2)
   })
 
   it('fails when an upload glob matches no files and fail-on-empty is true', async () => {

@@ -68,23 +68,46 @@ export async function uploadCommand(
   const isSingleExplicitFile =
     files.length === 1 && first !== undefined && first.fileName === basename(first.localPath)
 
-  const uploaded: UploadedFile[] = []
-  let totalBytes = 0
-
-  for (const f of files) {
+  const uploaded = await mapWithConcurrency(files, inputs.concurrency, async (f) => {
     signal?.throwIfAborted()
     const fileName = remapFileName(f, inputs.destination, isSingleExplicitFile)
-    core.startGroup(`upload ${f.localPath} → b2://${bucket.name}/${fileName}`)
+    const uploadLabel = `upload ${f.localPath} → b2://${bucket.name}/${fileName}`
+    const groupedLog = files.length === 1 || inputs.concurrency === 1
+    if (groupedLog) {
+      core.startGroup(uploadLabel)
+    } else {
+      core.info(uploadLabel)
+    }
     try {
-      const result = await uploadOne(bucket, f.localPath, fileName, inputs, signal)
-      uploaded.push(result)
-      totalBytes += result.size
+      return await uploadOne(bucket, f.localPath, fileName, inputs, signal)
     } finally {
-      core.endGroup()
+      if (groupedLog) core.endGroup()
+    }
+  })
+  const totalBytes = uploaded.reduce((sum, file) => sum + file.size, 0)
+
+  return { files: uploaded, bytesTransferred: totalBytes }
+}
+
+async function mapWithConcurrency<T, U>(
+  items: T[],
+  concurrency: number,
+  mapper: (item: T) => Promise<U>,
+): Promise<U[]> {
+  const results = new Array<U>(items.length)
+  let next = 0
+
+  async function worker(): Promise<void> {
+    while (true) {
+      const index = next++
+      if (index >= items.length) return
+      results[index] = await mapper(items[index] as T)
     }
   }
 
-  return { files: uploaded, bytesTransferred: totalBytes }
+  const workerCount = Math.min(concurrency, items.length)
+  await Promise.all(Array.from({ length: workerCount }, () => worker()))
+  return results
 }
 
 interface ResolvedFile {

@@ -40680,22 +40680,42 @@ async function uploadCommand(bucket, inputs, signal) {
     }
     const first = files[0];
     const isSingleExplicitFile = files.length === 1 && first !== undefined && first.fileName === (0,external_node_path_.basename)(first.localPath);
-    const uploaded = [];
-    let totalBytes = 0;
-    for (const f of files) {
+    const uploaded = await mapWithConcurrency(files, inputs.concurrency, async (f) => {
         signal?.throwIfAborted();
         const fileName = remapFileName(f, inputs.destination, isSingleExplicitFile);
-        startGroup(`upload ${f.localPath} → b2://${bucket.name}/${fileName}`);
+        const uploadLabel = `upload ${f.localPath} → b2://${bucket.name}/${fileName}`;
+        const groupedLog = files.length === 1 || inputs.concurrency === 1;
+        if (groupedLog) {
+            startGroup(uploadLabel);
+        }
+        else {
+            info(uploadLabel);
+        }
         try {
-            const result = await uploadOne(bucket, f.localPath, fileName, inputs, signal);
-            uploaded.push(result);
-            totalBytes += result.size;
+            return await uploadOne(bucket, f.localPath, fileName, inputs, signal);
         }
         finally {
-            endGroup();
+            if (groupedLog)
+                endGroup();
+        }
+    });
+    const totalBytes = uploaded.reduce((sum, file) => sum + file.size, 0);
+    return { files: uploaded, bytesTransferred: totalBytes };
+}
+async function mapWithConcurrency(items, concurrency, mapper) {
+    const results = new Array(items.length);
+    let next = 0;
+    async function worker() {
+        while (true) {
+            const index = next++;
+            if (index >= items.length)
+                return;
+            results[index] = await mapper(items[index]);
         }
     }
-    return { files: uploaded, bytesTransferred: totalBytes };
+    const workerCount = Math.min(concurrency, items.length);
+    await Promise.all(Array.from({ length: workerCount }, () => worker()));
+    return results;
 }
 async function resolveFiles(source, include, exclude) {
     const explicitFile = await tryStat(source);
