@@ -103,7 +103,7 @@ describe('upload + download commands (B2Simulator)', () => {
   it('uploads glob matches with bounded file-level concurrency', async () => {
     const srcDir = join(fx.workDir, 'bundle')
     await mkdir(srcDir)
-    for (const name of ['a.txt', 'b.txt', 'c.txt']) {
+    for (const name of ['c.txt', 'a.txt', 'b.txt']) {
       await writeFile(join(srcDir, name), `payload-${name}`)
     }
 

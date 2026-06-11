@@ -172,7 +172,18 @@ async function resolveFiles(
     const rel = relative(root, m).split(sep).join(posix.sep)
     out.push({ localPath: m, fileName: rel })
   }
+  out.sort(compareResolvedFiles)
   return { files: out, isSingleExplicitFile: false }
+}
+
+function compareResolvedFiles(a: ResolvedFile, b: ResolvedFile): number {
+  return compareStrings(a.fileName, b.fileName) || compareStrings(a.localPath, b.localPath)
+}
+
+function compareStrings(a: string, b: string): number {
+  if (a < b) return -1
+  if (a > b) return 1
+  return 0
 }
 
 function remapFileName(

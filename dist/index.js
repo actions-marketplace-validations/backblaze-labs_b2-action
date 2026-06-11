@@ -40768,7 +40768,18 @@ async function resolveFiles(source, include, exclude) {
         const rel = (0,external_node_path_.relative)(root, m).split(external_node_path_.sep).join(external_node_path_.posix.sep);
         out.push({ localPath: m, fileName: rel });
     }
+    out.sort(compareResolvedFiles);
     return { files: out, isSingleExplicitFile: false };
+}
+function compareResolvedFiles(a, b) {
+    return compareStrings(a.fileName, b.fileName) || compareStrings(a.localPath, b.localPath);
+}
+function compareStrings(a, b) {
+    if (a < b)
+        return -1;
+    if (a > b)
+        return 1;
+    return 0;
 }
 function remapFileName(file, destination, isSingleExplicitFile) {
     if (destination === undefined || destination === '')
