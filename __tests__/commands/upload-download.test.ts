@@ -155,6 +155,27 @@ describe('upload + download commands (B2Simulator)', () => {
     expect(partConcurrency).toBe(3)
   })
 
+  it('uses concurrency as multipart part concurrency when a directory resolves to one file', async () => {
+    const srcDir = join(fx.workDir, 'single-file-bundle')
+    await mkdir(srcDir)
+    await writeFile(join(srcDir, 'large.bin'), randomBytes(256 * 1024))
+
+    let partConcurrency: number | undefined
+    const originalUpload = fx.bucket.upload.bind(fx.bucket)
+    fx.bucket.upload = async (...args: Parameters<typeof fx.bucket.upload>) => {
+      partConcurrency = args[0].concurrency
+      return await originalUpload(...args)
+    }
+
+    await uploadCommand(fx.bucket, {
+      ...baseInputs(),
+      source: srcDir,
+      concurrency: 3,
+    })
+
+    expect(partConcurrency).toBe(3)
+  })
+
   it('waits for active glob uploads before rethrowing the first failure', async () => {
     const srcDir = join(fx.workDir, 'failing-bundle')
     await mkdir(srcDir)

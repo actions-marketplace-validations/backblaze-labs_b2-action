@@ -65,7 +65,7 @@ export async function uploadCommand(
   }
 
   const fileConcurrency = isSingleExplicitFile ? 1 : inputs.concurrency
-  const partConcurrency = isSingleExplicitFile ? inputs.concurrency : 1
+  const partConcurrency = isSingleExplicitFile || files.length === 1 ? inputs.concurrency : 1
 
   const uploaded = await mapWithConcurrency(files, fileConcurrency, async (f) => {
     signal?.throwIfAborted()
