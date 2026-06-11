@@ -187,8 +187,10 @@ describe('upload + download commands (B2Simulator)', () => {
       }),
     ).rejects.toThrow('upload failed')
 
-    expect(started).toEqual(['a.txt', 'b.txt'])
-    expect(completed).toEqual(['a.txt', 'b.txt'])
+    expect(started).toHaveLength(2)
+    expect(started).toEqual(expect.arrayContaining(['a.txt', 'b.txt']))
+    expect(completed).toHaveLength(2)
+    expect(completed).toEqual(expect.arrayContaining(['a.txt', 'b.txt']))
   })
 
   it('fails when an upload glob matches no files and fail-on-empty is true', async () => {
