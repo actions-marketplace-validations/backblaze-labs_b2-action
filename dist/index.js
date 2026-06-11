@@ -40706,9 +40706,10 @@ async function mapWithConcurrency(items, concurrency, mapper) {
     const results = new Array(items.length);
     let next = 0;
     let firstError;
+    let failed = false;
     async function worker() {
         while (true) {
-            if (firstError !== undefined)
+            if (failed)
                 return;
             const index = next++;
             if (index >= items.length)
@@ -40717,14 +40718,17 @@ async function mapWithConcurrency(items, concurrency, mapper) {
                 results[index] = await mapper(items[index]);
             }
             catch (error) {
-                firstError ??= error;
+                if (!failed) {
+                    failed = true;
+                    firstError = error;
+                }
                 return;
             }
         }
     }
     const workerCount = Math.min(concurrency, items.length);
     await Promise.all(Array.from({ length: workerCount }, () => worker()));
-    if (firstError !== undefined)
+    if (failed)
         throw firstError;
     return results;
 }

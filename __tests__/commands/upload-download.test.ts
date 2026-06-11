@@ -193,6 +193,42 @@ describe('upload + download commands (B2Simulator)', () => {
     expect(completed).toEqual(expect.arrayContaining(['a.txt', 'b.txt']))
   })
 
+  it('rethrows undefined glob upload failures', async () => {
+    const srcDir = join(fx.workDir, 'undefined-failure-bundle')
+    await mkdir(srcDir)
+    for (const name of ['a.txt', 'b.txt', 'c.txt']) {
+      await writeFile(join(srcDir, name), `payload-${name}`)
+    }
+
+    const started: string[] = []
+    const originalUpload = fx.bucket.upload.bind(fx.bucket)
+    fx.bucket.upload = async (...args: Parameters<typeof fx.bucket.upload>) => {
+      const fileName = args[0].fileName
+      started.push(fileName)
+      if (fileName === 'a.txt') {
+        throw undefined
+      }
+      await new Promise((resolve) => setTimeout(resolve, 25))
+      return await originalUpload(...args)
+    }
+
+    let rejected = false
+    try {
+      await uploadCommand(fx.bucket, {
+        ...baseInputs(),
+        source: srcDir,
+        concurrency: 2,
+      })
+    } catch (error) {
+      rejected = true
+      expect(error).toBeUndefined()
+    }
+
+    expect(rejected).toBe(true)
+    expect(started).toHaveLength(2)
+    expect(started).toEqual(expect.arrayContaining(['a.txt', 'b.txt']))
+  })
+
   it('fails when an upload glob matches no files and fail-on-empty is true', async () => {
     await expect(
       uploadCommand(fx.bucket, {
