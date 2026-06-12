@@ -4,6 +4,7 @@ This folder contains:
 
 - **`ci.yml`**: runs on every PR: typecheck, lint, vitest (Ubuntu / macOS / Windows), coverage gate, build, `dist/` freshness, bundle-size budget, offline self-smoke.
 - **`security.yml`**: runs the shared GitHub Actions security composite action against every workflow: actionlint, third-party action pin checks, and zizmor audits.
+- **`codeql.yml`**: CodeQL (SAST) static analysis of the TypeScript source. Runs on PRs to `main`, on push to `main`, and weekly; findings surface in the repo Security tab.
 - **`release.yml`**: fires on three-component `vX.Y.Z` tags (a bare `v1` does **not** trigger it): full gate + GitHub Release + floats the major-version tag (`v1`, `v2`, …).
 - **`daily-smoke.yml`**: 03:13 UTC cron: real-B2 end-to-end smoke against the test bucket.
 - **`example-*.yml`**: twelve **example workflows that are also the integration test suite**. See the table below.
