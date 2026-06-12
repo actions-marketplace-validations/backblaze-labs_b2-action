@@ -40679,6 +40679,9 @@ async function uploadCommand(bucket, inputs, signal) {
         return { files: [], bytesTransferred: 0 };
     }
     const fileConcurrency = isSingleExplicitFile ? 1 : inputs.concurrency;
+    // Multi-file uploads spend the concurrency budget across files and keep each
+    // file's multipart upload sequential so total in-flight B2 requests remain
+    // bounded by the user-supplied `concurrency` value.
     const partConcurrency = isSingleExplicitFile || files.length === 1 ? inputs.concurrency : 1;
     const uploaded = await mapWithConcurrency(files, fileConcurrency, async (f) => {
         signal?.throwIfAborted();
@@ -40692,7 +40695,7 @@ async function uploadCommand(bucket, inputs, signal) {
             info(uploadLabel);
         }
         try {
-            return await uploadOne(bucket, f.localPath, fileName, inputs, partConcurrency, signal);
+            return await uploadOne(bucket, f.localPath, fileName, inputs, partConcurrency, groupedLog, signal);
         }
         finally {
             if (groupedLog)
@@ -40789,7 +40792,7 @@ function remapFileName(file, destination, isSingleExplicitFile) {
         return dest;
     return `${dest}/${file.fileName}`;
 }
-async function uploadOne(bucket, localPath, fileName, inputs, partConcurrency, signal) {
+async function uploadOne(bucket, localPath, fileName, inputs, partConcurrency, groupedLog, signal) {
     const fileStat = await (0,promises_.stat)(localPath);
     const size = fileStat.size;
     // Stream the file from disk. The SDK's `bucket.upload` routes files larger
@@ -40823,7 +40826,8 @@ async function uploadOne(bucket, localPath, fileName, inputs, partConcurrency, s
     // SDK now normalizes multipart `'none'` to `null` at the boundary, so
     // `result.contentSha1` is `string | null` directly.
     const sha1 = result.contentSha1;
-    info(`  fileId=${result.fileId} sha1=${sha1 ?? 'multipart'}`);
+    const detailPrefix = groupedLog ? '  ' : '';
+    info(`${detailPrefix}fileId=${result.fileId} sha1=${sha1 ?? 'multipart'}`);
     return {
         localPath,
         fileName: result.fileName,

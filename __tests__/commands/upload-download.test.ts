@@ -50,6 +50,21 @@ describe('upload + download commands (B2Simulator)', () => {
     expect(result.files[0]?.fileName).toBe('releases/v1/report.csv')
   })
 
+  it('treats destination as a prefix for a directory resolving to one file', async () => {
+    const srcDir = join(fx.workDir, 'single-file-dir')
+    await mkdir(srcDir)
+    await writeFile(join(srcDir, 'data.bin'), 'payload')
+
+    const result = await uploadCommand(fx.bucket, {
+      ...baseInputs(),
+      source: srcDir,
+      destination: 'out.bin',
+    })
+
+    expect(result.files).toHaveLength(1)
+    expect(result.files[0]?.fileName).toBe('out.bin/data.bin')
+  })
+
   it('round-trips bytes via upload → download', async () => {
     const local = join(fx.workDir, 'random.bin')
     const payload = randomBytes(64 * 1024)

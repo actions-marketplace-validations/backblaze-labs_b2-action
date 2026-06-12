@@ -65,6 +65,9 @@ export async function uploadCommand(
   }
 
   const fileConcurrency = isSingleExplicitFile ? 1 : inputs.concurrency
+  // Multi-file uploads spend the concurrency budget across files and keep each
+  // file's multipart upload sequential so total in-flight B2 requests remain
+  // bounded by the user-supplied `concurrency` value.
   const partConcurrency = isSingleExplicitFile || files.length === 1 ? inputs.concurrency : 1
 
   const uploaded = await mapWithConcurrency(files, fileConcurrency, async (f) => {
@@ -78,7 +81,15 @@ export async function uploadCommand(
       core.info(uploadLabel)
     }
     try {
-      return await uploadOne(bucket, f.localPath, fileName, inputs, partConcurrency, signal)
+      return await uploadOne(
+        bucket,
+        f.localPath,
+        fileName,
+        inputs,
+        partConcurrency,
+        groupedLog,
+        signal,
+      )
     } finally {
       if (groupedLog) core.endGroup()
     }
@@ -203,6 +214,7 @@ async function uploadOne(
   fileName: string,
   inputs: ParsedInputs,
   partConcurrency: number,
+  groupedLog: boolean,
   signal?: AbortSignal,
 ): Promise<UploadedFile> {
   const fileStat = await stat(localPath)
@@ -242,7 +254,8 @@ async function uploadOne(
   // SDK now normalizes multipart `'none'` to `null` at the boundary, so
   // `result.contentSha1` is `string | null` directly.
   const sha1 = result.contentSha1
-  core.info(`  fileId=${result.fileId} sha1=${sha1 ?? 'multipart'}`)
+  const detailPrefix = groupedLog ? '  ' : ''
+  core.info(`${detailPrefix}fileId=${result.fileId} sha1=${sha1 ?? 'multipart'}`)
 
   return {
     localPath,
