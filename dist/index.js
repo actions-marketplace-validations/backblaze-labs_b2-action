@@ -40670,7 +40670,7 @@ function glob_hashFiles(patterns_1) {
  */
 async function uploadCommand(bucket, inputs, signal) {
     const source = requireSource(inputs.source, 'upload');
-    const files = await resolveFiles(source, inputs.include, inputs.exclude);
+    const { files, isSingleExplicitFile } = await resolveFiles(source, inputs.include, inputs.exclude);
     if (files.length === 0) {
         if (inputs.failOnEmpty) {
             throw new Error(`No files matched: ${source}`);
@@ -40678,30 +40678,71 @@ async function uploadCommand(bucket, inputs, signal) {
         warning(`No files matched: ${source}`);
         return { files: [], bytesTransferred: 0 };
     }
-    const first = files[0];
-    const isSingleExplicitFile = files.length === 1 && first !== undefined && first.fileName === (0,external_node_path_.basename)(first.localPath);
-    const uploaded = [];
-    let totalBytes = 0;
-    for (const f of files) {
+    const fileConcurrency = isSingleExplicitFile ? 1 : inputs.concurrency;
+    // Multi-file uploads spend the concurrency budget across files and keep each
+    // file's multipart upload sequential so total in-flight B2 requests remain
+    // bounded by the user-supplied `concurrency` value.
+    const partConcurrency = isSingleExplicitFile || files.length === 1 ? inputs.concurrency : 1;
+    const uploaded = await mapWithConcurrency(files, fileConcurrency, async (f) => {
         signal?.throwIfAborted();
         const fileName = remapFileName(f, inputs.destination, isSingleExplicitFile);
-        startGroup(`upload ${f.localPath} → b2://${bucket.name}/${fileName}`);
+        const uploadLabel = `upload ${f.localPath} → b2://${bucket.name}/${fileName}`;
+        const groupedLog = files.length === 1 || fileConcurrency === 1;
+        if (groupedLog) {
+            startGroup(uploadLabel);
+        }
+        else {
+            info(uploadLabel);
+        }
         try {
-            const result = await uploadOne(bucket, f.localPath, fileName, inputs, signal);
-            uploaded.push(result);
-            totalBytes += result.size;
+            return await uploadOne(bucket, f.localPath, fileName, inputs, partConcurrency, groupedLog, signal);
         }
         finally {
-            endGroup();
+            if (groupedLog)
+                endGroup();
+        }
+    });
+    const totalBytes = uploaded.reduce((sum, file) => sum + file.size, 0);
+    return { files: uploaded, bytesTransferred: totalBytes };
+}
+async function mapWithConcurrency(items, concurrency, mapper) {
+    const results = new Array(items.length);
+    let next = 0;
+    let firstError;
+    let failed = false;
+    async function worker() {
+        while (true) {
+            if (failed)
+                return;
+            const index = next++;
+            if (index >= items.length)
+                return;
+            try {
+                results[index] = await mapper(items[index]);
+            }
+            catch (error) {
+                if (!failed) {
+                    failed = true;
+                    firstError = error;
+                }
+                return;
+            }
         }
     }
-    return { files: uploaded, bytesTransferred: totalBytes };
+    const workerCount = Math.min(concurrency, items.length);
+    await Promise.all(Array.from({ length: workerCount }, () => worker()));
+    if (failed)
+        throw firstError;
+    return results;
 }
 async function resolveFiles(source, include, exclude) {
     const explicitFile = await tryStat(source);
     const looksLikeGlob = /[*?[\]]/.test(source);
     if (explicitFile?.isFile() && !looksLikeGlob && include.length === 0) {
-        return [{ localPath: (0,external_node_path_.resolve)(source), fileName: (0,external_node_path_.basename)(source) }];
+        return {
+            files: [{ localPath: (0,external_node_path_.resolve)(source), fileName: (0,external_node_path_.basename)(source) }],
+            isSingleExplicitFile: true,
+        };
     }
     const patterns = [];
     if (explicitFile?.isDirectory()) {
@@ -40730,7 +40771,18 @@ async function resolveFiles(source, include, exclude) {
         const rel = (0,external_node_path_.relative)(root, m).split(external_node_path_.sep).join(external_node_path_.posix.sep);
         out.push({ localPath: m, fileName: rel });
     }
-    return out;
+    out.sort(compareResolvedFiles);
+    return { files: out, isSingleExplicitFile: false };
+}
+function compareResolvedFiles(a, b) {
+    return compareStrings(a.fileName, b.fileName) || compareStrings(a.localPath, b.localPath);
+}
+function compareStrings(a, b) {
+    if (a < b)
+        return -1;
+    if (a > b)
+        return 1;
+    return 0;
 }
 function remapFileName(file, destination, isSingleExplicitFile) {
     if (destination === undefined || destination === '')
@@ -40740,7 +40792,7 @@ function remapFileName(file, destination, isSingleExplicitFile) {
         return dest;
     return `${dest}/${file.fileName}`;
 }
-async function uploadOne(bucket, localPath, fileName, inputs, signal) {
+async function uploadOne(bucket, localPath, fileName, inputs, partConcurrency, groupedLog, signal) {
     const fileStat = await (0,promises_.stat)(localPath);
     const size = fileStat.size;
     // Stream the file from disk. The SDK's `bucket.upload` routes files larger
@@ -40764,7 +40816,7 @@ async function uploadOne(bucket, localPath, fileName, inputs, signal) {
     const result = await bucket.upload({
         fileName,
         source,
-        concurrency: inputs.concurrency,
+        concurrency: partConcurrency,
         ...(inputs.partSize !== undefined ? { partSize: inputs.partSize } : {}),
         ...(inputs.contentType !== undefined ? { contentType: inputs.contentType } : {}),
         ...(inputs.encryption !== undefined ? { serverSideEncryption: inputs.encryption } : {}),
@@ -40774,7 +40826,8 @@ async function uploadOne(bucket, localPath, fileName, inputs, signal) {
     // SDK now normalizes multipart `'none'` to `null` at the boundary, so
     // `result.contentSha1` is `string | null` directly.
     const sha1 = result.contentSha1;
-    info(`  fileId=${result.fileId} sha1=${sha1 ?? 'multipart'}`);
+    const detailPrefix = groupedLog ? '  ' : '';
+    info(`${detailPrefix}fileId=${result.fileId} sha1=${sha1 ?? 'multipart'}`);
     return {
         localPath,
         fileName: result.fileName,

@@ -55,7 +55,7 @@ export async function uploadCommand(
 ): Promise<UploadResult> {
   const source = requireSource(inputs.source, 'upload')
 
-  const files = await resolveFiles(source, inputs.include, inputs.exclude)
+  const { files, isSingleExplicitFile } = await resolveFiles(source, inputs.include, inputs.exclude)
   if (files.length === 0) {
     if (inputs.failOnEmpty) {
       throw new Error(`No files matched: ${source}`)
@@ -64,27 +64,77 @@ export async function uploadCommand(
     return { files: [], bytesTransferred: 0 }
   }
 
-  const first = files[0]
-  const isSingleExplicitFile =
-    files.length === 1 && first !== undefined && first.fileName === basename(first.localPath)
+  const fileConcurrency = isSingleExplicitFile ? 1 : inputs.concurrency
+  // Multi-file uploads spend the concurrency budget across files and keep each
+  // file's multipart upload sequential so total in-flight B2 requests remain
+  // bounded by the user-supplied `concurrency` value.
+  const partConcurrency = isSingleExplicitFile || files.length === 1 ? inputs.concurrency : 1
 
-  const uploaded: UploadedFile[] = []
-  let totalBytes = 0
-
-  for (const f of files) {
+  const uploaded = await mapWithConcurrency(files, fileConcurrency, async (f) => {
     signal?.throwIfAborted()
     const fileName = remapFileName(f, inputs.destination, isSingleExplicitFile)
-    core.startGroup(`upload ${f.localPath} → b2://${bucket.name}/${fileName}`)
+    const uploadLabel = `upload ${f.localPath} → b2://${bucket.name}/${fileName}`
+    const groupedLog = files.length === 1 || fileConcurrency === 1
+    if (groupedLog) {
+      core.startGroup(uploadLabel)
+    } else {
+      core.info(uploadLabel)
+    }
     try {
-      const result = await uploadOne(bucket, f.localPath, fileName, inputs, signal)
-      uploaded.push(result)
-      totalBytes += result.size
+      return await uploadOne(
+        bucket,
+        f.localPath,
+        fileName,
+        inputs,
+        partConcurrency,
+        groupedLog,
+        signal,
+      )
     } finally {
-      core.endGroup()
+      if (groupedLog) core.endGroup()
+    }
+  })
+  const totalBytes = uploaded.reduce((sum, file) => sum + file.size, 0)
+
+  return { files: uploaded, bytesTransferred: totalBytes }
+}
+
+async function mapWithConcurrency<T, U>(
+  items: T[],
+  concurrency: number,
+  mapper: (item: T) => Promise<U>,
+): Promise<U[]> {
+  const results = new Array<U>(items.length)
+  let next = 0
+  let firstError: unknown
+  let failed = false
+
+  async function worker(): Promise<void> {
+    while (true) {
+      if (failed) return
+      const index = next++
+      if (index >= items.length) return
+      try {
+        results[index] = await mapper(items[index] as T)
+      } catch (error) {
+        if (!failed) {
+          failed = true
+          firstError = error
+        }
+        return
+      }
     }
   }
 
-  return { files: uploaded, bytesTransferred: totalBytes }
+  const workerCount = Math.min(concurrency, items.length)
+  await Promise.all(Array.from({ length: workerCount }, () => worker()))
+  if (failed) throw firstError
+  return results
+}
+
+interface ResolvedFiles {
+  files: ResolvedFile[]
+  isSingleExplicitFile: boolean
 }
 
 interface ResolvedFile {
@@ -97,12 +147,15 @@ async function resolveFiles(
   source: string,
   include: string[],
   exclude: string[],
-): Promise<ResolvedFile[]> {
+): Promise<ResolvedFiles> {
   const explicitFile = await tryStat(source)
   const looksLikeGlob = /[*?[\]]/.test(source)
 
   if (explicitFile?.isFile() && !looksLikeGlob && include.length === 0) {
-    return [{ localPath: resolve(source), fileName: basename(source) }]
+    return {
+      files: [{ localPath: resolve(source), fileName: basename(source) }],
+      isSingleExplicitFile: true,
+    }
   }
 
   const patterns: string[] = []
@@ -130,7 +183,18 @@ async function resolveFiles(
     const rel = relative(root, m).split(sep).join(posix.sep)
     out.push({ localPath: m, fileName: rel })
   }
-  return out
+  out.sort(compareResolvedFiles)
+  return { files: out, isSingleExplicitFile: false }
+}
+
+function compareResolvedFiles(a: ResolvedFile, b: ResolvedFile): number {
+  return compareStrings(a.fileName, b.fileName) || compareStrings(a.localPath, b.localPath)
+}
+
+function compareStrings(a: string, b: string): number {
+  if (a < b) return -1
+  if (a > b) return 1
+  return 0
 }
 
 function remapFileName(
@@ -149,6 +213,8 @@ async function uploadOne(
   localPath: string,
   fileName: string,
   inputs: ParsedInputs,
+  partConcurrency: number,
+  groupedLog: boolean,
   signal?: AbortSignal,
 ): Promise<UploadedFile> {
   const fileStat = await stat(localPath)
@@ -177,7 +243,7 @@ async function uploadOne(
   const result = await bucket.upload({
     fileName,
     source,
-    concurrency: inputs.concurrency,
+    concurrency: partConcurrency,
     ...(inputs.partSize !== undefined ? { partSize: inputs.partSize } : {}),
     ...(inputs.contentType !== undefined ? { contentType: inputs.contentType } : {}),
     ...(inputs.encryption !== undefined ? { serverSideEncryption: inputs.encryption } : {}),
@@ -188,7 +254,8 @@ async function uploadOne(
   // SDK now normalizes multipart `'none'` to `null` at the boundary, so
   // `result.contentSha1` is `string | null` directly.
   const sha1 = result.contentSha1
-  core.info(`  fileId=${result.fileId} sha1=${sha1 ?? 'multipart'}`)
+  const detailPrefix = groupedLog ? '  ' : ''
+  core.info(`${detailPrefix}fileId=${result.fileId} sha1=${sha1 ?? 'multipart'}`)
 
   return {
     localPath,

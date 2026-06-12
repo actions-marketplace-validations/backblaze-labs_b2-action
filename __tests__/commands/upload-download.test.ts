@@ -1,5 +1,5 @@
 import { randomBytes } from 'node:crypto'
-import { readFile, rm, writeFile } from 'node:fs/promises'
+import { mkdir, readFile, rm, writeFile } from 'node:fs/promises'
 import { join } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import { downloadCommand } from '../../src/commands/download.ts'
@@ -50,6 +50,21 @@ describe('upload + download commands (B2Simulator)', () => {
     expect(result.files[0]?.fileName).toBe('releases/v1/report.csv')
   })
 
+  it('treats destination as a prefix for a directory resolving to one file', async () => {
+    const srcDir = join(fx.workDir, 'single-file-dir')
+    await mkdir(srcDir)
+    await writeFile(join(srcDir, 'data.bin'), 'payload')
+
+    const result = await uploadCommand(fx.bucket, {
+      ...baseInputs(),
+      source: srcDir,
+      destination: 'out.bin',
+    })
+
+    expect(result.files).toHaveLength(1)
+    expect(result.files[0]?.fileName).toBe('out.bin/data.bin')
+  })
+
   it('round-trips bytes via upload → download', async () => {
     const local = join(fx.workDir, 'random.bin')
     const payload = randomBytes(64 * 1024)
@@ -98,6 +113,156 @@ describe('upload + download commands (B2Simulator)', () => {
       const got = await readFile(join(destDir, name), 'utf8')
       expect(got).toBe(`payload-${name}`)
     }
+  })
+
+  it('uploads glob matches with bounded file-level concurrency', async () => {
+    const srcDir = join(fx.workDir, 'bundle')
+    await mkdir(srcDir)
+    for (const name of ['c.txt', 'a.txt', 'b.txt']) {
+      await writeFile(join(srcDir, name), `payload-${name}`)
+    }
+
+    let active = 0
+    let maxActive = 0
+    const partConcurrencyValues: Array<number | undefined> = []
+    const originalUpload = fx.bucket.upload.bind(fx.bucket)
+    fx.bucket.upload = async (...args: Parameters<typeof fx.bucket.upload>) => {
+      partConcurrencyValues.push(args[0].concurrency)
+      active++
+      maxActive = Math.max(maxActive, active)
+      await new Promise((resolve) => setTimeout(resolve, 25))
+      try {
+        return await originalUpload(...args)
+      } finally {
+        active--
+      }
+    }
+
+    const result = await uploadCommand(fx.bucket, {
+      ...baseInputs(),
+      source: srcDir,
+      concurrency: 2,
+    })
+
+    expect(result.files.map((file) => file.fileName)).toEqual(['a.txt', 'b.txt', 'c.txt'])
+    expect(result.bytesTransferred).toBe('payload-a.txt'.length * 3)
+    expect(maxActive).toBe(2)
+    expect(partConcurrencyValues).toEqual([1, 1, 1])
+  })
+
+  it('uses concurrency as multipart part concurrency for explicit single-file uploads', async () => {
+    const local = join(fx.workDir, 'large.bin')
+    await writeFile(local, randomBytes(256 * 1024))
+
+    let partConcurrency: number | undefined
+    const originalUpload = fx.bucket.upload.bind(fx.bucket)
+    fx.bucket.upload = async (...args: Parameters<typeof fx.bucket.upload>) => {
+      partConcurrency = args[0].concurrency
+      return await originalUpload(...args)
+    }
+
+    await uploadCommand(fx.bucket, {
+      ...baseInputs(),
+      source: local,
+      concurrency: 3,
+    })
+
+    expect(partConcurrency).toBe(3)
+  })
+
+  it('uses concurrency as multipart part concurrency when a directory resolves to one file', async () => {
+    const srcDir = join(fx.workDir, 'single-file-bundle')
+    await mkdir(srcDir)
+    await writeFile(join(srcDir, 'large.bin'), randomBytes(256 * 1024))
+
+    let partConcurrency: number | undefined
+    const originalUpload = fx.bucket.upload.bind(fx.bucket)
+    fx.bucket.upload = async (...args: Parameters<typeof fx.bucket.upload>) => {
+      partConcurrency = args[0].concurrency
+      return await originalUpload(...args)
+    }
+
+    await uploadCommand(fx.bucket, {
+      ...baseInputs(),
+      source: srcDir,
+      concurrency: 3,
+    })
+
+    expect(partConcurrency).toBe(3)
+  })
+
+  it('waits for active glob uploads before rethrowing the first failure', async () => {
+    const srcDir = join(fx.workDir, 'failing-bundle')
+    await mkdir(srcDir)
+    for (const name of ['a.txt', 'b.txt', 'c.txt']) {
+      await writeFile(join(srcDir, name), `payload-${name}`)
+    }
+
+    const started: string[] = []
+    const completed: string[] = []
+    const originalUpload = fx.bucket.upload.bind(fx.bucket)
+    fx.bucket.upload = async (...args: Parameters<typeof fx.bucket.upload>) => {
+      const fileName = args[0].fileName
+      started.push(fileName)
+      if (fileName === 'b.txt') {
+        await new Promise((resolve) => setTimeout(resolve, 50))
+      }
+      const result = await originalUpload(...args)
+      completed.push(fileName)
+      if (fileName === 'a.txt') {
+        throw new Error('upload failed')
+      }
+      return result
+    }
+
+    await expect(
+      uploadCommand(fx.bucket, {
+        ...baseInputs(),
+        source: srcDir,
+        concurrency: 2,
+      }),
+    ).rejects.toThrow('upload failed')
+
+    expect(started).toHaveLength(2)
+    expect(started).toEqual(expect.arrayContaining(['a.txt', 'b.txt']))
+    expect(completed).toHaveLength(2)
+    expect(completed).toEqual(expect.arrayContaining(['a.txt', 'b.txt']))
+  })
+
+  it('rethrows undefined glob upload failures', async () => {
+    const srcDir = join(fx.workDir, 'undefined-failure-bundle')
+    await mkdir(srcDir)
+    for (const name of ['a.txt', 'b.txt', 'c.txt']) {
+      await writeFile(join(srcDir, name), `payload-${name}`)
+    }
+
+    const started: string[] = []
+    const originalUpload = fx.bucket.upload.bind(fx.bucket)
+    fx.bucket.upload = async (...args: Parameters<typeof fx.bucket.upload>) => {
+      const fileName = args[0].fileName
+      started.push(fileName)
+      if (fileName === 'a.txt') {
+        throw undefined
+      }
+      await new Promise((resolve) => setTimeout(resolve, 25))
+      return await originalUpload(...args)
+    }
+
+    let rejected = false
+    try {
+      await uploadCommand(fx.bucket, {
+        ...baseInputs(),
+        source: srcDir,
+        concurrency: 2,
+      })
+    } catch (error) {
+      rejected = true
+      expect(error).toBeUndefined()
+    }
+
+    expect(rejected).toBe(true)
+    expect(started).toHaveLength(2)
+    expect(started).toEqual(expect.arrayContaining(['a.txt', 'b.txt']))
   })
 
   it('fails when an upload glob matches no files and fail-on-empty is true', async () => {

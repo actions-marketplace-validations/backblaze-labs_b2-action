@@ -12,6 +12,10 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 - Run workflow security through the shared `backblaze-labs/github-actions` composite action in `.github/workflows/security.yml`, covering actionlint, third-party action pin checks, and zizmor audits without duplicating those scripts in this repo. ([#18](https://github.com/backblaze-labs/b2-action/issues/18))
 - Add a dependency vulnerability gate: a CI `audit` job runs `pnpm audit --prod --audit-level high` (available locally as `pnpm run audit`), failing the build on a high or critical advisory in a production dependency. Scoped to production deps so a dev-tooling advisory cannot block an unrelated PR. ([#21](https://github.com/backblaze-labs/b2-action/issues/21))
 
+### Changed
+
+- `upload`: directory/glob uploads now consistently treat `destination` as a prefix even when the source resolves to a single file; only an explicit single-file source treats a non-trailing-slash `destination` as the exact object key.
+
 ### Documentation
 
 - README: added a "Pinning and versioning" section recommending consumers pin `backblaze-labs/b2-action` to a commit SHA (or a signed `@vX.Y.Z` tag) rather than the mutable `@v1` floating tag, mirroring the supply-chain practice the Action applies to its own workflows.
