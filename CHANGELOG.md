@@ -11,6 +11,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 - Pin every third-party GitHub Action in `.github/workflows/` to a full commit SHA (with an exact `# vX.Y.Z` comment), so a moved or compromised upstream tag cannot alter our CI or the `contents: write` release job. Dependabot keeps the pins current. ([#18](https://github.com/backblaze-labs/b2-action/issues/18))
 - Run workflow security through the shared `backblaze-labs/github-actions` composite action in `.github/workflows/security.yml`, covering actionlint, third-party action pin checks, and zizmor audits without duplicating those scripts in this repo. ([#18](https://github.com/backblaze-labs/b2-action/issues/18))
 - Add a dependency vulnerability gate: a CI `audit` job runs `pnpm audit --prod --audit-level high` (available locally as `pnpm run audit`), failing the build on a high or critical advisory in a production dependency. Scoped to production deps so a dev-tooling advisory cannot block an unrelated PR. ([#21](https://github.com/backblaze-labs/b2-action/issues/21))
+- Add a CodeQL (SAST) workflow (`.github/workflows/codeql.yml`) that statically analyzes the TypeScript source on every PR to `main`, on push to `main`, and weekly, surfacing findings in the repo Security tab. Uses `build-mode: none` (no compile needed) and SHA-pinned `github/codeql-action`. ([#20](https://github.com/backblaze-labs/b2-action/issues/20))
 
 ### Changed
 

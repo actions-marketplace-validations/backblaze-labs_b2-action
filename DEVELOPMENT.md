@@ -54,6 +54,7 @@ __tests__/
 .github/workflows/
   ci.yml                # lint, typecheck, test, coverage, build, dist freshness, smoke
   security.yml          # shared GitHub Actions workflow security checks
+  codeql.yml            # CodeQL (SAST) static analysis of the TypeScript source
   release.yml           # see RELEASE.md
   daily-smoke.yml       # 03:13 UTC: real-B2 end-to-end against the test bucket
   example-*.yml         # 12 copy-paste workflows that double as integration tests
@@ -125,6 +126,7 @@ Every PR runs:
 | `build-and-check-dist` | ncc build, then `git diff --exit-code dist/`. **Drift fails CI**: rebuild with `pnpm build` and commit `dist/`. Bundle size is gated hard at 4 MiB. |
 | `github-actions` ([security.yml](./.github/workflows/security.yml)) | runs the shared GitHub Actions security composite action against every workflow, including actionlint, third-party action pin checks, and zizmor audits (see [Pinning third-party actions](#pinning-third-party-actions)) |
 | `self-smoke` | runs `node dist/index.js` with no inputs, expects the missing-input error |
+| `analyze` ([codeql.yml](./.github/workflows/codeql.yml)) | CodeQL (SAST) over the TypeScript source (`build-mode: none`, no compile needed). Runs on PRs to `main`, push to `main`, and weekly; findings surface in the repo Security tab. |
 | `audit` | `pnpm audit --prod --audit-level high`: fails on a high/critical advisory in a **production** dependency. Scoped to prod (not devDeps) so a dev-tool advisory can't block an unrelated PR; devDep updates are handled by Dependabot. CI calls the builtin `pnpm audit` directly (resolves against the lockfile, no install); `pnpm run audit` is the local-convenience equivalent. |
 | `sync-check` ([docs-lint.yml](./.github/workflows/docs-lint.yml)) | every input/output in `action.yml` also appears in the README reference tables. Drift fails CI. |
 | `markdownlint` ([docs-lint.yml](./.github/workflows/docs-lint.yml)) | prose-style consistency across `**/*.md`. Config in [`.markdownlint-cli2.jsonc`](./.markdownlint-cli2.jsonc). |
