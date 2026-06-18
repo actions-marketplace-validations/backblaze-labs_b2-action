@@ -363,14 +363,15 @@ If you don't need customer-managed keys, **`sse: B2`** (SSE-B2, B2-managed) is t
 
 | Output | When | Description |
 | --- | --- | --- |
-| `file-id` | upload / copy / hide / retention | B2 file ID. |
+| `file-id` | upload / copy / hide / retention / head; unhide if a hide marker was removed | B2 file ID. For `unhide`, this identifies the removed hide marker, not the target object. |
 | `file-name` | single-file ops | B2 file name (path). |
-| `content-sha1` | upload (small) / download | SHA-1 hex. |
-| `bytes-transferred` | upload / download / sync / copy | Total bytes moved. |
+| `content-sha1` | upload / download / head when available | SHA-1 hex. Omitted when B2 does not expose a whole-file SHA-1, including multipart objects. |
+| `bytes-transferred` | upload / download / sync / copy / head | Total bytes moved. Head emits `0`. |
+| `file-count` | every command | Aggregate count of files matched or processed, including skipped sync entries and dry-run delete/purge matches. Prefer verb-specific count outputs when available. |
 | `files-uploaded` | upload / sync up | Count. |
 | `files-downloaded` | download / sync down | Count. |
-| `files-deleted` | delete / sync | Count. |
-| `files-listed` | list | Count returned (capped by `max-results`). |
+| `files-deleted` | delete / purge / sync | Count. |
+| `files-listed` | list / prefix presign | Count returned (capped by `max-results`). |
 | `presigned-url` | presign | Time-limited download URL. Masked as a secret. |
 | `verified` | verify | `true` / `false`. |
 | `remote-sha1` | verify | The remote object's whole-file SHA-1, or empty for multipart objects when B2 does not expose one. |
