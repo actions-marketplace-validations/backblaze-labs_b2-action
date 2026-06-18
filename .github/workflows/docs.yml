@@ -1,9 +1,10 @@
-name: Deploy API Docs
+name: API Docs
 
-# Builds TypeDoc on every push to main and deploys the result to GitHub
-# Pages. The site is intended for contributors and curious users who want
-# to read the TS-level shapes (ParsedInputs, command result types, etc.);
-# user-facing usage docs live in README.md.
+# Builds TypeDoc on every PR and every push to main. Pushes to main also
+# deploy the generated output to GitHub Pages. The site is intended for
+# contributors and curious users who want to read the TS-level shapes
+# (ParsedInputs, command result types, etc.); user-facing usage docs live
+# in README.md.
 #
 # One-time setup: enable Pages in the repo Settings (Settings > Pages >
 # Source: GitHub Actions). The first run will fail until that's flipped.
@@ -11,6 +12,7 @@ name: Deploy API Docs
 on:
   push:
     branches: [main]
+  pull_request:
   workflow_dispatch:
 
 permissions:
@@ -40,12 +42,14 @@ jobs:
       - run: pnpm run docs
 
       - uses: actions/upload-pages-artifact@fc324d3547104276b827a68afc52ff2a11cc49c9 # v5.0.0
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
         with:
           path: docs
 
   deploy:
     name: Deploy to GitHub Pages
     needs: build
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
     permissions:
       pages: write # deploys the Pages artifact produced by the build job

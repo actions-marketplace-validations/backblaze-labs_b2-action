@@ -41300,6 +41300,13 @@ async function run() {
         process.off('SIGINT', onSigint);
     }
 }
+/**
+ * Checks whether this module is the process entrypoint.
+ *
+ * @param metaUrl - The current module URL from `import.meta.url`.
+ * @param argv1 - The executable script path from `process.argv[1]`.
+ * @returns `true` when the current module path matches the invoked script.
+ */
 function isEntrypoint(metaUrl, argv1) {
     if (argv1 === undefined)
         return false;

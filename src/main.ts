@@ -326,6 +326,13 @@ export async function run(): Promise<void> {
   }
 }
 
+/**
+ * Checks whether this module is the process entrypoint.
+ *
+ * @param metaUrl - The current module URL from `import.meta.url`.
+ * @param argv1 - The executable script path from `process.argv[1]`.
+ * @returns `true` when the current module path matches the invoked script.
+ */
 export function isEntrypoint(metaUrl: string, argv1: string | undefined): boolean {
   if (argv1 === undefined) return false
   try {
