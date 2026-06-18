@@ -1,3 +1,6 @@
+import { realpathSync } from 'node:fs'
+import { resolve } from 'node:path'
+import { fileURLToPath } from 'node:url'
 import * as core from '@actions/core'
 import { buildClient, getBucket } from './client.ts'
 import { copyCommand } from './commands/copy.ts'
@@ -37,8 +40,10 @@ export async function run(): Promise<void> {
     core.warning(`Received ${sig}; cancelling in-flight B2 operations.`)
     controller.abort(new Error(`${sig} received`))
   }
-  process.once('SIGTERM', () => onSignal('SIGTERM'))
-  process.once('SIGINT', () => onSignal('SIGINT'))
+  const onSigterm = () => onSignal('SIGTERM')
+  const onSigint = () => onSignal('SIGINT')
+  process.once('SIGTERM', onSigterm)
+  process.once('SIGINT', onSigint)
   const signal = controller.signal
 
   try {
@@ -304,6 +309,18 @@ export async function run(): Promise<void> {
     }
   } catch (err) {
     core.setFailed(err instanceof Error ? err.message : String(err))
+  } finally {
+    process.off('SIGTERM', onSigterm)
+    process.off('SIGINT', onSigint)
+  }
+}
+
+export function isEntrypoint(metaUrl: string, argv1: string | undefined): boolean {
+  if (argv1 === undefined) return false
+  try {
+    return realpathSync(fileURLToPath(metaUrl)) === realpathSync(resolve(argv1))
+  } catch {
+    return false
   }
 }
 
@@ -361,4 +378,6 @@ function retentionStatusLine(result: {
   return parts.join(' ')
 }
 
-run()
+if (isEntrypoint(import.meta.url, process.argv[1])) {
+  void run()
+}
