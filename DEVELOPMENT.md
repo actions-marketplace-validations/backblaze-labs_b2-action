@@ -80,10 +80,34 @@ pnpm verify-dist    # build, then `git diff --exit-code dist/` (must be clean)
 pnpm docs           # typedoc (strict): generates docs/ for GitHub Pages
 pnpm docs:watch     # typedoc in watch mode for local authoring
 pnpm docs:lint      # markdownlint-cli2 against **/*.md
+pnpm docs:links     # runs pinned lychee in offline + fragment-aware mode, excluding node_modules
 pnpm docs:check-action-yml  # action.yml <> README sync check
 ```
 
 Requirements: Node 24+, pnpm 10+. The Action runs on Node 24 in the GitHub Actions runtime; CI tests Node 24 across Ubuntu / macOS / Windows.
+
+### Managed lychee binary
+
+`pnpm docs:links` runs [`scripts/run-lychee.mjs`](./scripts/run-lychee.mjs), a Node built-ins-only wrapper around [lycheeverse/lychee](https://github.com/lycheeverse/lychee). CI intentionally runs this command without `pnpm install`, so the wrapper must stay dependency-free.
+
+Current managed tool:
+
+| Tool | Version | Source | License | Cache |
+| --- | --- | --- | --- | --- |
+| lychee | `0.23.0` | [`lychee-v0.23.0`](https://github.com/lycheeverse/lychee/releases/tag/lychee-v0.23.0) | Apache-2.0 OR MIT | local: `node_modules/.cache/lychee`; CI: `${{ runner.temp }}/lychee-cache` |
+
+Supported local platforms are `darwin-arm64`, `linux-arm64`, `linux-x64`, and `win32-x64`. Lychee `0.23.0` does not publish an Intel macOS (`darwin-x64`) binary; Intel macOS contributors can rely on the CI `link-check` job for this gate.
+
+Authoritative lychee bump process:
+
+1. Update `LYCHEE_VERSION` in [`scripts/run-lychee-lib.mjs`](./scripts/run-lychee-lib.mjs).
+2. Re-check every asset name in `PLATFORM_ASSETS` against the new release. The asset names are part of the pin because lychee has renamed release assets across versions.
+3. Download each listed asset from the official GitHub release and refresh the committed `archiveSha256` and `binarySha256` values. For non-archive assets such as `win32-x64`, `archiveSha256` and `binarySha256` are the same raw file hash.
+4. Before merge, a second reviewer must independently download the same official release assets, recompute every changed hash, and confirm the PR values. Prefer a separate machine or network for this check when practical. Lychee `0.23.0` does not publish a checksum manifest; if a future release does, verify against it too.
+
+On every cold cache (new version, fresh runner, or cache eviction), `pnpm docs:links` downloads lychee from the official GitHub release endpoint. The docs link gate intentionally fails hard if that endpoint remains unavailable after the wrapper's bounded retries and timeout; this keeps tool acquisition failures visible instead of silently skipping link checks.
+
+Interrupted local installs can leave a cache lock directory behind. The next run waits for the derived install-lock timeout before printing the lock path to remove. That long wait is intentional so a concurrent live install is not deleted; remove the named lock only after confirming no `docs:links` process is running.
 
 ## Git hooks
 
@@ -131,7 +155,7 @@ Every PR runs:
 | `audit` | `pnpm audit --prod --audit-level high`: fails on a high/critical advisory in a **production** dependency. Scoped to prod (not devDeps) so a dev-tool advisory can't block an unrelated PR; devDep updates are handled by Dependabot. CI calls the builtin `pnpm audit` directly (resolves against the lockfile, no install); `pnpm run audit` is the local-convenience equivalent. |
 | `sync-check` ([docs-lint.yml](./.github/workflows/docs-lint.yml)) | every input/output in `action.yml` also appears in the README reference tables. Drift fails CI. |
 | `markdownlint` ([docs-lint.yml](./.github/workflows/docs-lint.yml)) | prose-style consistency across `**/*.md`. Config in [`.markdownlint-cli2.jsonc`](./.markdownlint-cli2.jsonc). |
-| `link-check` ([docs-lint.yml](./.github/workflows/docs-lint.yml)) | lychee runs in `--offline` mode against `**/*.md`; catches broken relative paths and anchor fragments. External URLs are not pinged. |
+| `link-check` ([docs-lint.yml](./.github/workflows/docs-lint.yml)) | `pnpm docs:links` runs pinned lychee in `--offline` mode against `**/*.md`; catches broken relative paths and anchor fragments. External URLs are not pinged. |
 | `spellcheck` ([docs-lint.yml](./.github/workflows/docs-lint.yml)) | cspell across `**/*.ts`, `**/*.md`, `**/*.yml`, `action.yml`. Config in [`cspell.json`](./cspell.json); domain-specific words live in [`.cspell/project-words.txt`](./.cspell/project-words.txt). Add a word there when cspell flags a deliberate identifier. |
 | `docs` ([docs.yml](./.github/workflows/docs.yml)) | TypeDoc with `treatWarningsAsErrors: true`; every export must have JSDoc. Published to GitHub Pages on push to `main`. |
 

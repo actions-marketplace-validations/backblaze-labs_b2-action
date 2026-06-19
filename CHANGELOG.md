@@ -21,6 +21,10 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 - `upload`: directory/glob uploads now consistently treat `destination` as a prefix even when the source resolves to a single file; only an explicit single-file source treats a non-trailing-slash `destination` as the exact object key.
 
+### Fixed
+
+- `pnpm docs:links` now downloads, verifies, and runs a pinned lychee binary on supported local platforms, and CI uses the same command, so contributors can reproduce the markdown-link gate from a clean checkout where lychee publishes a matching binary. ([#39](https://github.com/backblaze-labs/b2-action/issues/39))
+
 ### Documentation
 
 - README: added a "Pinning and versioning" section recommending consumers pin `backblaze-labs/b2-action` to a commit SHA (or a signed `@vX.Y.Z` tag) rather than the mutable `@v1` floating tag, mirroring the supply-chain practice the Action applies to its own workflows.
