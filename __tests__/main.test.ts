@@ -146,6 +146,23 @@ describe('main dispatcher', () => {
     )
   })
 
+  it('reports a SIGTERM-triggered command abort through setFailed', async () => {
+    const ctx = await loadMain()
+    ctx.parseInputs.mockReturnValue(inputs('upload'))
+    ctx.commands.uploadCommand.mockImplementation(async (_bucket, _inputs, commandSignal) => {
+      // The handler is registered inside run() before dispatch, so this
+      // synchronous emit is contained by the run() finally cleanup.
+      process.emit('SIGTERM')
+      commandSignal?.throwIfAborted()
+      throw new Error('SIGTERM handler did not abort the command signal')
+    })
+
+    await ctx.run()
+
+    expect(ctx.core.setFailed).toHaveBeenCalledWith('SIGTERM received')
+    expect(ctx.writeStepSummary).not.toHaveBeenCalled()
+  })
+
   it('removes signal listeners after run completes', async () => {
     const ctx = await loadMain()
     const beforeSigterm = process.listenerCount('SIGTERM')
