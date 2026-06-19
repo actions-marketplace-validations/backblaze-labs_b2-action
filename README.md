@@ -100,6 +100,8 @@ This is the same supply-chain practice this Action applies to its own workflows:
 | `head` | Fetch object metadata (size, sha1, contentType, fileInfo) via HEAD. No body transfer. | `source`, `bucket` |
 | `purge` | Permanently delete every file version under a prefix, including hide markers and history. Whole-bucket purge requires `allow-bucket-purge: true`. Supports `dry-run`. | `source` or `allow-bucket-purge`, `bucket` |
 
+Exact-name `copy`, single-file `delete`, and `retention` operate only when the latest exact-name version is an upload. If that latest version is a hide marker, these commands do not search older upload history under the same name; they fail with the same `File not found` diagnostic used for absent names so default workflow logs do not reveal hidden-object existence. Run `unhide` first to restore the prior upload, or use `purge` when you need to remove hide markers and historical versions.
+
 ---
 
 ## Worked examples

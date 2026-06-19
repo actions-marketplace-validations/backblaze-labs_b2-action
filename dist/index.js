@@ -35255,10 +35255,13 @@ async function getBucket(authorized) {
     return bucket;
 }
 /**
- * Look up the most-recent visible (`action: 'upload'`) version of a file by
- * its exact name. Throws if no upload version exists (hidden / deleted /
- * never existed). Used by `copy`, `delete`, and `retention` to resolve a
- * file name to a `fileId` before operating on it.
+ * Resolve an exact file name only when its latest version is an upload. If the
+ * latest exact-name version is a hide marker, this intentionally reports the
+ * file as not found instead of selecting an older upload from version history
+ * or revealing hidden-object existence in default workflow logs. Throws when
+ * the latest exact-name state is hidden, deleted, or absent. Used by `copy`,
+ * `delete`, and `retention` to resolve a file name to a `fileId` before
+ * operating on it.
  *
  * Consistency assumption: B2's `listFileNames` is read-after-write consistent
  * for a recently-uploaded file in the same region. The simulator returns
@@ -35273,12 +35276,12 @@ async function getBucket(authorized) {
  *   the action's destination bucket (cross-bucket copy).
  */
 async function findFileByName(bucket, fileName, bucketDisplayName) {
+    const display = bucketDisplayName ?? bucket.name;
     const page = await bucket.listFileNames({ prefix: fileName, pageSize: 1 });
-    const hit = page.files.find((f) => f.fileName === fileName && f.action === 'upload');
-    if (!hit) {
-        throw new Error(`File not found in bucket "${bucketDisplayName ?? bucket.name}": ${fileName}`);
-    }
-    return hit;
+    const exactLatest = page.files.find((f) => f.fileName === fileName);
+    if (exactLatest?.action === 'upload')
+        return exactLatest;
+    throw new Error(`File not found in bucket "${display}": ${fileName}`);
 }
 
 // EXTERNAL MODULE: external "node:buffer"
@@ -36205,7 +36208,8 @@ async function purgeCommand(bucket, inputs, signal) {
  *
  * At least one of `retention-mode` / `legal-hold` must be supplied.
  *
- * The target file version is resolved by name (latest visible version).
+ * The target file version is resolved by exact name only when the latest
+ * version is an upload.
  */
 async function retentionCommand(bucket, inputs) {
     const source = requireSource(inputs.source, 'retention', 'the B2 file name');

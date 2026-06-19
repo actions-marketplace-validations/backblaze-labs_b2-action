@@ -83,10 +83,13 @@ export async function getBucket(authorized: AuthorizedClient) {
 }
 
 /**
- * Look up the most-recent visible (`action: 'upload'`) version of a file by
- * its exact name. Throws if no upload version exists (hidden / deleted /
- * never existed). Used by `copy`, `delete`, and `retention` to resolve a
- * file name to a `fileId` before operating on it.
+ * Resolve an exact file name only when its latest version is an upload. If the
+ * latest exact-name version is a hide marker, this intentionally reports the
+ * file as not found instead of selecting an older upload from version history
+ * or revealing hidden-object existence in default workflow logs. Throws when
+ * the latest exact-name state is hidden, deleted, or absent. Used by `copy`,
+ * `delete`, and `retention` to resolve a file name to a `fileId` before
+ * operating on it.
  *
  * Consistency assumption: B2's `listFileNames` is read-after-write consistent
  * for a recently-uploaded file in the same region. The simulator returns
@@ -105,10 +108,10 @@ export async function findFileByName(
   fileName: string,
   bucketDisplayName?: string,
 ): Promise<FileVersion> {
+  const display = bucketDisplayName ?? bucket.name
   const page = await bucket.listFileNames({ prefix: fileName, pageSize: 1 })
-  const hit = page.files.find((f) => f.fileName === fileName && f.action === 'upload')
-  if (!hit) {
-    throw new Error(`File not found in bucket "${bucketDisplayName ?? bucket.name}": ${fileName}`)
-  }
-  return hit
+  const exactLatest = page.files.find((f) => f.fileName === fileName)
+  if (exactLatest?.action === 'upload') return exactLatest
+
+  throw new Error(`File not found in bucket "${display}": ${fileName}`)
 }
