@@ -1,14 +1,14 @@
 name: Release
 
-# Tag-driven release flow. Push a three-component `vX.Y.Z` tag (or a
-# `vX.Y.Z-rc.N` pre-release) and this workflow:
+# Tag-driven release flow. Push a three-component `vX.Y.Z` tag (or any
+# `vX.Y.Z-*` pre-release) and this workflow:
 #   1. Runs the full test + lint + typecheck + build suite as a gate.
 #   2. Verifies the `dist/` committed at the tag matches a fresh `pnpm build`.
-#   3. Cuts a GitHub Release with a generated body.
-#   4. Moves the floating major tag (e.g. `v1`) to the tagged commit so users
+#   3. Moves the floating major tag (e.g. `v1`) to the tagged commit so users
 #      pinning `uses: backblaze-labs/b2-action@v1` track the latest minor/patch.
+#   4. Cuts a GitHub Release with a generated body.
 #
-# Pre-release tags (`vX.Y.Z-alpha`, `-beta`, `-rc.*`) are published as
+# Pre-release tags (`vX.Y.Z-*`) are published as
 # pre-releases and DO NOT update the floating major tag. The bare floating
 # tags `v1` / `v2` deliberately do NOT match the trigger below, so this
 # workflow re-pointing them never re-runs itself.
@@ -26,12 +26,23 @@ on:
       tag:
         description: 'Tag to release (e.g. v1.0.0). Must already exist.'
         required: true
+      skip-floating-tag:
+        description: 'Emergency only: publish without moving vN. Manual follow-up is required.'
+        required: false
+        default: false
+        type: boolean
+      skip-floating-tag-justification:
+        description: 'Required when skip-floating-tag is true.'
+        required: false
+        default: ''
 
 permissions:
   contents: read # default read-only access; publish escalates below
 
 concurrency:
-  group: ${{ github.workflow }}-${{ github.ref }}
+  # Serialize the full release workflow, including validation, so two stable
+  # tags cannot race to move the same floating major tag.
+  group: ${{ github.workflow }}
   cancel-in-progress: false
 
 jobs:
@@ -56,6 +67,9 @@ jobs:
       - uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6.4.0
         with:
           node-version: 24
+          # setup-node v6 enables package-manager auto-caching from package.json.
+          # Keep release validation cache-free for zizmor's cache-poisoning check.
+          package-manager-cache: false
 
       - run: pnpm install --frozen-lockfile
       - run: pnpm lint
@@ -97,6 +111,7 @@ jobs:
     name: publish release
     needs: validate
     runs-on: ubuntu-latest
+    timeout-minutes: 20
     permissions:
       contents: write # creates GitHub Releases and moves floating major-version tags
     env:
@@ -111,12 +126,174 @@ jobs:
       - name: Identify pre-release
         id: prerelease
         run: |
-          if [[ "$REF" =~ -(alpha|beta|rc)([.-][0-9]+)?$ ]]; then
+          if [[ "$REF" == *-* ]]; then
             echo "is_prerelease=true" >> "$GITHUB_OUTPUT"
           else
             echo "is_prerelease=false" >> "$GITHUB_OUTPUT"
           fi
 
+      - name: Derive major-version floating tag
+        id: major
+        if: steps.prerelease.outputs.is_prerelease == 'false'
+        run: |
+          MAJOR=$(echo "$REF" | sed -nE 's/^(v[0-9]+).*/\1/p')
+          if [ -z "$MAJOR" ]; then
+            echo "::error::Could not derive major-version tag from the requested ref; refusing to publish an ambiguous stable release. The GitHub Release has not been created yet."
+            exit 1
+          fi
+          echo "major=$MAJOR" >> "$GITHUB_OUTPUT"
+
+      - name: Verify stable tag is latest for major
+        if: steps.prerelease.outputs.is_prerelease == 'false'
+        env:
+          MAJOR: ${{ steps.major.outputs.major }}
+        run: |
+          if [ -z "${MAJOR:-}" ]; then
+            echo "::error::Major-version tag output is missing; refusing to publish an ambiguous stable release. The GitHub Release has not been created yet."
+            exit 1
+          fi
+
+          LATEST_STABLE=$(
+            git tag --list "$MAJOR.*" |
+              sed -nE "s/^(${MAJOR}\.[0-9]+\.[0-9]+)$/\1/p" |
+              sort -t. -k2,2n -k3,3n |
+              tail -n 1
+          )
+          if [ -z "$LATEST_STABLE" ]; then
+            echo "::error::Could not find any stable tags for $MAJOR; refusing to publish. The GitHub Release has not been created yet."
+            exit 1
+          fi
+          if [ "$REF" != "$LATEST_STABLE" ]; then
+            echo "::error::Requested stable tag is not the latest for $MAJOR (latest is $LATEST_STABLE); refusing to move $MAJOR. Use a reviewed manual rollback process instead. The GitHub Release has not been created yet."
+            exit 1
+          fi
+
+      - name: Move major-version floating tag (e.g. v1)
+        if: steps.prerelease.outputs.is_prerelease == 'false' && (github.event_name != 'workflow_dispatch' || inputs['skip-floating-tag'] == false)
+        env:
+          # The default GITHUB_TOKEN CANNOT create/move a tag whose commit
+          # contains workflow files (`.github/workflows/`) -- rejected by both
+          # `git push` and the refs API (403), and the `workflows` permission
+          # can't be granted to it. Use a fine-grained, single-repo PAT with
+          # Contents + Workflows: Read and write, stored as FLOATING_TAG_TOKEN.
+          # This step intentionally runs before publishing the GitHub Release so
+          # missing or unusable credentials cannot leave a visible exact-version
+          # release while the consumer-facing `vN` alias is stale.
+          GH_TOKEN: ${{ secrets.FLOATING_TAG_TOKEN }}
+          MAJOR: ${{ steps.major.outputs.major }}
+        run: |
+          RELEASE_PENDING='The GitHub Release has not been created yet.'
+          RETRY_SECONDS=${GITHUB_API_RETRY_SECONDS:-5}
+
+          http_status_from() {
+            printf '%s\n' "$1" | sed -nE 's/.*HTTP ([0-9]{3}).*/\1/p' | tail -n 1
+          }
+
+          is_auth_status() {
+            case "$1" in
+              401|403|404) return 0 ;;
+              *) return 1 ;;
+            esac
+          }
+
+          if [ -z "${MAJOR:-}" ]; then
+            echo "::error::Major-version tag output is missing; refusing to publish an ambiguous stable release. ${RELEASE_PENDING}"
+            exit 1
+          fi
+          if [ -z "${GH_TOKEN:-}" ]; then
+            echo "::error::FLOATING_TAG_TOKEN secret is required before publishing stable releases; otherwise users pinned to @$MAJOR remain on the previous release. ${RELEASE_PENDING} See RELEASE.md#floating-tag-automation."
+            exit 1
+          fi
+
+          AUTH_FAILED=false
+          AUTH_RESPONSE=''
+          AUTH_STATUS=''
+          for ATTEMPT in 1 2; do
+            if AUTH_RESPONSE=$(gh api "repos/$GITHUB_REPOSITORY" 2>&1); then
+              AUTH_FAILED=false
+              break
+            fi
+            AUTH_FAILED=true
+            AUTH_STATUS=$(http_status_from "$AUTH_RESPONSE")
+            if is_auth_status "$AUTH_STATUS" || [ "$ATTEMPT" -eq 2 ]; then
+              break
+            fi
+            echo "::warning::Could not reach the GitHub API to validate FLOATING_TAG_TOKEN (HTTP ${AUTH_STATUS:-unknown}); retrying once."
+            sleep "$RETRY_SECONDS"
+          done
+
+          if [ "$AUTH_FAILED" = "true" ]; then
+            if is_auth_status "$AUTH_STATUS"; then
+              echo "::error::FLOATING_TAG_TOKEN is invalid, expired, or lacks access to $GITHUB_REPOSITORY (HTTP $AUTH_STATUS). ${RELEASE_PENDING}"
+            else
+              echo "::error::Could not reach the GitHub API to validate FLOATING_TAG_TOKEN (HTTP ${AUTH_STATUS:-unknown}); rerun the release workflow. ${RELEASE_PENDING}"
+            fi
+            exit 1
+          fi
+
+          REF_RESPONSE=''
+          REF_STATUS=''
+          if REF_RESPONSE=$(gh api "repos/$GITHUB_REPOSITORY/git/ref/tags/$MAJOR" 2>&1); then
+            REF_EXISTS=true
+          else
+            REF_STATUS=$(http_status_from "$REF_RESPONSE")
+            if [ "$REF_STATUS" = "404" ]; then
+              REF_EXISTS=false
+            else
+              echo "::error::FLOATING_TAG_TOKEN cannot read tag refs for $GITHUB_REPOSITORY (HTTP ${REF_STATUS:-unknown}); confirm it has Contents: Read and write. ${RELEASE_PENDING}"
+              exit 1
+            fi
+          fi
+          SHA=$(git rev-parse "${REF}^{commit}")
+          echo "Pointing floating tag $MAJOR at $REF ($SHA)"
+          # Update the tag if it already exists, otherwise create it.
+          if [ "$REF_EXISTS" = "true" ]; then
+            UPDATE_RESPONSE=''
+            if ! UPDATE_RESPONSE=$(gh api --method PATCH "repos/$GITHUB_REPOSITORY/git/refs/tags/$MAJOR" \
+              -f sha="$SHA" -F force=true 2>&1); then
+              UPDATE_STATUS=$(http_status_from "$UPDATE_RESPONSE")
+              echo "::error::FLOATING_TAG_TOKEN could not update $MAJOR (HTTP ${UPDATE_STATUS:-unknown}); confirm it has Contents + Workflows: Read and write. ${RELEASE_PENDING}"
+              exit 1
+            fi
+          else
+            CREATE_RESPONSE=''
+            if ! CREATE_RESPONSE=$(gh api --method POST "repos/$GITHUB_REPOSITORY/git/refs" \
+              -f ref="refs/tags/$MAJOR" -f sha="$SHA" 2>&1); then
+              CREATE_STATUS=$(http_status_from "$CREATE_RESPONSE")
+              echo "::error::FLOATING_TAG_TOKEN could not create $MAJOR (HTTP ${CREATE_STATUS:-unknown}); confirm it has Contents + Workflows: Read and write. ${RELEASE_PENDING}"
+              exit 1
+            fi
+          fi
+
+      - name: Warn when stable floating tag is skipped
+        if: steps.prerelease.outputs.is_prerelease == 'false' && github.event_name == 'workflow_dispatch' && inputs['skip-floating-tag'] == true
+        env:
+          MAJOR: ${{ steps.major.outputs.major }}
+          JUSTIFICATION: ${{ inputs['skip-floating-tag-justification'] }}
+        run: |
+          if [ -z "${MAJOR:-}" ]; then
+            echo "::error::skip-floating-tag=true but major-version tag output is missing; refusing to publish an ambiguous stable release."
+            exit 1
+          fi
+          if [ -z "${JUSTIFICATION:-}" ]; then
+            echo "::error::skip-floating-tag=true requires skip-floating-tag-justification so the stale @$MAJOR release decision is recorded."
+            exit 1
+          fi
+          escape_workflow_command() {
+            local value=${1//'%'/'%25'}
+            value=${value//$'\r'/'%0D'}
+            value=${value//$'\n'/'%0A'}
+            printf '%s' "$value"
+          }
+
+          ESCAPED_JUSTIFICATION=$(escape_workflow_command "$JUSTIFICATION")
+          ESCAPED_REF=$(escape_workflow_command "$REF")
+          echo "::notice::skip-floating-tag justification: $ESCAPED_JUSTIFICATION"
+          echo "::warning::skip-floating-tag=true; publishing $ESCAPED_REF without moving $MAJOR. Users pinned to @$MAJOR remain on the previous release until manual follow-up. See RELEASE.md#floating-tag-automation."
+
+      # If this step fails after the floating tag moved, rerun this same
+      # workflow/tag. The refs API update and GitHub Release operation are
+      # idempotent, so reruns safely heal that partial publish state.
       - name: Create / update GitHub Release
         uses: softprops/action-gh-release@b4309332981a82ec1c5618f44dd2e27cc8bfbfda # v3.0.0
         with:
@@ -127,36 +304,3 @@ jobs:
           fail_on_unmatched_files: false
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-
-      - name: Move major-version floating tag (e.g. v1)
-        if: steps.prerelease.outputs.is_prerelease == 'false'
-        env:
-          # The default GITHUB_TOKEN CANNOT create/move a tag whose commit
-          # contains workflow files (`.github/workflows/`) -- rejected by both
-          # `git push` and the refs API (403), and the `workflows` permission
-          # can't be granted to it. So use a token that has it: create a
-          # fine-grained PAT on this repo with Contents + Workflows: Read and
-          # write (or a classic PAT with `repo` + `workflow`) and add it as the
-          # FLOATING_TAG_TOKEN secret. If the secret is absent the float is
-          # skipped with a warning instead of failing the release.
-          GH_TOKEN: ${{ secrets.FLOATING_TAG_TOKEN }}
-        run: |
-          MAJOR=$(echo "$REF" | sed -nE 's/^(v[0-9]+).*/\1/p')
-          if [ -z "$MAJOR" ]; then
-            echo "::warning::Could not derive major-version tag from '$REF'; skipping float."
-            exit 0
-          fi
-          if [ -z "${GH_TOKEN:-}" ]; then
-            echo "::warning::FLOATING_TAG_TOKEN secret not set; skipping float of $MAJOR. Move it by hand: git tag -f $MAJOR $REF && git push origin $MAJOR --force"
-            exit 0
-          fi
-          SHA=$(git rev-parse "${REF}^{commit}")
-          echo "Pointing floating tag $MAJOR at $REF ($SHA)"
-          # Update the tag if it already exists, otherwise create it.
-          if gh api "repos/$GITHUB_REPOSITORY/git/ref/tags/$MAJOR" >/dev/null 2>&1; then
-            gh api --method PATCH "repos/$GITHUB_REPOSITORY/git/refs/tags/$MAJOR" \
-              -f sha="$SHA" -F force=true
-          else
-            gh api --method POST "repos/$GITHUB_REPOSITORY/git/refs" \
-              -f ref="refs/tags/$MAJOR" -f sha="$SHA"
-          fi
