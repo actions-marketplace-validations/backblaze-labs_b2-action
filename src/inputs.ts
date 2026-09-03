@@ -5,8 +5,9 @@ import { parseSse } from './sse.ts'
 /**
  * Discriminator the action's dispatcher switches on. Matches the values
  * accepted by the `action:` input in `action.yml`. Adding a new verb
- * requires updating this union, the runtime `VALID_ACTIONS` list, the
- * dispatcher in `src/main.ts`, and the documentation surfaces.
+ * requires updating this union, the runtime `VALID_ACTIONS` list,
+ * `ACTION_EFFECTS`, the dispatcher in `src/main.ts`, and the documentation
+ * surfaces.
  */
 export type ActionName =
   | 'upload'
@@ -39,6 +40,32 @@ const VALID_ACTIONS: readonly ActionName[] = [
   'purge',
 ]
 
+type ActionEffect = {
+  readonly kind: 'read' | 'write'
+  readonly honorsDryRun: boolean
+}
+
+/**
+ * Runtime side-effect policy for each action verb.
+ *
+ * @internal
+ */
+export const ACTION_EFFECTS = {
+  upload: { kind: 'write', honorsDryRun: false },
+  download: { kind: 'read', honorsDryRun: false },
+  sync: { kind: 'write', honorsDryRun: true },
+  copy: { kind: 'write', honorsDryRun: false },
+  delete: { kind: 'write', honorsDryRun: true },
+  presign: { kind: 'read', honorsDryRun: false },
+  list: { kind: 'read', honorsDryRun: false },
+  hide: { kind: 'write', honorsDryRun: false },
+  unhide: { kind: 'write', honorsDryRun: false },
+  verify: { kind: 'read', honorsDryRun: false },
+  retention: { kind: 'write', honorsDryRun: false },
+  head: { kind: 'read', honorsDryRun: false },
+  purge: { kind: 'write', honorsDryRun: true },
+} as const satisfies Record<ActionName, ActionEffect>
+
 /** How `sync` decides whether two files match. Drives the SDK's `synchronize()`. */
 export type CompareMode = 'modtime' | 'size' | 'none'
 /** What `sync` does with destination-only files when reconciling. */
@@ -55,6 +82,20 @@ const VALID_KEEP: readonly KeepMode[] = ['no-delete', 'delete', 'keep-days']
 const VALID_DIRECTION: readonly SyncDirection[] = ['auto', 'up', 'down']
 const VALID_RETENTION_MODE: readonly RetentionMode[] = ['compliance', 'governance', 'none']
 const VALID_LEGAL_HOLD: readonly LegalHold[] = ['on', 'off']
+const APPLICATION_KEY_ID_ENV = 'B2_APPLICATION_KEY_ID'
+const APPLICATION_KEY_ENV = 'B2_APPLICATION_KEY'
+const FILE_INFO_KEY_PATTERN = /^[a-zA-Z0-9_.`~!#$%^&*'|+-]+$/
+const FILE_INFO_KEY_MAX_BYTES = 50
+const FILE_INFO_MAX_ENTRIES = 10
+const FILE_INFO_TOTAL_MAX_BYTES = 7000
+const FILE_INFO_TOTAL_MAX_BYTES_WITH_ENCRYPTION = 2048
+const CONTENT_HEADER_FILE_INFO_KEYS = [
+  ['cache-control', 'b2-cache-control'],
+  ['content-disposition', 'b2-content-disposition'],
+  ['content-language', 'b2-content-language'],
+  ['expires', 'b2-expires'],
+] as const
+const utf8Encoder = new TextEncoder()
 
 /**
  * The fully-parsed, fully-validated action surface. Built by
@@ -99,6 +140,10 @@ export interface ParsedInputs {
   resume: boolean
   /** Content-Type to set on uploaded objects. Undefined leaves B2's auto-detect. */
   contentType: string | undefined
+  /** Custom B2 fileInfo metadata (`X-Bz-Info-*`) to set on uploaded objects. */
+  fileInfo: Record<string, string>
+  /** Preserve each local file's mtime as B2 `src_last_modified_millis`. */
+  preserveMtime: boolean
   /** Preview without executing (sync/delete/purge). */
   dryRun: boolean
   /** Permit whole-bucket purge when `source` is empty or `/`. */
@@ -117,6 +162,8 @@ export interface ParsedInputs {
   compareMode: CompareMode
   /** How `sync` treats destination-only files. */
   keepMode: KeepMode
+  /** Retention window in days for `keep-mode: keep-days`. */
+  keepDays: number | undefined
   /** Direction of a `sync` (auto-detected when set to `auto`). */
   syncDirection: SyncDirection
   /** Cap on listed/presigned entries for `list` and prefix `presign`. */
@@ -131,6 +178,20 @@ export interface ParsedInputs {
   legalHold: LegalHold | undefined
   /** Allow shortening a governance-mode retention (requires key capability). */
   bypassGovernance: boolean
+}
+
+/**
+ * Sensitive raw values that can appear in parser-scope errors before
+ * {@link parseInputs} returns its structured output.
+ */
+export function collectInputSecretsForScrubbing(): string[] {
+  const secretValues = new Set<string>()
+  addSecretValue(secretValues, core.getInput('application-key-id'))
+  addSecretValue(secretValues, process.env[APPLICATION_KEY_ID_ENV])
+  addSecretValue(secretValues, core.getInput('application-key'))
+  addSecretValue(secretValues, process.env[APPLICATION_KEY_ENV])
+  addSseSecretValue(secretValues, core.getInput('sse'))
+  return [...secretValues]
 }
 
 /**
@@ -149,8 +210,8 @@ export interface ParsedInputs {
 export function parseInputs(): ParsedInputs {
   const action = parseEnum('action', required('action').toLowerCase(), VALID_ACTIONS)
 
-  const applicationKeyId = resolveCredential('application-key-id', 'B2_APPLICATION_KEY_ID')
-  const applicationKey = resolveCredential('application-key', 'B2_APPLICATION_KEY')
+  const applicationKeyId = resolveCredential('application-key-id', APPLICATION_KEY_ID_ENV)
+  const applicationKey = resolveCredential('application-key', APPLICATION_KEY_ENV)
   // The keyId is identifying (not the secret half of the HMAC pair), but mask
   // it anyway for defense in depth: the canonical AWS analogue mask AKIA-style
   // IDs in CI logs, and masking costs nothing in debuggability since the user
@@ -186,10 +247,20 @@ export function parseInputs(): ParsedInputs {
   const presignTtlSeconds = parsePositiveInt('presign-ttl', core.getInput('presign-ttl') || '3600')
   const maxResults = parsePositiveInt('max-results', core.getInput('max-results') || '1000')
 
-  const contentType = optional('content-type')
   const endpoint = optional('endpoint')
   const sse = optional('sse')
   const encryption = parseSse(sse)
+
+  const contentType = optional('content-type')
+  const fileInfo = parseFileInfo(optional('file-info'))
+  for (const [inputName, fileInfoKey] of CONTENT_HEADER_FILE_INFO_KEYS) {
+    addFileInfo(fileInfo, fileInfoKey, optional(inputName), inputName, { allowReserved: true })
+  }
+  validateFileInfo(fileInfo, uploadFileInfoTotalMaxBytes(encryption))
+  const preserveMtime = parseBool('preserve-mtime', core.getInput('preserve-mtime') || 'false')
+  if (preserveMtime && Object.hasOwn(fileInfo, 'src_last_modified_millis')) {
+    throw new Error(`Duplicate fileInfo key "src_last_modified_millis" from 'preserve-mtime' input`)
+  }
   const expectedSha1 = optional('expected-sha1')
   const retentionUntil = optional('retention-until')
 
@@ -203,6 +274,22 @@ export function parseInputs(): ParsedInputs {
     (core.getInput('keep-mode') || 'no-delete').toLowerCase(),
     VALID_KEEP,
   )
+  const keepDaysInput = optional('keep-days')
+  const keepDays =
+    keepDaysInput !== undefined ? parsePositiveInt('keep-days', keepDaysInput) : undefined
+  if (keepMode === 'keep-days' && keepDays === undefined) {
+    core.warning(
+      "'keep-mode: keep-days' without 'keep-days' preserves the v1 legacy SDK default " +
+        'retention window, which can delete destination-only files immediately. Set ' +
+        "'keep-days' explicitly; a future major release will require it.",
+    )
+  }
+  if (keepDays !== undefined && keepMode !== 'keep-days') {
+    core.warning(
+      `'keep-days' is ignored because 'keep-mode' is '${keepMode}'; set 'keep-mode: keep-days' to apply it.`,
+    )
+  }
+
   const syncDirection = parseEnum(
     'direction',
     (core.getInput('direction') || 'auto').toLowerCase(),
@@ -233,6 +320,8 @@ export function parseInputs(): ParsedInputs {
     partSize,
     resume,
     contentType,
+    fileInfo,
+    preserveMtime,
     dryRun,
     allowBucketPurge,
     presignTtlSeconds,
@@ -242,6 +331,7 @@ export function parseInputs(): ParsedInputs {
     encryption,
     compareMode,
     keepMode,
+    keepDays,
     syncDirection,
     maxResults,
     expectedSha1,
@@ -279,8 +369,10 @@ export function requireSource(
  *   const x = parseEnum('compare-mode', raw, VALID_COMPARE)
  *
  * Throws a uniform error message that lists the legal values.
+ *
+ * @internal
  */
-function parseEnum<T extends string>(name: string, raw: string, valid: readonly T[]): T {
+export function parseEnum<T extends string>(name: string, raw: string, valid: readonly T[]): T {
   if ((valid as readonly string[]).includes(raw)) return raw as T
   throw new Error(`Invalid '${name}' input: "${raw}". Must be one of: ${valid.join(', ')}`)
 }
@@ -315,6 +407,27 @@ function optionalSource(action: ActionName, allowBucketPurge: boolean): string |
   return action === 'purge' && allowBucketPurge ? '' : undefined
 }
 
+function addSecretValue(secretValues: Set<string>, value: string | undefined): void {
+  if (value === undefined || value === '') return
+  const trimmed = value.trim()
+  for (const secret of new Set([value, trimmed])) {
+    if (secret === '' || secretValues.has(secret)) continue
+    core.setSecret(secret)
+    secretValues.add(secret)
+  }
+}
+
+function addSseSecretValue(secretValues: Set<string>, value: string | undefined): void {
+  if (value === undefined) return
+  const normalized = value.trim()
+  if (normalized === '' || normalized.toUpperCase() === 'B2') return
+
+  addSecretValue(secretValues, value)
+  if (normalized.startsWith('C:') || normalized.startsWith('c:')) {
+    addSecretValue(secretValues, normalized.slice(2).trim())
+  }
+}
+
 function resolveCredential(inputName: string, envName: string): string {
   const fromInput = optional(inputName)
   if (fromInput !== undefined) return fromInput
@@ -325,7 +438,12 @@ function resolveCredential(inputName: string, envName: string): string {
   throw new Error(`Missing credential: set input '${inputName}' or env var '${envName}'`)
 }
 
-function splitCsv(value: string | undefined): string[] {
+/**
+ * Parse a comma-separated action input, trimming entries and dropping blanks.
+ *
+ * @internal
+ */
+export function splitCsv(value: string | undefined): string[] {
   if (value === undefined) return []
   return value
     .split(',')
@@ -333,16 +451,141 @@ function splitCsv(value: string | undefined): string[] {
     .filter((s) => s.length > 0)
 }
 
-function parseBool(name: string, raw: string): boolean {
+/**
+ * Parse upload fileInfo metadata from newline-delimited or simple
+ * comma-separated `key=value` entries. Newline mode preserves commas inside
+ * values.
+ *
+ * @internal
+ */
+export function parseFileInfo(value: string | undefined): Record<string, string> {
+  if (value === undefined || value.trim() === '') return {}
+  const pairs = /[\r\n]/.test(value) ? value.split(/\r?\n|\r/) : value.split(',')
+  const fileInfo: Record<string, string> = {}
+
+  for (const rawPair of pairs) {
+    const pair = rawPair.trim()
+    if (pair === '') continue
+    const equalsIndex = pair.indexOf('=')
+    if (equalsIndex <= 0) {
+      throw new Error(`Invalid 'file-info' entry "${pair}". Expected key=value.`)
+    }
+    const key = pair.slice(0, equalsIndex).trim()
+    const parsedValue = pair.slice(equalsIndex + 1).trim()
+    addFileInfo(fileInfo, key, parsedValue, 'file-info', { allowReserved: false })
+  }
+
+  return fileInfo
+}
+
+interface AddFileInfoOptions {
+  allowReserved: boolean
+}
+
+function addFileInfo(
+  fileInfo: Record<string, string>,
+  key: string,
+  value: string | undefined,
+  inputName: string,
+  options: AddFileInfoOptions,
+): void {
+  if (value === undefined) return
+  const canonicalKey = key.toLowerCase()
+  if (!options.allowReserved && canonicalKey.startsWith('b2-')) {
+    throw new Error(
+      `Reserved fileInfo key "${key}" from '${inputName}' input must use the dedicated upload inputs such as content-type, cache-control, content-disposition, content-language, or expires`,
+    )
+  }
+  if (Object.hasOwn(fileInfo, canonicalKey)) {
+    throw new Error(`Duplicate fileInfo key "${key}" from '${inputName}' input`)
+  }
+  fileInfo[canonicalKey] = value
+}
+
+/**
+ * Return the upload fileInfo byte budget for the active encryption mode.
+ *
+ * @internal
+ */
+export function uploadFileInfoTotalMaxBytes(encryption: EncryptionSetting | undefined): number {
+  return encryption === undefined
+    ? FILE_INFO_TOTAL_MAX_BYTES
+    : FILE_INFO_TOTAL_MAX_BYTES_WITH_ENCRYPTION
+}
+
+/**
+ * Validate upload fileInfo metadata before forwarding it to the B2 SDK.
+ *
+ * @internal
+ */
+export function validateFileInfo(
+  fileInfo: Record<string, string>,
+  totalMaxBytes = FILE_INFO_TOTAL_MAX_BYTES,
+): void {
+  const entries = Object.entries(fileInfo)
+  if (entries.length > FILE_INFO_MAX_ENTRIES) {
+    throw new Error(`Invalid fileInfo: ${entries.length} entries exceeds ${FILE_INFO_MAX_ENTRIES}`)
+  }
+
+  let totalBytes = 0
+  const seenCanonicalKeys = new Set<string>()
+  for (const [key, value] of entries) {
+    const canonicalKey = key.toLowerCase()
+    if (seenCanonicalKeys.has(canonicalKey)) {
+      throw new Error(`Duplicate fileInfo key "${key}" from upload metadata`)
+    }
+    seenCanonicalKeys.add(canonicalKey)
+
+    if (!FILE_INFO_KEY_PATTERN.test(key)) {
+      throw new Error(
+        `Invalid fileInfo key "${key}" from 'file-info'. Keys must match ${FILE_INFO_KEY_PATTERN.source}`,
+      )
+    }
+
+    const keyBytes = utf8Encoder.encode(key).byteLength
+    if (keyBytes > FILE_INFO_KEY_MAX_BYTES) {
+      throw new Error(
+        `Invalid fileInfo key "${key}": ${keyBytes} bytes exceeds ${FILE_INFO_KEY_MAX_BYTES}`,
+      )
+    }
+
+    const valueBytes = utf8Encoder.encode(value).byteLength
+    const entryBytes = keyBytes + valueBytes
+    const remainingTotalBytes = Math.max(0, totalMaxBytes - totalBytes)
+    if (entryBytes > remainingTotalBytes) {
+      throw new Error(
+        `Invalid fileInfo entry for "${key}": ${entryBytes} bytes exceeds ${remainingTotalBytes}`,
+      )
+    }
+    totalBytes += entryBytes
+  }
+
+  if (totalBytes > totalMaxBytes) {
+    throw new Error(`Invalid fileInfo: total size ${totalBytes} bytes exceeds ${totalMaxBytes}`)
+  }
+}
+
+/**
+ * Parse the documented boolean input spellings accepted by this action.
+ *
+ * @internal
+ */
+export function parseBool(name: string, raw: string): boolean {
   const v = raw.trim().toLowerCase()
   if (v === 'true' || v === '1' || v === 'yes') return true
   if (v === 'false' || v === '0' || v === 'no') return false
   throw new Error(`Invalid boolean for '${name}': "${raw}"`)
 }
 
-function parsePositiveInt(name: string, raw: string): number {
-  const n = Number(raw)
-  if (!Number.isInteger(n) || n <= 0) {
+/**
+ * Parse a strictly positive integer input.
+ *
+ * @internal
+ */
+export function parsePositiveInt(name: string, raw: string): number {
+  const trimmed = raw.trim()
+  const n = Number(trimmed)
+  if (!/^\d+$/.test(trimmed) || n <= 0 || !Number.isSafeInteger(n)) {
     throw new Error(`Invalid positive integer for '${name}': "${raw}"`)
   }
   return n

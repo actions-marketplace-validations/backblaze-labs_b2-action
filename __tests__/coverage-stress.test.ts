@@ -43,6 +43,13 @@ import {
   type TestFixture,
 } from './_helpers.ts'
 
+// Windows: file handles linger briefly after the last write completes, so a bare
+// rm can race with the OS and throw ENOTEMPTY. Retry a few times with a short
+// backoff before giving up.
+async function removeDirWithWindowsRetries(dir: string): Promise<void> {
+  await rm(dir, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 })
+}
+
 // =========================================================================
 // inputs.ts: every enum reject + parseBool/parsePositiveInt error path
 // =========================================================================
@@ -118,6 +125,8 @@ describe('parseInputs: exhaustive validation rejects', () => {
           setInput('compare-mode', cmp)
           setInput('keep-mode', keep)
           setInput('direction', dir)
+          // `keep-days` mode requires an explicit window; see inputs.test.ts.
+          setInput('keep-days', keep === 'keep-days' ? '7' : '')
           const r = parseInputs()
           expect(r.compareMode).toBe(cmp)
           expect(r.keepMode).toBe(keep)
@@ -176,8 +185,7 @@ describe('download: destination resolution edge cases', () => {
       }),
     )
 
-    const cwd = process.cwd()
-    process.chdir(fx.workDir)
+    const cwdSpy = vi.spyOn(process, 'cwd').mockReturnValue(fx.workDir)
     try {
       const result = await downloadCommand(
         fx.bucket,
@@ -185,7 +193,7 @@ describe('download: destination resolution edge cases', () => {
       )
       expect(result.files[0]?.localPath.endsWith('no-dest.txt')).toBe(true)
     } finally {
-      process.chdir(cwd)
+      cwdSpy.mockRestore()
     }
   })
 
@@ -233,7 +241,7 @@ describe('verify: multipart file with null remote SHA-1', () => {
   // verify.ts requires the SDK simulator to surface null content-SHA1 on a
   // multipart-finished file. The simulator doesn't yet expose that path
   // organically; restoring this test is queued behind a simulator update.
-  // See DEVELOPMENT.md → "SDK simulator gaps".
+  // Track this simulator limitation in project docs/issues as needed.
 
   it('rejects verify with a destination path that points to a directory', async () => {
     const local = join(fx.workDir, 'asset-dir.txt')
@@ -616,8 +624,8 @@ describe('download: SSE-C decryption', () => {
 
   it('round-trips a file with SSE-C: upload + download with the same customer key', async () => {
     const { parseSse } = await import('../src/sse.ts')
-    // 32 random bytes, base64-encoded.
-    const rawKey = Buffer.from('abcdefghijklmnopqrstuvwxyz123456', 'utf8')
+    // Deterministic 32-byte test key, base64-encoded.
+    const rawKey = Buffer.alloc(32, 0x61)
     const b64 = rawKey.toString('base64')
     const enc = parseSse(`C:${b64}`)
 
@@ -985,13 +993,12 @@ describe('download: prefix mode defaults destination to cwd', () => {
   it('uses "." when destination is undefined', async () => {
     await seedFile(fx, 'dd/d.txt', 'dl-default-dest')
 
-    const cwd = process.cwd()
-    process.chdir(fx.workDir)
+    const cwdSpy = vi.spyOn(process, 'cwd').mockReturnValue(fx.workDir)
     try {
       const result = await downloadCommand(fx.bucket, makeInputs('download', fx, { source: 'dd/' }))
       expect(result.files.length).toBeGreaterThanOrEqual(1)
     } finally {
-      process.chdir(cwd)
+      cwdSpy.mockRestore()
     }
   })
 })
@@ -1583,7 +1590,7 @@ describe('sync: down with no destination defaults to cwd', () => {
 
   it('downloads to the current working directory when destination is omitted', async () => {
     await seedFile(fx, 'r.txt', 'root-down-cwd')
-    // chdir to a fresh empty subdir so the cwd-equals-default-destination
+    // Mock cwd to a fresh empty subdir so the cwd-equals-default-destination
     // path doesn't already contain `r.txt` from the seed. If the local
     // copy is present, the simulator's `Date.now()`-based uploadTimestamp
     // can collide with the local file's mtime millisecond-for-millisecond,
@@ -1591,8 +1598,7 @@ describe('sync: down with no destination defaults to cwd', () => {
     // intermittently.
     const cwdSubdir = join(fx.workDir, 'cwd-only')
     await mkdir(cwdSubdir, { recursive: true })
-    const cwd = process.cwd()
-    process.chdir(cwdSubdir)
+    const cwdSpy = vi.spyOn(process, 'cwd').mockReturnValue(cwdSubdir)
     try {
       const result = await syncCommand(
         fx.bucket,
@@ -1602,7 +1608,7 @@ describe('sync: down with no destination defaults to cwd', () => {
       expect(result.direction).toBe('b2-to-local')
       expect(result.downloaded).toBeGreaterThanOrEqual(1)
     } finally {
-      process.chdir(cwd)
+      cwdSpy.mockRestore()
     }
   })
 })
@@ -1623,10 +1629,7 @@ describe('download: walks pagination past the 1000-file page boundary', () => {
     fx = await makeFixture('gh-action-dl-real-pagination')
   })
   afterEach(async () => {
-    // Windows: file handles linger briefly after the last write completes,
-    // so a bare rm can race with the OS and throw ENOTEMPTY. Retry a few
-    // times with a short backoff before giving up.
-    await rm(fx.workDir, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 })
+    await removeDirWithWindowsRetries(fx.workDir)
   })
 
   // 1001 file uploads + 1001 sequential downloads. Easily fits under the
@@ -1719,18 +1722,15 @@ describe('processSyncEvent: handles every SyncEvent variant', () => {
     expect(captured).toContain('boom')
   })
 
-  it.each([
-    'upload-start',
-    'compare',
-    'download-start',
-    'copy-start',
-    'copy-done',
-  ] as const)('informational event %s is a no-op', (type) => {
-    const before = freshCounters()
-    const c = freshCounters()
-    processSyncEvent({ type, path: 'x.txt', size: 0 }, c)
-    expect(c).toEqual(before)
-  })
+  it.each(['upload-start', 'compare', 'download-start', 'copy-start', 'copy-done'] as const)(
+    'informational event %s is a no-op',
+    (type) => {
+      const before = freshCounters()
+      const c = freshCounters()
+      processSyncEvent({ type, path: 'x.txt', size: 0 }, c)
+      expect(c).toEqual(before)
+    },
+  )
 })
 
 // =========================================================================

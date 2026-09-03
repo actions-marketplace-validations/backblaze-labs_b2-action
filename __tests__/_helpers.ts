@@ -90,6 +90,8 @@ export async function makeFixture(
     applicationKeyId: TEST_APPLICATION_KEY_ID,
     applicationKey: TEST_APPLICATION_KEY,
     transport: sim.transport(),
+    // Fault-injection tests assert action error handling, not SDK retry timing.
+    retry: { maxRetries: 0 },
   })
   await client.authorize()
   const bucket = await client.createBucket({ bucketName, bucketType: 'allPrivate' })
@@ -159,6 +161,24 @@ export async function seedFile(fx: TestFixture, key: string, body: string): Prom
   const local = join(fx.workDir, key.split('/').pop() ?? key)
   await writeFile(local, body)
   await uploadCommand(fx.bucket, makeInputs('upload', fx, { source: local, destination: key }))
+}
+
+/** Seed a file and place its latest version under future governance retention. */
+export async function seedGovernanceRetainedFile(
+  fx: TestFixture,
+  key: string,
+  body = 'governance-retained',
+): Promise<string> {
+  await seedFile(fx, key, body)
+  const latest = await fx.bucket.getFileInfoByName(key)
+  if (latest === null) {
+    throw new Error(`Seeded file not found: ${key}`)
+  }
+  await fx.bucket.updateFileRetention(key, latest.fileId, {
+    mode: 'governance',
+    retainUntilTimestamp: Date.now() + 24 * 60 * 60 * 1000,
+  })
+  return latest.fileId
 }
 
 /** Seed multiple files in one call. Iterates `entries` in declaration order. */

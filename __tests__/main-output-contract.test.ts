@@ -11,6 +11,7 @@ const EXPECTED_OUTPUT_KEYS = {
     'file-name',
     'files-uploaded',
     'summary-json',
+    'summary-json-truncated',
   ],
   download: [
     'bytes-transferred',
@@ -19,6 +20,7 @@ const EXPECTED_OUTPUT_KEYS = {
     'file-name',
     'files-downloaded',
     'summary-json',
+    'summary-json-truncated',
   ],
   sync: [
     'bytes-transferred',
@@ -27,17 +29,48 @@ const EXPECTED_OUTPUT_KEYS = {
     'files-downloaded',
     'files-uploaded',
     'summary-json',
+    'summary-json-truncated',
   ],
-  copy: ['bytes-transferred', 'file-count', 'file-id', 'file-name', 'summary-json'],
-  delete: ['file-count', 'files-deleted', 'summary-json'],
-  presign: ['file-count', 'file-name', 'files-listed', 'presigned-url', 'summary-json'],
-  list: ['file-count', 'files-listed', 'summary-json'],
-  hide: ['file-count', 'file-id', 'file-name', 'summary-json'],
-  unhide: ['file-count', 'file-id', 'file-name', 'summary-json'],
-  verify: ['file-count', 'file-name', 'local-sha1', 'remote-sha1', 'summary-json', 'verified'],
-  retention: ['file-count', 'file-id', 'file-name', 'summary-json'],
-  head: ['bytes-transferred', 'content-sha1', 'file-count', 'file-id', 'file-name', 'summary-json'],
-  purge: ['file-count', 'files-deleted', 'summary-json'],
+  copy: [
+    'bytes-transferred',
+    'file-count',
+    'file-id',
+    'file-name',
+    'summary-json',
+    'summary-json-truncated',
+  ],
+  delete: ['file-count', 'files-deleted', 'summary-json', 'summary-json-truncated'],
+  presign: [
+    'file-count',
+    'file-name',
+    'files-listed',
+    'presigned-url',
+    'summary-json',
+    'summary-json-truncated',
+  ],
+  list: ['file-count', 'files-listed', 'summary-json', 'summary-json-truncated'],
+  hide: ['file-count', 'file-id', 'file-name', 'summary-json', 'summary-json-truncated'],
+  unhide: ['file-count', 'file-id', 'file-name', 'summary-json', 'summary-json-truncated'],
+  verify: [
+    'file-count',
+    'file-name',
+    'local-sha1',
+    'remote-sha1',
+    'summary-json',
+    'summary-json-truncated',
+    'verified',
+  ],
+  retention: ['file-count', 'file-id', 'file-name', 'summary-json', 'summary-json-truncated'],
+  head: [
+    'bytes-transferred',
+    'content-sha1',
+    'file-count',
+    'file-id',
+    'file-name',
+    'summary-json',
+    'summary-json-truncated',
+  ],
+  purge: ['file-count', 'files-deleted', 'summary-json', 'summary-json-truncated'],
 } as const satisfies Record<ActionName, readonly string[]>
 
 afterEach(() => {
@@ -46,13 +79,14 @@ afterEach(() => {
 })
 
 describe('main output contract', () => {
-  it.each(
-    Object.keys(EXPECTED_OUTPUT_KEYS) as ActionName[],
-  )('emits the golden output key set for %s', async (action) => {
-    const keys = await captureOutputKeys(action)
+  it.each(Object.keys(EXPECTED_OUTPUT_KEYS) as ActionName[])(
+    'emits the golden output key set for %s',
+    async (action) => {
+      const keys = await captureOutputKeys(action)
 
-    expect(keys).toEqual([...EXPECTED_OUTPUT_KEYS[action]].sort())
-  })
+      expect(keys).toEqual([...EXPECTED_OUTPUT_KEYS[action]].sort())
+    },
+  )
 })
 
 async function captureOutputKeys(action: ActionName): Promise<string[]> {
@@ -80,8 +114,11 @@ async function captureOutputKeys(action: ActionName): Promise<string[]> {
 
 function mockDispatcherPath(action: ActionName) {
   const core = {
+    getInput: vi.fn<(name: string) => string>(() => ''),
     setOutput: vi.fn(),
     setFailed: vi.fn(),
+    setSecret: vi.fn(),
+    debug: vi.fn(),
     info: vi.fn(),
     warning: vi.fn(),
   }
@@ -90,7 +127,10 @@ function mockDispatcherPath(action: ActionName) {
     .mockReturnValue(
       makeInputs(action, action === 'purge' ? { dryRun: true, allowBucketPurge: true } : {}),
     )
-  const authorized = { client: { kind: 'client' }, bucketName: 'gh-action-test' }
+  const authorized = {
+    client: { kind: 'client', accountInfo: { getAuthToken: vi.fn(() => 'contract-token') } },
+    bucketName: 'gh-action-test',
+  }
   const bucket = { name: 'gh-action-test' }
   const buildClient = vi.fn().mockResolvedValue(authorized)
   const getBucket = vi.fn().mockResolvedValue(bucket)
@@ -100,9 +140,12 @@ function mockDispatcherPath(action: ActionName) {
   applyCommandResult(commands, action)
 
   vi.doMock('@actions/core', () => core)
-  vi.doMock('../src/inputs.ts', () => ({ parseInputs }))
+  vi.doMock('../src/inputs.ts', async () => ({
+    ...(await vi.importActual<typeof import('../src/inputs.ts')>('../src/inputs.ts')),
+    parseInputs,
+  }))
   vi.doMock('../src/client.ts', () => ({ buildClient, getBucket }))
-  vi.doMock('../src/summary.ts', () => ({ writeStepSummary }))
+  vi.doMock('../src/summary.ts', () => ({ STEP_SUMMARY_MAX_ROWS: 100, writeStepSummary }))
   vi.doMock('../src/commands/upload.ts', () => ({ uploadCommand: commands.uploadCommand }))
   vi.doMock('../src/commands/download.ts', () => ({ downloadCommand: commands.downloadCommand }))
   vi.doMock('../src/commands/sync.ts', () => ({

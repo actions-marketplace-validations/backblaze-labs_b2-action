@@ -1,19 +1,19 @@
 # Contributing to `backblaze-labs/b2-action`
 
-Thanks for your interest. The Action is intentionally small and built on the official [`@backblaze-labs/b2-sdk`](https://github.com/backblaze-labs/b2-sdk-typescript): most behavior changes happen there, not here. This file covers what to do when you genuinely need to change *this* repo.
+Thanks for your interest. The Action is intentionally small and built on the official [`@backblaze-labs/b2-sdk`](https://github.com/backblaze-labs/b2-sdk-typescript): most behavior changes happen there, not here. This file covers what to do when you genuinely need to change *this* repo. For the repository map and the layering rules, start at [AGENTS.md](./AGENTS.md) and [ARCHITECTURE.md](./ARCHITECTURE.md).
 
 ## Local setup
 
 ```bash
 pnpm install
-pnpm all        # lint + typecheck + test + build + spellcheck
+pnpm all        # lint + release policy + typecheck + test + build + spellcheck
 ```
 
-Requirements: Node 24+, pnpm 10+. The action runs on Node 24 in the GitHub Actions runtime; we test against Node 24 on Linux, macOS, and Windows.
+Requirements: Node 24+. pnpm is pinned via the `packageManager` field in `package.json` (currently `pnpm@11.5.3`); with corepack enabled, `pnpm` in this repo uses that version automatically. The action runs on Node 24 in the GitHub Actions runtime; we test against Node 24 on Linux, macOS, and Windows.
 
 `pnpm install` also wires up git hooks (via [husky](https://github.com/typicode/husky)):
 
-- **`pre-commit`** runs `lint + typecheck + test + build + dist/ freshness + spellcheck`. Every local code/doc check, every commit, no path-gating.
+- **`pre-commit`** runs `lint + release-provenance policy + typecheck + test + build + dist/ freshness + spellcheck`. Every local code/doc check, every commit, no path-gating.
 - **`pre-push`** runs `pnpm test:coverage`, which subsumes the plain `test` already done in `pre-commit`.
 
 Skip a hook with `--no-verify` if you absolutely need to. CI runs the same checks regardless. In the release workflow husky is disabled via `HUSKY=0` so the in-CI `git push` of the floating major tag doesn't re-trigger the local hooks.
@@ -30,7 +30,9 @@ src/
   sse.ts           # SSE-B2 / SSE-C input parser
   progress.ts      # throttled progress listener
   summary.ts       # $GITHUB_STEP_SUMMARY writer
-  commands/<verb>.ts  # one file per verb
+  outputs.ts       # core.setOutput mapping + summary-json shaping
+  errors.ts / format.ts / fs.ts  # error, formatting, and filesystem helpers
+  commands/<verb>.ts  # one file per verb (13 verbs); delete-all.ts is a shared helper
 __tests__/
   _helpers.ts      # shared `makeInputs()` for tests
   *.test.ts        # unit tests (run against the SDK's B2Simulator, no network)
@@ -41,6 +43,9 @@ __tests__/
   release.yml                  # see RELEASE.md
 action.yml         # marketplace manifest: inputs, outputs, branding
 dist/index.js      # ncc-bundled entrypoint (committed; CI fails if stale)
+AGENTS.md          # repository map (multi-harness entry point)
+ARCHITECTURE.md    # layers + boundary invariants
+docs/              # system of record (design docs, plans, quality grades)
 ```
 
 ## Adding a new verb
@@ -70,7 +75,7 @@ The pattern is the same every time:
 ## Style
 
 - Biome handles formatting + linting (config in [`biome.json`](./biome.json)). Run `pnpm lint:fix` before submitting.
-- `exactOptionalPropertyTypes` is on. Use the conditional-spread pattern (`...(v !== undefined ? { k: v } : {})`) rather than passing `undefined`.
+- `exactOptionalPropertyTypes` is on. Use conditional spread or explicit optional-property assignment rather than passing `undefined`.
 - `verbatimModuleSyntax` is on. Use `import type` for type-only imports.
 - Internal relative imports use `.ts` extensions (`import { x } from './foo.ts'`), not `.js`.
 - 2-space indent, single quotes, no semicolons, 100-char line width.

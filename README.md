@@ -1,21 +1,21 @@
 # Backblaze B2 GitHub Action
 
-[![CI](https://github.com/backblaze-labs/b2-action/actions/workflows/ci.yml/badge.svg)](https://github.com/backblaze-labs/b2-action/actions/workflows/ci.yml) [![Release](https://github.com/backblaze-labs/b2-action/actions/workflows/release.yml/badge.svg)](https://github.com/backblaze-labs/b2-action/actions/workflows/release.yml) [![Marketplace](https://img.shields.io/github/v/release/backblaze-labs/b2-action?label=marketplace&color=red&logo=githubactions&logoColor=white)](https://github.com/marketplace/actions/backblaze-b2-cloud-storage-action) [![Latest release](https://img.shields.io/github/v/release/backblaze-labs/b2-action?display_name=tag&sort=semver&color=blue)](https://github.com/backblaze-labs/b2-action/releases/latest) [![License: MIT](https://img.shields.io/badge/license-MIT-yellow.svg)](./LICENSE) [![Coverage](https://img.shields.io/badge/coverage-100%25-brightgreen.svg)](./vitest.config.ts) [![Docs](https://img.shields.io/github/deployments/backblaze-labs/b2-action/github-pages?label=docs&logo=readthedocs&logoColor=white)](https://backblaze-labs.github.io/b2-action/)
+[![CI](https://github.com/backblaze-labs/b2-action/actions/workflows/ci.yml/badge.svg)](https://github.com/backblaze-labs/b2-action/actions/workflows/ci.yml) [![Release](https://github.com/backblaze-labs/b2-action/actions/workflows/release.yml/badge.svg)](https://github.com/backblaze-labs/b2-action/actions/workflows/release.yml) [![Marketplace](https://img.shields.io/github/v/release/backblaze-labs/b2-action?label=marketplace&color=red&logo=githubactions&logoColor=white)](https://github.com/marketplace/actions/backblaze-b2-cloud-storage-action) [![Latest release](https://img.shields.io/github/v/release/backblaze-labs/b2-action?display_name=tag&sort=semver&color=blue)](https://github.com/backblaze-labs/b2-action/releases/latest) [![License: MIT](https://img.shields.io/badge/license-MIT-yellow.svg)](./LICENSE) [![Coverage](https://img.shields.io/badge/coverage-95%2B%25-brightgreen.svg)](./vitest.config.ts) [![Docs](https://img.shields.io/github/deployments/backblaze-labs/b2-action/github-pages?label=docs&logo=readthedocs&logoColor=white)](https://backblaze-labs.github.io/b2-action/)
 
-The **official** Backblaze B2 GitHub Action. TypeScript-native, built on [`@backblaze-labs/b2-sdk`](https://github.com/backblaze-labs/b2-sdk-typescript). Thirteen verbs covering every B2 operation a CI workflow needs.
+A Backblaze-maintained B2 GitHub Action. TypeScript-native, built on [@backblaze-labs/b2-sdk](https://github.com/backblaze-labs/b2-sdk-typescript). Thirteen verbs covering every B2 operation a CI workflow needs. Currently incubating in [Backblaze Labs](https://github.com/backblaze-labs).
 
 - **Node 24 action.** No Docker. Sub-second cold start.
-- **Thirteen verbs.** `upload`, `download`, `sync`, `copy`, `delete`, `list`, `hide`, `unhide`, `verify`, `presign`, `retention`, `head`, `purge`: pick via the `action` input.
+- **Thirteen verbs.** `upload`, `download`, `sync`, `copy`, `delete`, `presign`, `list`, `hide`, `unhide`, `verify`, `retention`, `head`, `purge`: pick via the `action` input.
 - **Resumable multipart uploads** for any file size; streaming I/O so multi-GB payloads don't buffer in RAM.
 - **Server-side everything.** `copy` (same-bucket or cross-bucket) and `delete` operations stay server-side; bytes never traverse the runner.
 - **Server-side encryption.** SSE-B2 (managed) and SSE-C (customer key, base64).
 - **Object Lock.** Governance/compliance retention + legal hold via the `retention` verb.
 - **Bi-directional sync.** Local → B2 *and* B2 → local, with auto-detect.
 - **Structured outputs.** `file-id`, `content-sha1`, `bytes-transferred`, `files-listed`, `presigned-url`, `verified`, `summary-json`, more.
-- **Step-summary tables** rendered on every run via `$GITHUB_STEP_SUMMARY`.
+- **Step-summary tables** rendered on every run via `$GITHUB_STEP_SUMMARY`, capped at 100 per-file rows with an omitted-row notice.
 - **Secret-safe.** App keys, auth tokens, and presigned URLs are auto-masked with `::add-mask::`.
 
-> **Live test suite = the examples.** Every workflow under [.github/workflows/example-*.yml](./.github/workflows/README.md) is both a copy-paste-runnable example and an integration test that runs on every PR.
+> **Live test suite = the examples.** Every workflow under [.github/workflows/example-*.yml](./.github/workflows/README.md) is both a copy-paste-runnable example and a live integration test. All but one run on every PR; [the ML cache round-trip](./.github/workflows/example-ml-cache-sync.yml) is push-only because it runs `uses: ./` with B2 secrets.
 
 ## Table of contents
 
@@ -26,6 +26,7 @@ The **official** Backblaze B2 GitHub Action. TypeScript-native, built on [`@back
   - [Verbs](#verbs)
   - [Worked examples](#worked-examples)
     - [Upload a single file](#upload-a-single-file)
+    - [Upload with metadata and content headers](#upload-with-metadata-and-content-headers)
     - [Upload a directory with globs](#upload-a-directory-with-globs)
     - [Download a file or a prefix](#download-a-file-or-a-prefix)
     - [Sync (both directions)](#sync-both-directions)
@@ -69,16 +70,18 @@ For one self-contained example per verb (each is also a live integration test), 
 This Action follows [semantic versioning](https://semver.org) and maintains a floating major tag. Pick the ref style that matches your risk tolerance:
 
 - **`@v1`** tracks the latest `1.x` release. It is convenient and picks up patches automatically, but it is a **mutable** tag: it is moved to each new release, so the code that runs can change without any change to your workflow.
-- **`@v1.0.1`** is a pinned, SSH-signed release tag, so it shows as **Verified** on GitHub and is easy to audit. Note that a Git tag is still a movable ref, so treat this as a stable, verifiable pointer rather than an immutability guarantee.
+- **`@vX.Y.Z`** is a pinned, SSH-signed release tag, so it shows as **Verified** on GitHub and is easy to audit. Note that a Git tag is still a movable ref, so treat this as a stable, verifiable pointer rather than an immutability guarantee.
 - **`@<full-commit-sha>`** is fully immutable and is what we recommend for anything beyond experimentation. It guarantees the exact code that runs cannot change underneath you, even if a tag is moved. If you enable [Dependabot](https://docs.github.com/en/code-security/dependabot) GitHub Actions updates in your repository, it keeps SHA pins current and rewrites the trailing version comment for you.
 
 ```yaml
 # Recommended for production: pin to a full-length commit SHA.
 # With Dependabot GitHub Actions updates enabled, it bumps the SHA + comment for you.
-- uses: backblaze-labs/b2-action@<commit-sha> # v1.0.1
+- uses: backblaze-labs/b2-action@<commit-sha> # vX.Y.Z
 ```
 
 This is the same supply-chain practice this Action applies to its own workflows: every third-party action it depends on is SHA-pinned. The worked examples below use `@v1` for brevity; swap in a commit SHA (or a pinned `@vX.Y.Z`) for production workflows.
+
+Exact-version releases publish an attested `dist/index.js` asset for provenance checks; see [RELEASE.md](./RELEASE.md#verifying-release-provenance).
 
 ---
 
@@ -90,15 +93,15 @@ This is the same supply-chain practice this Action applies to its own workflows:
 | `download` | Single-file or prefix-bulk download. | `source`, `bucket` |
 | `sync` | Mirror a local directory ↔ a B2 prefix. Direction auto-detected. | `source`, `destination`, `bucket` |
 | `copy` | Server-side copy. Same bucket by default; cross-bucket with `source-bucket`. | `source`, `destination`, `bucket` |
-| `delete` | Single file by name, or prefix-bulk via `b2_list_file_versions`. Supports `dry-run`. | `source`, `bucket` |
+| `delete` | Exact name: removes only the latest version, preserving history. Prefix (trailing `/`): removes **every** version under it via `b2_list_file_versions`, same as `purge`. Supports `dry-run` and `bypass-governance` for governance-retained versions. | `source`, `bucket` |
 | `list` | List files under a prefix; emits JSON for downstream steps. | `bucket` (and usually `source`) |
 | `hide` | Soft-delete via hide marker. Underlying data preserved until lifecycle. | `source`, `bucket` |
 | `unhide` | Restore a hidden file by deleting its top hide marker. | `source`, `bucket` |
 | `verify` | HEAD-request the remote whole-file SHA-1 and compare to `expected-sha1` or `destination` (local file). No body transfer; multipart objects cannot be verified when B2 does not expose a whole-file SHA-1. | `source`, `bucket`, plus one of `expected-sha1` / `destination` |
-| `presign` | Time-limited download URL via `b2_get_download_authorization`. URL is masked. Prefix mode returns one URL per file. | `source`, `bucket` |
+| `presign` | Time-limited download URL via `b2_get_download_authorization`. The live URL is masked and exposed only as `presigned-url`; prefix mode exposes only the first generated URL. | `source`, `bucket` |
 | `retention` | Apply Object Lock retention + legal hold to a file. | `source`, `bucket`, plus `retention-mode` and/or `legal-hold` |
 | `head` | Fetch object metadata (size, sha1, contentType, fileInfo) via HEAD. No body transfer. | `source`, `bucket` |
-| `purge` | Permanently delete every file version under a prefix, including hide markers and history. Whole-bucket purge requires `allow-bucket-purge: true`. Supports `dry-run`. | `source` or `allow-bucket-purge`, `bucket` |
+| `purge` | Permanently delete every file version under a prefix, including hide markers and history. Whole-bucket purge requires `allow-bucket-purge: true`. Supports `dry-run` and `bypass-governance` for governance-retained versions. | `source` or `allow-bucket-purge`, `bucket` |
 
 Exact-name `copy`, single-file `delete`, and `retention` operate only when the latest exact-name version is an upload. If that latest version is a hide marker, these commands do not search older upload history under the same name; they fail with the same `File not found` diagnostic used for absent names so default workflow logs do not reveal hidden-object existence. Run `unhide` first to restore the prior upload, or use `purge` when you need to remove hide markers and historical versions.
 
@@ -107,6 +110,8 @@ Exact-name `copy`, single-file `delete`, and `retention` operate only when the l
 ## Worked examples
 
 > These examples use `@v1` for brevity. For production, pin to a commit SHA; see [Pinning and versioning](#pinning-and-versioning).
+>
+> Examples after the first few also omit `application-key-id` / `application-key` for brevity. Those runs need the credentials from somewhere: either add both inputs, or set `B2_APPLICATION_KEY_ID` and `B2_APPLICATION_KEY` once at the job level and let the fallback chain pick them up.
 
 ### Upload a single file
 
@@ -119,6 +124,27 @@ Exact-name `copy`, single-file `delete`, and `retention` operate only when the l
     bucket: my-bucket
     source: ./build/app.tar.gz
     destination: releases/${{ github.ref_name }}/app.tar.gz
+```
+
+### Upload with metadata and content headers
+
+```yaml
+- uses: backblaze-labs/b2-action@v1
+  with:
+    action: upload
+    application-key-id: ${{ secrets.B2_APPLICATION_KEY_ID }}
+    application-key: ${{ secrets.B2_APPLICATION_KEY }}
+    bucket: my-bucket
+    source: ./build/app.tar.gz
+    destination: releases/${{ github.sha }}/app.tar.gz
+    content-type: application/gzip
+    file-info: |
+      build_sha=${{ github.sha }}
+      source_ref=${{ github.ref_name }}
+      owner=release-engineering
+    cache-control: public, max-age=31536000, immutable
+    content-disposition: attachment; filename="app.tar.gz"
+    preserve-mtime: true
 ```
 
 ### Upload a directory with globs
@@ -158,7 +184,8 @@ Exact-name `copy`, single-file `delete`, and `retention` operate only when the l
 ### Sync (both directions)
 
 ```yaml
-# Auto: local-dir source → upload sync. Remote prefix → download sync.
+# Auto: local-dir source -> upload sync. Remote prefix -> download sync.
+# Tilde-prefixed sources are ambiguous under auto; set direction explicitly.
 - uses: backblaze-labs/b2-action@v1
   with:
     action: sync
@@ -166,9 +193,10 @@ Exact-name `copy`, single-file `delete`, and `retention` operate only when the l
     source: ./public
     destination: site
     compare-mode: modtime
-    keep-mode: delete   # remove remote files not present locally
+    keep-mode: delete   # up sync: removes REMOTE files not present locally
 
-# Force B2 → local (cache restore)
+# Force B2 → local (cache restore). Leave keep-mode at no-delete here:
+# on a down sync, keep-mode: delete removes LOCAL files missing from B2.
 - uses: backblaze-labs/b2-action@v1
   with:
     action: sync
@@ -221,10 +249,16 @@ Exact-name `copy`, single-file `delete`, and `retention` operate only when the l
 
 ```yaml
 - uses: backblaze-labs/b2-action@v1
-  with: { action: hide, bucket: my-bucket, source: legacy/old.tar.gz }
+  with:
+    action: hide
+    bucket: my-bucket
+    source: legacy/old.tar.gz
 
 - uses: backblaze-labs/b2-action@v1
-  with: { action: unhide, bucket: my-bucket, source: legacy/old.tar.gz }
+  with:
+    action: unhide
+    bucket: my-bucket
+    source: legacy/old.tar.gz
 ```
 
 ### Verify SHA-1 without downloading
@@ -244,6 +278,9 @@ Exact-name `copy`, single-file `delete`, and `retention` operate only when the l
 in object metadata. Multipart-uploaded objects may have no whole-file SHA-1 in
 B2, so `verify` cannot validate them without downloading and hashing the object;
 supplying `expected-sha1` does not help when the remote digest is unavailable.
+When B2 reports a non-comparable remote SHA-1 such as `none` or
+`unverified:<sha1>`, `verify` publishes `verified=false` outputs before failing
+the step; comparable SHA-1 mismatches also fail.
 
 ### Presign a download URL
 
@@ -256,7 +293,10 @@ supplying `expected-sha1` does not help when the remote digest is unavailable.
     source: reports/2026-q1.pdf
     presign-ttl: 7200
 
-- run: curl -fSL "${{ steps.link.outputs.presigned-url }}" -o report.pdf
+- name: Fetch the artifact
+  env:
+    REPORT_URL: ${{ steps.link.outputs.presigned-url }}
+  run: curl -fSL "$REPORT_URL" -o report.pdf
 ```
 
 ### Server-side encryption
@@ -264,7 +304,12 @@ supplying `expected-sha1` does not help when the remote digest is unavailable.
 ```yaml
 # SSE-B2 (B2-managed key, no cost)
 - uses: backblaze-labs/b2-action@v1
-  with: { action: upload, bucket: my-bucket, source: ./private.tar.gz, destination: private.tar.gz, sse: B2 }
+  with:
+    action: upload
+    bucket: my-bucket
+    source: ./private.tar.gz
+    destination: private.tar.gz
+    sse: B2
 
 # SSE-C (customer-provided 256-bit key, base64)
 - uses: backblaze-labs/b2-action@v1
@@ -284,7 +329,7 @@ The `sse: C:<value>` input expects a **base64-encoded 32-byte (256-bit) key**. G
 openssl rand -base64 32
 ```
 
-That outputs ~44 characters (e.g. `JXqRk7TZUyDhPmlAv9pn0WzgQGkBNyfwHJtoMSCRXNc=`). Paste the value into a GitHub repository secret (`Settings → Secrets and variables → Actions`): convention is `B2_SSE_C_KEY_B64`.
+That outputs ~44 characters. Paste the generated value into a GitHub repository secret (`Settings → Secrets and variables → Actions`): convention is `B2_SSE_C_KEY_B64`.
 
 A few things to know before you commit to SSE-C:
 
@@ -308,6 +353,8 @@ If you don't need customer-managed keys, **`sse: B2`** (SSE-B2, B2-managed) is t
     legal-hold: 'on'
 ```
 
+Set `bypass-governance: true` to shorten governance-mode retention or to remove governance-retained versions with `delete` or `purge`. The B2 application key must include the `bypassGovernance` capability, in addition to the delete or retention capabilities required by the selected verb.
+
 ### Chain outputs
 
 ```yaml
@@ -318,10 +365,15 @@ If you don't need customer-managed keys, **`sse: B2`** (SSE-B2, B2-managed) is t
     bucket: my-bucket
     source: ./build/app.tar.gz
 
-- run: |
-    echo "Uploaded file ID: ${{ steps.up.outputs.file-id }}"
-    echo "SHA-1:            ${{ steps.up.outputs.content-sha1 }}"
-    echo "Bytes:            ${{ steps.up.outputs.bytes-transferred }}"
+- name: Record the upload
+  env:
+    FILE_ID: ${{ steps.up.outputs.file-id }}
+    FILE_SHA1: ${{ steps.up.outputs.content-sha1 }}
+    FILE_BYTES: ${{ steps.up.outputs.bytes-transferred }}
+  run: |
+    echo "Uploaded file ID: $FILE_ID"
+    echo "SHA-1:            $FILE_SHA1"
+    echo "Bytes:            $FILE_BYTES"
 ```
 
 ---
@@ -334,30 +386,37 @@ If you don't need customer-managed keys, **`sse: B2`** (SSE-B2, B2-managed) is t
 | `application-key-id` | no\* | | B2 application key ID. Falls back to `$B2_APPLICATION_KEY_ID`. |
 | `application-key` | no\* | | B2 application key. Falls back to `$B2_APPLICATION_KEY`. |
 | `bucket` | yes | | Destination bucket name. |
-| `source-bucket` | copy only | `bucket` | Source bucket for cross-bucket copy. |
-| `source` | command-dependent | | Local path/glob (upload/sync up); B2 file name or prefix (everything else). For whole-bucket purge, omit `source` or set `/` and set `allow-bucket-purge: true`. |
-| `destination` | command-dependent | | B2 file/prefix (upload/sync up/copy); local path (download/sync down/verify). |
+| `source-bucket` | copy only | `bucket` | Source bucket for cross-bucket copy. The key must reach both buckets (read on the source, write on the destination), so a key restricted to a single bucket cannot do this. |
+| `source` | command-dependent | | Local path/glob (upload/sync up); B2 file name or prefix (everything else). Local paths and globs expand a leading `~` or `~/` to the runner home directory and reject `~/..` escapes; B2 keys never are. With `sync` `direction: auto`, an expandable tilde source that exists locally is treated as ambiguous and must use explicit `direction`. Prefix downloads reject keys with empty, `.`, `..`, or control-character path segments. For whole-bucket purge, omit `source` or set `/` and set `allow-bucket-purge: true`. |
+| `destination` | command-dependent | | B2 file/prefix (upload/sync up/copy); local path (download/sync down/verify). Local destinations expand a leading `~` or `~/` and reject `~/..` escapes; parent directories are created as needed. Upload destinations are not normalized by the action; SDK/B2 key validation errors are surfaced rather than silently rewriting `/` characters. |
 | `include` | no | | CSV of glob patterns to include (upload). |
 | `exclude` | no | `.git/**` | CSV of glob patterns to exclude (upload). |
-| `concurrency` | no | `4` | Parallel parts/files. |
-| `part-size` | no | SDK default | Multipart part size in bytes. |
+| `concurrency` | no | `4` | Parallel parts/files. Must be a positive decimal integer. |
+| `part-size` | no | SDK default | Multipart part size in bytes. Must be a positive decimal integer. |
 | `resume` | no | `true` | Reserved. Currently not honored; the action's streaming upload source is non-sliceable, so retries do a full re-upload. Kept in the input surface so it can light up if a `BufferSource` fallback ships. |
 | `content-type` | no | `b2/x-auto` | MIME type for uploads. |
+| `file-info` | no | | Upload fileInfo metadata as newline- or simple comma-separated `key=value` pairs. Use newline-separated entries when values contain commas. Keys are normalized to lowercase, may contain letters, digits, and B2-supported special characters, cannot start with `b2-`, and must fit B2 fileInfo limits. Use `cache-control`, `content-disposition`, `content-language`, or `expires` for reserved `b2-*` response headers. |
+| `cache-control` | no | | Cache-Control response header to store with uploaded files. |
+| `content-disposition` | no | | Content-Disposition response header to store with uploaded files. |
+| `content-language` | no | | Content-Language response header to store with uploaded files. |
+| `expires` | no | | Expires response header to store with uploaded files. |
+| `preserve-mtime` | no | `false` | Store each uploaded file's local modification time as B2 `src_last_modified_millis`. |
 | `dry-run` | no | `false` | Preview only (sync/delete/purge). |
 | `allow-bucket-purge` | purge only | `false` | Permit `purge` to target the entire bucket when `source` is empty or `/`. |
-| `presign-ttl` | no | `3600` | Presigned URL TTL in seconds. |
+| `presign-ttl` | no | `3600` | Presigned URL TTL in seconds. Must be a positive decimal integer. |
 | `endpoint` | no | | Override B2 realm (staging/custom). |
 | `fail-on-empty` | no | `true` | Fail if an upload glob matches zero files. |
-| `sse` | no | | Server-side encryption: `B2` (SSE-B2) or `C:<base64-32-byte-key>` (SSE-C). |
+| `sse` | no | | Server-side encryption: `B2` (SSE-B2) or `C:<base64-32-byte-key>` (SSE-C). SSE-C keys must use canonical base64 and decode to exactly 32 bytes. |
 | `compare-mode` | no | `modtime` | Sync comparison: `modtime` \| `size` \| `none`. |
-| `keep-mode` | no | `no-delete` | Sync deletion of orphans: `no-delete` \| `delete` \| `keep-days`. |
+| `keep-mode` | no | `no-delete` | Sync deletion of destination-only files: `no-delete` \| `delete` \| `keep-days`. Deletion applies to whichever side is the destination, so a `down` sync with `delete` removes **local** files. |
+| `keep-days` | no | | Retention window in days. Destination-only files younger than this are kept. Recommended when `keep-mode` is `keep-days`; omitting it preserves the v1 legacy SDK default with a warning. Warns and is ignored with other `keep-mode` values. |
 | `direction` | no | `auto` | Sync direction: `auto` \| `up` (local→B2) \| `down` (B2→local). |
-| `max-results` | no | `1000` | `list` upper bound. Truncation is reported in the step summary. |
-| `expected-sha1` | no | | `verify` literal SHA-1 to compare against. |
+| `max-results` | no | `1000` | `list` upper bound. Must be a positive decimal integer. Truncation is reported in the step summary. |
+| `expected-sha1` | no | | `verify` literal 40-character hexadecimal SHA-1 to compare against; malformed values fail the action before comparison. Non-comparable remote SHA-1 headers such as `none` or `unverified:<sha1>` publish `verified=false` outputs before failing the step. |
 | `retention-mode` | no | | `retention` mode: `compliance` \| `governance` \| `none`. |
 | `retention-until` | no | | `retention` ISO 8601 expiry (required when mode is compliance/governance). |
 | `legal-hold` | no | | `retention` legal-hold value: `on` \| `off`. |
-| `bypass-governance` | no | `false` | Allow shortening a governance retention (requires the capability). |
+| `bypass-governance` | no | `false` | Allow governance-mode retention bypass for retention changes and `delete`/`purge` removals. Requires the B2 application key to include `bypassGovernance`. |
 
 \* Either set the input or one of the env-var fallbacks.
 
@@ -374,11 +433,49 @@ If you don't need customer-managed keys, **`sse: B2`** (SSE-B2, B2-managed) is t
 | `files-downloaded` | download / sync down | Count. |
 | `files-deleted` | delete / purge / sync | Count. |
 | `files-listed` | list / prefix presign | Count returned (capped by `max-results`). |
-| `presigned-url` | presign | Time-limited download URL. Masked as a secret. |
+| `presigned-url` | presign | Time-limited download URL. Masked as a secret. This is the only structured output that carries the live presigned URL. |
 | `verified` | verify | `true` / `false`. |
-| `remote-sha1` | verify | The remote object's whole-file SHA-1, or empty for multipart objects when B2 does not expose one. |
+| `remote-sha1` | verify | Normalized comparable remote SHA-1, raw non-comparable B2 value such as `none` or `unverified:<sha1>`, or empty when B2 does not expose one. |
 | `local-sha1` | verify | Local file SHA-1 (when computed from `destination`). |
-| `summary-json` | every command | JSON array with per-file details. |
+| `summary-json` | every command | Complete JSON array with per-file details when the result fits within 256 KiB of UTF-8 JSON text. When the result exceeds the cap, this output is `[]` instead of changing shape or emitting a partial array. Credential-like fields are omitted by name for every command. For `presign`, entries omit live presigned URLs. |
+| `summary-json-truncated` | every command | `true` / `false`. Always emitted. `true` means the full manifest exceeded the supported `summary-json` size cap. |
+| `summary-json-notice` | every command when truncated | Small JSON object describing why `summary-json` was truncated and where to find the bounded preview. |
+| `summary-json-preview` | every command when truncated | Bounded partial JSON array with the first 100 entries that fit the cap. Do not treat it as a complete manifest. Credential-like fields are omitted by name for every command. For `presign`, entries omit live presigned URLs. |
+| `retryable` | classified SDK failures | `true` only when the failed action is safe to re-run automatically. Mutating actions with ambiguous transient failures emit `false` so callers inspect B2 state first. |
+| `retry-after` | classified SDK failures | Retry delay in seconds, clamped to 3600. Emitted only with `retryable=true`; network failures use a default backoff. |
+
+`summary-json` is complete-or-empty-on-truncation: it never changes shape and never carries a silently partial array. Consumers that parse `summary-json` as an array must first branch on `summary-json-truncated`; when it is `true`, the scalar count outputs (`file-count`, `files-listed`, `files-uploaded`, and the other verb-specific counts) remain the authoritative totals and may exceed the number of entries in `summary-json-preview`. Do not use `summary-json-preview` as an authoritative manifest for security-sensitive checks; fail or fetch a complete manifest another way.
+
+For upload entries, `fileInfo` contains SDK-returned metadata when B2 reports it; if the SDK response omits metadata, the action falls back to the canonical fileInfo submitted with the upload request.
+
+When truncated, `summary-json-notice` contains `{ "truncated": true, "reason": string, "totalCount": number, "previewCount": number, "previewOutput": "summary-json-preview" }`.
+
+For every command, `summary-json` and `summary-json-preview` omit fields with credential-bearing names (`url`, fields ending in `url`, and fields containing `authorization`, `signature`, or `token`, ignoring case, underscores, and hyphens). If a future command needs to expose a similarly named non-secret value, it must project it to an explicit safe field name before emitting the summary.
+
+For `presign`, `summary-json` and `summary-json-preview` contain only non-secret manifest fields such as `fileName` and `expiresAt`; the dedicated `presigned-url` output is the only structured output that contains a bearer URL. In prefix mode, only the first generated URL is exposed through `presigned-url`; bulk URL fan-out through `summary-json` is intentionally unsupported because those URLs are credentials. Generate or handle additional URLs in a trusted step that treats them as secrets.
+
+`$GITHUB_STEP_SUMMARY` per-file tables render at most the first 100 rows. When more rows exist, the summary includes a `Showing first 100 of N rows.` notice and the scalar outputs keep reporting the full source count. Status cells are escaped and rendered as inline code so object metadata cannot break the markdown table.
+
+`retryable` and `retry-after` are emitted only on the failure path, immediately before the Action calls `core.setFailed`. To consume them, set `continue-on-error: true` on the B2 step and guard the follow-up step explicitly:
+
+```yaml
+- id: b2
+  uses: backblaze-labs/b2-action@v1
+  continue-on-error: true
+  with:
+    action: list
+    bucket: ${{ vars.B2_BUCKET }}
+
+- name: Retry after a safe transient failure
+  if: steps.b2.outputs.retryable == 'true'
+  env:
+    RETRY_AFTER: ${{ steps.b2.outputs['retry-after'] || '30' }}
+  run: |
+    sleep "$RETRY_AFTER"
+    echo "retry the read-only operation here"
+```
+
+Treat `retry-after` as server-influenced input even though this Action clamps it; do not pass it to unbounded sleeps or shell code without your own policy.
 
 ---
 
@@ -396,7 +493,7 @@ If this Action doesn't fit your workflow, here are other community-maintained op
 
 ## Development & contributing
 
-The internal architecture (dispatcher flow, source layout, conventions, CI gates) and local commands live in [DEVELOPMENT.md](./DEVELOPMENT.md). The PR process is in [CONTRIBUTING.md](./CONTRIBUTING.md); the release runbook is in [RELEASE.md](./RELEASE.md).
+Contributors and AI assistants start at [AGENTS.md](./AGENTS.md) (the repository map) and [ARCHITECTURE.md](./ARCHITECTURE.md) (layers and boundary invariants); the system of record lives under [docs/](./docs/README.md). The internal architecture (dispatcher flow, source layout, conventions, CI gates) and local commands live in [DEVELOPMENT.md](./DEVELOPMENT.md). The PR process is in [CONTRIBUTING.md](./CONTRIBUTING.md); the release runbook is in [RELEASE.md](./RELEASE.md).
 
 Security reports: see [SECURITY.md](./SECURITY.md).
 

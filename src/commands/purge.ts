@@ -1,6 +1,7 @@
 import * as core from '@actions/core'
-import type { Bucket } from '@backblaze-labs/b2-sdk'
+import type { Bucket, FileAction } from '@backblaze-labs/b2-sdk'
 import type { ParsedInputs } from '../inputs.ts'
+import { deleteAllVersions } from './delete-all.ts'
 
 /** One entry in {@link PurgeResult.files}. */
 export interface PurgedFile {
@@ -8,8 +9,8 @@ export interface PurgedFile {
   fileName: string
   /** B2 file ID of the version that was purged. */
   fileId: string
-  /** Which kind of version this entry refers to: an `upload` (real data), a `hide` marker, or a `skip` (dry-run). */
-  action: 'upload' | 'hide' | 'skip'
+  /** Which kind of version this entry refers to, or `skip` for dry-run previews. */
+  action: FileAction | 'skip'
   /** True for dry-run previews; the version was not actually purged. */
   skipped: boolean
 }
@@ -45,8 +46,7 @@ export async function purgeCommand(
       "'allow-bucket-purge' must be true for whole-bucket purge (set 'source' to a prefix for scoped purge)",
     )
   }
-  const source = inputs.source ?? ''
-  const prefix = bucketWide ? '' : source.endsWith('/') ? source : `${source}/`
+  const prefix = normalizePrefix(inputs.source ?? '', bucketWide)
   const dryRun = inputs.dryRun
 
   if (prefix === '' && !dryRun) {
@@ -60,17 +60,28 @@ export async function purgeCommand(
 
   core.startGroup(`${dryRun ? 'dry-run' : 'purge'} b2://${bucket.name}/${prefix} (all versions)`)
   try {
-    const opts = {
-      ...(prefix !== '' ? { prefix } : {}),
+    const opts: {
+      dryRun: boolean
+      bypassGovernance: ParsedInputs['bypassGovernance']
+      prefix?: string
+      signal?: AbortSignal
+    } = {
       dryRun,
-      ...(signal !== undefined ? { signal } : {}),
+      bypassGovernance: inputs.bypassGovernance,
     }
-    for await (const event of bucket.deleteAll(opts)) {
+    if (prefix !== '') {
+      opts.prefix = prefix
+    }
+    if (signal !== undefined) {
+      opts.signal = signal
+    }
+
+    for await (const event of deleteAllVersions(bucket, opts)) {
       if (event.type === 'delete') {
         files.push({
           fileName: event.fileName,
           fileId: event.fileId,
-          action: 'upload',
+          action: event.action,
           skipped: false,
         })
         core.info(`  purged ${event.fileName} (${event.fileId})`)
@@ -92,4 +103,11 @@ export async function purgeCommand(
   }
 
   return { files, errors }
+}
+
+function normalizePrefix(source: string, bucketWide: boolean): string {
+  if (bucketWide) {
+    return ''
+  }
+  return source.endsWith('/') ? source : `${source}/`
 }

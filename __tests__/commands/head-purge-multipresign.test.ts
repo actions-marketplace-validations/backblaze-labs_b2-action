@@ -2,10 +2,18 @@ import { rm, writeFile } from 'node:fs/promises'
 import { join } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import { headCommand } from '../../src/commands/head.ts'
-import { presignCommand } from '../../src/commands/presign.ts'
+import { type PresignedFile, presignCommand } from '../../src/commands/presign.ts'
 import { purgeCommand } from '../../src/commands/purge.ts'
 import { uploadCommand } from '../../src/commands/upload.ts'
-import { makeFixture, makeInputs, type TestFixture } from '../_helpers.ts'
+import { setSummaryJsonOutput } from '../../src/outputs.ts'
+import {
+  captureStdout,
+  makeFixture,
+  makeInputs,
+  seedFile,
+  seedGovernanceRetainedFile,
+  type TestFixture,
+} from '../_helpers.ts'
 
 function inputs(action: Parameters<typeof makeInputs>[0], over: Record<string, unknown> = {}) {
   return makeInputs(action, { bucket: 'gh-action-hpx', ...over })
@@ -61,6 +69,7 @@ describe('purge command', () => {
     const result = await purgeCommand(fx.bucket, inputs('purge', { source: 'z/' }))
     expect(result.errors).toBe(0)
     expect(result.files.length).toBeGreaterThanOrEqual(3) // upload-a + hide-a + upload-b
+    expect(result.files.map((f) => f.action)).toEqual(expect.arrayContaining(['upload', 'hide']))
 
     const after = await fx.bucket.listFileVersions({ prefix: 'z/' })
     expect(after.files).toHaveLength(0)
@@ -77,10 +86,92 @@ describe('purge command', () => {
     expect(after.files.length).toBeGreaterThan(0)
   })
 
+  it('requires bypass-governance to purge governance-retained versions', async () => {
+    await seedGovernanceRetainedFile(fx, 'locked-purge/a.txt')
+    await seedGovernanceRetainedFile(fx, 'locked-purge/b.txt')
+
+    const blocked = await purgeCommand(fx.bucket, inputs('purge', { source: 'locked-purge/' }))
+    expect(blocked.errors).toBe(2)
+    const afterBlocked = await fx.bucket.listFileVersions({ prefix: 'locked-purge/' })
+    expect(afterBlocked.files).toHaveLength(2)
+
+    const result = await purgeCommand(
+      fx.bucket,
+      inputs('purge', { source: 'locked-purge/', bypassGovernance: true }),
+    )
+    expect(result.errors).toBe(0)
+    expect(result.files).toHaveLength(2)
+    expect(result.files.every((f) => f.action === 'upload' && !f.skipped)).toBe(true)
+
+    const afterBypass = await fx.bucket.listFileVersions({ prefix: 'locked-purge/' })
+    expect(afterBypass.files).toHaveLength(0)
+  })
+
   it('refuses bucket-wide purge without explicit confirmation', async () => {
     await expect(purgeCommand(fx.bucket, inputs('purge'))).rejects.toThrow(
       /'allow-bucket-purge' must be true/,
     )
+  })
+
+  it('purges the whole bucket when allow-bucket-purge is set, warning loudly', async () => {
+    await seedFile(fx, 'a/x.txt', 'x')
+    await seedFile(fx, 'top.txt', 'y')
+    let result: Awaited<ReturnType<typeof purgeCommand>> | undefined
+    const out = await captureStdout(async () => {
+      result = await purgeCommand(fx.bucket, inputs('purge', { allowBucketPurge: true }))
+    })
+    expect(result?.errors).toBe(0)
+    expect(result?.files.length).toBeGreaterThanOrEqual(2)
+    expect(result?.files.every((f) => f.action === 'upload' && !f.skipped)).toBe(true)
+    expect(out).toContain('::warning::')
+    expect(out).toContain('permanently delete EVERY version in bucket "gh-action-hpx"')
+    expect(out).toContain('::group::purge b2://gh-action-hpx/ (all versions)')
+    expect(out).toMatch(/ {2}purged top\.txt \(/)
+    const after = await fx.bucket.listFileVersions({})
+    expect(after.files).toHaveLength(0)
+  })
+
+  it('previews a whole-bucket purge with no warning under dry-run', async () => {
+    await seedFile(fx, 'a/x.txt', 'x')
+    let result: Awaited<ReturnType<typeof purgeCommand>> | undefined
+    const out = await captureStdout(async () => {
+      result = await purgeCommand(
+        fx.bucket,
+        inputs('purge', { allowBucketPurge: true, dryRun: true }),
+      )
+    })
+    expect(result?.files.length).toBeGreaterThan(0)
+    expect(result?.files.every((f) => f.skipped && f.action === 'skip')).toBe(true)
+    expect(out).not.toContain('::warning::')
+    expect(out).toContain('::group::dry-run b2://gh-action-hpx/ (all versions)')
+    expect(out).toMatch(/ {2}would purge a\/x\.txt \(/)
+    const after = await fx.bucket.listFileVersions({})
+    expect(after.files.length).toBeGreaterThan(0)
+  })
+
+  it('appends a trailing slash to a prefix source that lacks one', async () => {
+    // 'log' must become prefix 'log/', so 'log/inside.txt' is purged but the
+    // sibling 'logs.txt' (which a bare 'log' prefix would also match) survives.
+    await seedFile(fx, 'log/inside.txt', 'in')
+    await seedFile(fx, 'logs.txt', 'out')
+    const result = await purgeCommand(fx.bucket, inputs('purge', { source: 'log' }))
+    expect(result.errors).toBe(0)
+    const inside = await fx.bucket.listFileVersions({ prefix: 'log/' })
+    expect(inside.files).toHaveLength(0)
+    const sibling = await fx.bucket.listFileVersions({ prefix: 'logs.txt' })
+    expect(sibling.files.length).toBeGreaterThan(0)
+  })
+
+  it('warns with the failed-purge message when a version cannot be deleted', async () => {
+    await seedFile(fx, 'pf/a.txt', 'a')
+    fx.sim.injectFailure({ on: 'b2_delete_file_version', status: 500, code: 'internal_error' })
+    let result: Awaited<ReturnType<typeof purgeCommand>> | undefined
+    const out = await captureStdout(async () => {
+      result = await purgeCommand(fx.bucket, inputs('purge', { source: 'pf/' }))
+    })
+    expect(result?.errors).toBeGreaterThanOrEqual(1)
+    expect(out).toContain('::warning::')
+    expect(out).toContain('failed to purge')
   })
 })
 
@@ -111,6 +202,53 @@ describe('presign command (prefix mode)', () => {
     }
   })
 
+  it('masks and omits presigned URLs before emitting a guarded summary preview', async () => {
+    for (let i = 0; i < 105; i++) {
+      const name = `bulk/${String(i).padStart(3, '0')}.bin`
+      const local = join(fx.workDir, name.replace('/', '_'))
+      await writeFile(local, `body-${i}`)
+      await uploadCommand(fx.bucket, inputs('upload', { source: local, destination: name }))
+    }
+
+    let files: Awaited<ReturnType<typeof presignCommand>>['files'] = []
+    const stdout = await withoutGithubOutput(async () =>
+      captureStdout(async () => {
+        const result = await presignCommand(
+          fx.client,
+          fx.bucket,
+          inputs('presign', { source: 'bulk/', maxResults: 105 }),
+        )
+        files = result.files.map((file) => ({
+          ...file,
+          fileName: `${file.fileName}-${'x'.repeat(3000)}`,
+        }))
+        setSummaryJsonOutput(files, { item: presignSummaryItem })
+      }),
+    )
+
+    expect(files).toHaveLength(105)
+    const previewIndex = stdout.indexOf('::set-output name=summary-json-preview::')
+    expect(previewIndex).toBeGreaterThan(-1)
+
+    for (const f of files) {
+      const urlMaskIndex = stdout.indexOf(`::add-mask::${commandEscaped(f.url)}`)
+      expect(urlMaskIndex).toBeGreaterThan(-1)
+      expect(urlMaskIndex).toBeLessThan(previewIndex)
+
+      const token = new URL(f.url).searchParams.get('Authorization')
+      expect(token).toBeTruthy()
+      const tokenMaskIndex = stdout.indexOf(`::add-mask::${token}`)
+      expect(tokenMaskIndex).toBeGreaterThan(-1)
+      expect(tokenMaskIndex).toBeLessThan(previewIndex)
+    }
+
+    const previewOutput = stdout.slice(previewIndex)
+    for (const f of files) {
+      expect(previewOutput).not.toContain(f.url)
+      expect(previewOutput).not.toContain(commandEscaped(f.url))
+    }
+  })
+
   it('still supports single-file mode', async () => {
     const local = join(fx.workDir, 'single.bin')
     await writeFile(local, 'single')
@@ -125,3 +263,27 @@ describe('presign command (prefix mode)', () => {
     expect(result.files[0]?.fileName).toBe('single.bin')
   })
 })
+
+function commandEscaped(value: string): string {
+  return value.replaceAll('%', '%25').replaceAll('\r', '%0D').replaceAll('\n', '%0A')
+}
+
+// This command-level test cannot import main.ts's private dispatcher helper
+// without executing the action entrypoint; main.test covers the shipped helper.
+function presignSummaryItem(file: PresignedFile): Pick<PresignedFile, 'fileName' | 'expiresAt'> {
+  return { fileName: file.fileName, expiresAt: file.expiresAt }
+}
+
+async function withoutGithubOutput<T>(fn: () => Promise<T>): Promise<T> {
+  const originalGithubOutput = process.env.GITHUB_OUTPUT
+  delete process.env.GITHUB_OUTPUT
+  try {
+    return await fn()
+  } finally {
+    if (originalGithubOutput === undefined) {
+      delete process.env.GITHUB_OUTPUT
+    } else {
+      process.env.GITHUB_OUTPUT = originalGithubOutput
+    }
+  }
+}

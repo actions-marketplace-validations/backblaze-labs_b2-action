@@ -1,6 +1,6 @@
 # Development
 
-This document covers the internal architecture and local development workflow for the Action. If you're just using the action in your own workflows, the [README](./README.md) has everything you need. If you want to contribute, read this first, then jump to [CONTRIBUTING.md](./CONTRIBUTING.md) for the PR process and [RELEASE.md](./RELEASE.md) for the release process.
+This document covers the internal architecture and local development workflow for the Action. If you're just using the action in your own workflows, the [README](./README.md) has everything you need. Start at [AGENTS.md](./AGENTS.md) for the repository map and [ARCHITECTURE.md](./ARCHITECTURE.md) for the layering rules and boundary invariants. If you want to contribute, read this first, then jump to [CONTRIBUTING.md](./CONTRIBUTING.md) for the PR process and [RELEASE.md](./RELEASE.md) for the release process.
 
 ## How it works
 
@@ -34,7 +34,7 @@ flowchart LR
     style B2 fill:#EE3232,stroke:#fff,color:#fff
 ```
 
-The action is a thin dispatcher. Every verb lands in [`@backblaze-labs/b2-sdk`](https://github.com/backblaze-labs/b2-sdk-typescript); we add input parsing, credential masking (`::add-mask::`), throttled progress logging, and step-summary rendering on top.
+The action is a thin dispatcher. Every verb lands in [`@backblaze-labs/b2-sdk`](https://github.com/backblaze-labs/b2-sdk-typescript); we add input parsing, credential masking (`::add-mask::`), throttled progress logging, and step-summary rendering on top. For the layers, allowed dependency edges, and boundary invariants, see [ARCHITECTURE.md](./ARCHITECTURE.md).
 
 ## Source layout
 
@@ -46,8 +46,12 @@ src/
   sse.ts           # SSE-B2 / SSE-C input parser
   progress.ts      # throttled progress listener
   summary.ts       # $GITHUB_STEP_SUMMARY writer
-  version.ts       # VERSION constant (bumped in lockstep with package.json)
-  commands/<verb>.ts  # one file per verb (13 today)
+  outputs.ts       # core.setOutput mapping + summary-json shaping
+  errors.ts        # error normalization for core.setFailed
+  format.ts        # byte / duration formatting helpers
+  fs.ts            # filesystem helpers (tilde expansion, safe stat)
+  version.ts       # VERSION constant (read from package.json)
+  commands/<verb>.ts  # one file per verb (13 verbs); delete-all.ts is a shared bulk-delete helper, not a verb
 __tests__/
   _helpers.ts      # shared makeInputs() builder for command tests
   *.test.ts        # unit tests against the SDK's in-memory B2Simulator
@@ -55,12 +59,21 @@ __tests__/
   ci.yml                # lint, typecheck, test, coverage, build, dist freshness, smoke
   security.yml          # shared GitHub Actions workflow security checks
   codeql.yml            # CodeQL (SAST) static analysis of the TypeScript source
+  docs.yml              # TypeDoc build (api-docs/) + GitHub Pages deploy
+  docs-lint.yml         # action.yml<>README sync, markdownlint, link check, cspell
+  full-lockfile-audit.yml            # full-lockfile pnpm audit (dev/build tooling)
+  full-lockfile-audit-heartbeat.yml  # ensures the full audit fires on schedule
+  mutation-testing.yml  # weekly batched Stryker mutation run
   release.yml           # see RELEASE.md
   daily-smoke.yml       # 03:13 UTC: real-B2 end-to-end against the test bucket
   large-multipart-smoke.yml  # weekly real-B2 multipart upload integrity check
-  example-*.yml         # 12 copy-paste workflows that double as integration tests
+  example-*.yml         # 13 copy-paste workflows that double as integration tests
 action.yml         # Marketplace manifest (inputs, outputs, branding)
 dist/index.js      # ncc-bundled entrypoint (committed; CI fails if stale)
+AGENTS.md          # repository map: read this first (canonical, multi-harness)
+ARCHITECTURE.md    # layers + boundary invariants
+docs/              # system of record: design docs, plans, quality grades
+api-docs/          # generated TypeDoc API site (git-ignored; built in CI)
 ```
 
 ## Local commands
@@ -72,19 +85,26 @@ pnpm lint:fix
 pnpm typecheck      # tsc --noEmit (strict + exactOptionalPropertyTypes)
 pnpm test           # vitest run: drives against the SDK's in-memory B2Simulator
 pnpm test:coverage  # same + the 95/85/100/95 coverage gate
+pnpm test:mutation  # batched per-file Stryker mutation run + aggregate gate
+pnpm test:mutation:single  # raw Stryker run for focused local investigation
 pnpm build          # ncc build src/main.ts -o dist
 pnpm run audit      # pnpm audit --prod --audit-level high (CI gate; needs network)
 pnpm spellcheck     # cspell across src/, __tests__/, *.md, *.yml, action.yml
-pnpm all            # lint + typecheck + test + build + spellcheck
+pnpm all            # lint + release policy + typecheck + test + build + spellcheck
 pnpm verify-dist    # build, then `git diff --exit-code dist/` (must be clean)
-pnpm docs           # typedoc (strict): generates docs/ for GitHub Pages
+pnpm run docs       # typedoc (strict): generates api-docs/ for GitHub Pages
 pnpm docs:watch     # typedoc in watch mode for local authoring
 pnpm docs:lint      # markdownlint-cli2 against **/*.md
-pnpm docs:links     # runs pinned lychee in offline + fragment-aware mode, excluding node_modules
+pnpm docs:links     # runs pinned lychee in offline + fragment-aware mode, excluding api-docs/ and node_modules
 pnpm docs:check-action-yml  # action.yml <> README sync check
+pnpm check:release-provenance  # release.yml provenance isolation policy
 ```
 
-Requirements: Node 24+, pnpm 10+. The Action runs on Node 24 in the GitHub Actions runtime; CI tests Node 24 across Ubuntu / macOS / Windows.
+The full-lockfile audit uses the pnpm builtin directly, not a package script:
+`pnpm audit --audit-level high`. This mirrors the per-change and
+scheduled/manual workflow that covers dev/build tooling.
+
+Requirements: Node 24+. pnpm is pinned via the `packageManager` field in `package.json` (currently `pnpm@11.5.3`); with corepack enabled, running `pnpm` in this repo uses that version automatically, so local and CI share one pnpm version. The Action runs on Node 24 in the GitHub Actions runtime; CI tests Node 24 across Ubuntu / macOS / Windows.
 
 ### Managed lychee binary
 
@@ -109,13 +129,93 @@ On every cold cache (new version, fresh runner, or cache eviction), `pnpm docs:l
 
 Interrupted local installs can leave a cache lock directory behind. The next run waits for the derived install-lock timeout before printing the lock path to remove. That long wait is intentional so a concurrent live install is not deleted; remove the named lock only after confirming no `docs:links` process is running.
 
+## Mutation testing
+
+`pnpm test:mutation` runs
+[`scripts/run-batched-mutation.mjs`](./scripts/run-batched-mutation.mjs). The
+wrapper runs Stryker once per file listed in the `mutate` array in
+[`stryker.conf.json`](./stryker.conf.json), then aggregates the JSON reports and
+applies the configured break threshold to the combined score. The per-file
+invocation disables Stryker's own break exit so a below-threshold file does not
+hide runner, config, or environment failures.
+
+The current mutation scope is the explicit `mutate` list in
+`stryker.conf.json`: action-owned `src/*.ts` support modules plus the command
+implementations under `src/commands/*.ts` that are named there. Update that
+single list when adding or removing mutation targets.
+
+The mutation workflow is scheduled and manually dispatchable only; it is not a
+per-PR gate while survivor triage is still being paid down. Reports are written
+under `reports/mutation/` locally and uploaded as the `mutation-report`
+artifact in CI. The useful files are:
+
+- `reports/mutation/by-file/*.json`: one Stryker JSON report per mutated file.
+- `reports/mutation/aggregate.json`: the wrapper's combined score, threshold,
+  per-file rows, and status totals.
+- `reports/mutation/mutation.json`: Stryker's shared JSON output path from the
+  last per-file run.
+
+The workflow audits the full lockfile and rejects blocked lookalike dependency
+names before installing the Stryker toolchain.
+
+Stryker core and `@stryker-mutator/vitest-runner` are exact-pinned to the same
+version because the runner plugin must stay in lockstep with core; the
+Dependabot test-runner group updates them together. `pnpm test:mutation:single`
+runs raw `stryker run` using the config reporters, which is useful for focused
+local investigation. Do not use a full-scope raw run as the scheduled gate:
+with this suite's `vi.resetModules()` + `vi.doMock()` + dynamic import pattern,
+the Vitest runner can mis-attribute mutants when all files are instrumented in
+one Stryker process. `stryker.conf.json` also sets `vitest.related` to `false`
+so every mutant runs the full Vitest suite. That is slower, but it avoids
+missing cross-file assertions in the shared command fixtures and dispatcher
+tests while the mutation baseline is still being triaged.
+
+Batched-runner baseline for the current mutation scope:
+
+| Scope | Mutation score | Killed | Timed out | Survived | No coverage |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| All files | 72.83% | 895 | 11 | 333 | 5 |
+| `src/commands/*.ts` targets | 62.59% | 332 | 11 | 203 | 2 |
+| `src/inputs.ts` | 73.24% | 219 | 0 | 78 | 2 |
+| `src/main.ts` | 85.67% | 305 | 0 | 50 | 1 |
+| `src/sse.ts` | 95.12% | 39 | 0 | 2 | 0 |
+
+Survivor triage from the baseline:
+
+- The command targets remain the largest survivor bucket. Follow-up assertion
+  work should start with upload destination remapping, dry-run paths,
+  pagination, and aggregate error handling.
+- `src/inputs.ts` still has parser and validation-message survivors. These are
+  high-signal action-owned logic and cheap to test.
+- `src/main.ts` and `src/sse.ts` now kill most mutants, but the JSON/HTML
+  report should still be checked before adding disables because some survivors
+  can be equivalent mutants.
+
+The configured aggregate mutation threshold is `break: 65`, with `low: 65` and
+`high: 75`. The batched wrapper enforces that threshold only when
+`thresholds.break` is a number; setting it to `null` disables the aggregate
+failure, matching Stryker's disabled-break semantics. The current 65% break gate
+keeps the scheduled workflow passing the 72.83% baseline with 7.83 points of
+headroom while still failing on a material regression. Raise the threshold only
+after survivors have been triaged and the baseline is re-run. The headroom and
+scheduled-only cadence are an intentional bootstrap posture. Once alerting has
+proven reliable, either tighten the break threshold toward the baseline, or add
+a non-blocking PR information run so sub-threshold drift is visible before the
+weekly cron.
+
+Default-branch scheduled and manual failures open or update one
+`mutation-testing-failure` tracking issue through
+`.github/actions/tracking-issue`; a later passing run closes it. This mirrors
+the full-lockfile audit workflow so red cron runs are visible without polling
+the Actions tab.
+
 ## Git hooks
 
 `pnpm install` runs `husky` (via the `prepare` script) which installs the hooks under [`.husky/`](./.husky/). Two hooks are active:
 
 | Hook | What it runs | Triggers on |
 | --- | --- | --- |
-| `pre-commit` | `pnpm lint` + `pnpm typecheck` + `pnpm test` + `pnpm build` + `dist/` freshness check + `pnpm spellcheck`. Every local code/doc check, every commit, no path-gating. | Every `git commit` |
+| `pre-commit` | `pnpm lint` + release-provenance policy check + `pnpm typecheck` + `pnpm test` + `pnpm build` + `dist/` freshness check + `pnpm spellcheck`. Every local code/doc check, every commit, no path-gating. | Every `git commit` |
 | `pre-push` | `pnpm test:coverage` (subsumes plain `test`, so we don't double-run). | Every `git push` |
 
 Pre-commit runs every repo-local code/doc check so a small change cannot skip an important local gate. On a clean repo this takes ~5 s. Skip either hook with `--no-verify` if you need to; the same checks run in CI.
@@ -134,28 +234,33 @@ env ACTIONLINT_CACHE_DIR=/private/tmp/backblaze-actionlint bash ../github-action
 This repo mirrors the [`b2-sdk-typescript`](https://github.com/backblaze-labs/b2-sdk-typescript) style:
 
 - Biome formatter / linter (2-space indent, single quotes, no semicolons, 100-char width). Run `pnpm lint:fix` before pushing.
-- `exactOptionalPropertyTypes` is ON. Use conditional-spread (`...(v !== undefined ? { k: v } : {})`) rather than passing `undefined`.
+- `exactOptionalPropertyTypes` is ON. Use conditional-spread or explicit optional-property assignment rather than passing `undefined`.
 - `verbatimModuleSyntax` is ON. Use `import type` for type-only imports.
 - Internal relative imports use `.ts` extensions (`import { x } from './foo.ts'`), not `.js`.
 - All source under `src/`. Tests under `__tests__/` so they don't ship in `dist/`.
 
 ## CI gates
 
-Every PR runs:
+Pull requests run the core gates below. Scheduled and manual-only checks are
+listed in the same table and called out explicitly.
 
 | Job | What it checks |
 | --- | --- |
 | `test` (matrix: ubuntu/macos/windows) | typecheck + vitest unit suite |
 | `lint` | biome `--error-on-warnings` |
 | `coverage` | vitest with v8 coverage, threshold 95 % statements / 85 % branches / 100 % functions / 95 % lines |
+| `mutation-testing` ([mutation-testing.yml](./.github/workflows/mutation-testing.yml)) | Batched per-file Stryker mutation testing against the configured `stryker.conf.json` mutation scope. Runs weekly and manually; it uploads the JSON report artifact, opens or updates a tracking issue on default-branch failure, and fails if the aggregate mutation score drops below the configured break threshold (65%). |
 | `build-and-check-dist` | ncc build, then `git diff --exit-code dist/`. **Drift fails CI**: rebuild with `pnpm build` and commit `dist/`. Bundle size is gated hard at 4 MiB. |
+| `release-provenance-policy` ([security.yml](./.github/workflows/security.yml)) | parses release workflow YAML and enforces OIDC/attestation isolation, validated-SHA checkouts, tag re-verification, staged release asset upload, and post-upload verification. |
 | `github-actions` ([security.yml](./.github/workflows/security.yml)) | runs the shared GitHub Actions security composite action against every workflow, including actionlint, third-party action pin checks, and zizmor audits (see [Pinning third-party actions](#pinning-third-party-actions)) |
 | `self-smoke` | runs `node dist/index.js` with no inputs, expects the missing-input error |
 | `analyze` ([codeql.yml](./.github/workflows/codeql.yml)) | CodeQL (SAST) over the TypeScript source (`build-mode: none`, no compile needed). Runs on PRs to `main`, push to `main`, and weekly; findings surface in the repo Security tab. |
 | `audit` | `pnpm audit --prod --audit-level high`: fails on a high/critical advisory in a **production** dependency. Scoped to prod (not devDeps) so a dev-tool advisory can't block an unrelated PR; devDep updates are handled by Dependabot. CI calls the builtin `pnpm audit` directly (resolves against the lockfile, no install); `pnpm run audit` is the local-convenience equivalent. |
+| `full-lockfile-audit` ([full-lockfile-audit.yml](./.github/workflows/full-lockfile-audit.yml)) | `pnpm audit --audit-level high` across the full lockfile, including dev/build tooling used to produce committed `dist/`. Runs on PRs and pushes that touch dependency/audit policy files, plus weekly and manually. PR findings are informational (`continue-on-error`) so unrelated feature work is not blocked; push/scheduled/manual default-branch failures open or update one labeled tracking issue, with infrastructure failures separated from dependency advisories. A later passing default-branch run closes open tracking issues. |
+| `heartbeat` ([full-lockfile-audit-heartbeat.yml](./.github/workflows/full-lockfile-audit-heartbeat.yml)) | Daily check that a scheduled, manual, or main-push full-lockfile audit has fired in the last 10 days; opens or updates one labeled tracking issue when a transient cron drop leaves the audit stale, and closes it once the audit recovers. It stays silent before the first audit run has ever been observed. Because it is also scheduled, this heartbeat does not protect against GitHub's 60-day inactivity auto-disable or a broader GitHub Actions scheduling outage; after long repository inactivity, maintainers should verify scheduled workflows in the Actions UI or manually dispatch `full-lockfile-audit.yml` on `main`. |
 | `sync-check` ([docs-lint.yml](./.github/workflows/docs-lint.yml)) | every input/output in `action.yml` also appears in the README reference tables. Drift fails CI. |
 | `markdownlint` ([docs-lint.yml](./.github/workflows/docs-lint.yml)) | prose-style consistency across `**/*.md`. Config in [`.markdownlint-cli2.jsonc`](./.markdownlint-cli2.jsonc). |
-| `link-check` ([docs-lint.yml](./.github/workflows/docs-lint.yml)) | `pnpm docs:links` runs pinned lychee in `--offline` mode against `**/*.md`; catches broken relative paths and anchor fragments. External URLs are not pinged. |
+| `link-check` ([docs-lint.yml](./.github/workflows/docs-lint.yml)) | `pnpm docs:links` runs pinned lychee in `--offline` mode against source markdown and excludes the generated `api-docs/`; catches broken relative paths and anchor fragments. External URLs are not pinged. |
 | `spellcheck` ([docs-lint.yml](./.github/workflows/docs-lint.yml)) | cspell across `**/*.ts`, `**/*.md`, `**/*.yml`, `action.yml`. Config in [`cspell.json`](./cspell.json); domain-specific words live in [`.cspell/project-words.txt`](./.cspell/project-words.txt). Add a word there when cspell flags a deliberate identifier. |
 | `docs` ([docs.yml](./.github/workflows/docs.yml)) | TypeDoc with `treatWarningsAsErrors: true`; every export must have JSDoc. Published to GitHub Pages on push to `main`. |
 
@@ -211,14 +316,22 @@ Once those are in place, the example workflows trigger on every PR (other than f
 
 ### Simulator vs real bucket: what each layer catches
 
-- **Vitest + `B2Simulator`** (`pnpm test`): instant, deterministic, runs on every PR including forks. Validates the dispatcher, input parsing, error paths, and the SDK contract. Doesn't touch the network.
+- **Vitest + `B2Simulator`** (`pnpm test`): instant, deterministic, runs on every PR including forks. Validates the dispatcher, input parsing, error paths, and the SDK contract. Doesn't touch the network. Input tests set `INPUT_*` / `B2_*` env vars directly; clear them in `beforeEach` (see `resetInputEnv` in [`__tests__/inputs.test.ts`](./__tests__/inputs.test.ts)) to avoid cross-test bleed.
 - **Example workflows** (`.github/workflows/example-*.yml`): real wire-protocol. Catches B2 API drift, auth quirks, and integration-layer regressions that the simulator can't see. Skips on forks (secrets-gated).
 
 The redundancy is deliberate: the simulator suite is what guarantees a contributor's fork PR gets validated end-to-end before secrets-gated workflows run.
 
+### Documentation structure gate
+
+[`__tests__/docs-structure.test.ts`](./__tests__/docs-structure.test.ts) enforces the harness-doc invariants mechanically: [`AGENTS.md`](./AGENTS.md) stays a short map (line cap), [`CLAUDE.md`](./CLAUDE.md) and [`GEMINI.md`](./GEMINI.md) point to it, no `docs/**` file is orphaned (every doc is linked from another doc), the [design-doc index](./docs/design-docs/index.md) lists every design doc, and tech-debt ids stay unique. It runs in the normal `test` / `coverage` jobs, so a doc that drifts out of the structure fails CI like any other test.
+
+### Architecture invariant gate
+
+[`__tests__/architecture.test.ts`](./__tests__/architecture.test.ts) enforces the [boundary invariants](./ARCHITECTURE.md#boundary-invariants): all B2 I/O goes through the SDK (no raw transport or `fetch` in `src/`), the dispatcher owns outputs (no `setOutput` in a command), and commands never depend upward on the entrypoint or output layer.
+
 ## Coverage
 
-Coverage is at **100 % statements / 100 % branches / 100 % functions / 100 % lines** across 156 tests. Zero `v8 ignore` annotations in `src/`. Every uncovered branch the SDK formerly exposed (multipart `contentSha1: null`, pagination handover, `delete-remote` on unversioned buckets, `error` events from `deleteAll`, `bucket.head()` shape, `pageSize` rename, `SyncEvent` narrowing) shipped in the SDK and the action's tests drive them against real simulator behavior. If you add a new code path, add a real test for it; do not introduce a `v8 ignore` without a documented external reason.
+Coverage runs about **98 % statements / 96 % branches / 100 % functions / 99 % lines**, comfortably above the `vitest.config.ts` gate of 95 % / 85 % / 100 % / 95 %, across roughly 30 test files. If you add a new code path, add a real test for it; do not introduce a `v8 ignore` without a documented external reason.
 
 ## Step-by-step: adding a new verb
 
@@ -255,4 +368,4 @@ The SDK builds a User-Agent of the form:
 b2-sdk-typescript/<sdk-version> (typescript; @backblaze-labs/b2-sdk; <runtime>; <os>; <arch>) b2-github-action/<action-version>
 ```
 
-We append the `b2-github-action/<v>` suffix so Backblaze's server-side logs can identify CI traffic originating from this Action. **Do not rename either the SDK's `b2-sdk-typescript/` token or our `b2-github-action/` token**: both are stable product identifiers used for traffic analytics. The version constant is in [`src/version.ts`](./src/version.ts) and must be bumped in lockstep with `package.json` `version`.
+We append the `b2-github-action/<v>` suffix so Backblaze's server-side logs can identify CI traffic originating from this Action. **Do not rename either the SDK's `b2-sdk-typescript/` token or our `b2-github-action/` token**: both are stable product identifiers used for traffic analytics. The version constant in [`src/version.ts`](./src/version.ts) is read directly from `package.json`, so bumping `package.json` `version` propagates automatically to the User-Agent and the bundled `dist/`; never hardcode a version literal.

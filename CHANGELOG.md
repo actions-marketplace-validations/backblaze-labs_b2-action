@@ -6,29 +6,86 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+## [1.2.0] - 2026-08-04
+
+### Security
+
+- Hardened release/test tooling to clear GitHub security-scanning findings: bearer-token-like test data is no longer committed as a contiguous literal, release-provenance checks reuse parsed step bodies, mutation-report paths sanitize POSIX and Windows separators, and mutation-report tables share one column definition. ([#176](https://github.com/backblaze-labs/b2-action/issues/176))
+- Bumped pinned CI action SHAs, `biome.json`, and development dependencies to clear GitHub Dependabot security alerts. ([#175](https://github.com/backblaze-labs/b2-action/issues/175))
+
+### Added
+
+- Local path inputs now expand a leading `~` or `~/` to the runner's home directory: `source` for `upload` and `sync` up, `destination` for `download`, `sync` down, and `verify`, plus `include` / `exclude` globs. Action inputs are not shell-expanded, so `destination: ~/.cache/huggingface` previously created a literal `~` directory inside the workspace, while `@actions/glob` already expanded `~` for upload patterns. B2 keys are never tilde-expanded because `~` is a legal key character. `~user` forms are passed through with a warning, and `~/..` paths are rejected because the expanded path would leave the runner home directory. ([#164](https://github.com/backblaze-labs/b2-action/issues/164))
+- `keep-days` input: the retention window for `keep-mode: keep-days`, which the action never forwarded to the SDK. The SDK defaults the window to 0 days, so `keep-mode: keep-days` can delete every destination-only file immediately and behave exactly like `keep-mode: delete`. For v1 compatibility, `keep-mode: keep-days` without `keep-days` still parses but emits a deprecation warning; set `keep-days` explicitly to use the intended retention window. A future major release should make the window required. Setting `keep-days` with any other `keep-mode` warns that it is ignored. ([#164](https://github.com/backblaze-labs/b2-action/issues/164))
+- `sync` warns when `direction: auto` resolves to a B2-to-local sync while `source` still looks like a local path (`~`, `./`, `../`, or a Windows drive). Auto-detection treats "not an existing local directory" as "must be a B2 prefix", so a mistyped or not-yet-created local path silently reversed the intended direction. ([#164](https://github.com/backblaze-labs/b2-action/issues/164))
+- `upload` file metadata and content headers: new `file-info` (custom `X-Bz-Info-*` entries), `cache-control`, `content-disposition`, `content-language`, and `expires` inputs, plus `preserve-mtime` to record the local file's modification time. Uploaded-file entries in the `summary-json` output now include the resolved `fileInfo`. ([#135](https://github.com/backblaze-labs/b2-action/issues/135))
+
+### Changed
+
+- Updated the `@backblaze-labs/b2-sdk` dependency from `^0.1.0` to `^0.2.0`.
+- `bypass-governance` now also covers `delete` and `purge`, not just retention changes: it is forwarded to Object Lock delete operations, so a governance-locked file can be removed when the application key has the capability. ([#132](https://github.com/backblaze-labs/b2-action/issues/132))
+
+### Deprecated
+
+- `keep-mode: keep-days` without an explicit `keep-days` value. It still parses but emits a deprecation warning, and because the SDK defaults the window to 0 days it deletes destination-only files immediately (like `keep-mode: delete`). Set `keep-days` explicitly; a future major release will require it. ([#164](https://github.com/backblaze-labs/b2-action/issues/164))
+
+### Fixed
+
+- `sync`: `direction: auto` now fails closed for an expandable tilde-prefixed `source` that exists as a local directory, because the same string can also be a valid B2 prefix. Set `direction: up` for a local home-directory upload or `direction: down` for a B2-prefix download. This is a version-to-version behavior change for `~`-prefixed auto sources that briefly resolved as uploads after tilde expansion was added. ([#164](https://github.com/backblaze-labs/b2-action/issues/164))
+- `upload`: glob matches outside the working directory no longer produce B2 keys containing `..` path segments. The key was computed with `relative(process.cwd(), match)`, so a pattern such as `/tmp/build/*.bin` yielded keys like `artifacts/../../../tmp/build/a.bin`. Those objects uploaded successfully but this action's own prefix `download` then refused to map them back onto disk, so they could not be restored. Keys are now resolved against the first containing root (the working directory first, so in-workspace globs keep their existing keys, then the glob's own search paths), falling back to the basename. ([#164](https://github.com/backblaze-labs/b2-action/issues/164))
+- `upload`: multi-file uploads now fail before any upload starts if two local files would map to the same final B2 file name after destination remapping. This avoids silent overwrites from same-basename files matched through multiple absolute roots or basename fallback. ([#164](https://github.com/backblaze-labs/b2-action/issues/164))
+- `copy`: abort signals now flow through both small-file and large-file copy paths, so workflow cancellation behaves consistently. ([#131](https://github.com/backblaze-labs/b2-action/issues/131))
+- `file-info`: oversized metadata entries are now checked against the remaining total metadata budget, producing one coherent limit instead of a value-only limit that could still fail the final total check. ([#135](https://github.com/backblaze-labs/b2-action/issues/135))
+- `copy`: large cross-bucket copies now land in the destination bucket. `copyLargeFile` was never sent the destination bucket id, so a large file copied across buckets was silently written back into the source bucket. ([#131](https://github.com/backblaze-labs/b2-action/issues/131))
+
+### Documentation
+
+- README and `.github/workflows/README.md`: the example suite no longer claims that every `example-*.yml` runs on pull requests. `example-ml-cache-sync.yml` is `push` + `workflow_dispatch` only because it runs `uses: ./` with B2 secrets, which a pull request could modify; `__tests__/workflow-policy.test.ts` enforces that.
+- README: worked examples after the first few omit the credential inputs, which now says so and points at the `B2_APPLICATION_KEY_ID` / `B2_APPLICATION_KEY` fallback rather than leaving the snippets to fail with a missing-credential error.
+- README: the `presign`, chain-outputs, and `retry-after` examples pass step outputs through `env:` instead of interpolating `${{ }}` into `run:` bodies, matching the example workflows and the repository's own guidance about `retry-after`.
+- README: `keep-mode` states that deletion applies to whichever side is the destination, so a `down` sync with `keep-mode: delete` removes local files; the sync examples say the same inline.
+- README: the `delete` verb row distinguishes exact-name deletes (latest version only, history preserved) from prefix deletes (every version, same as `purge`).
+- README: `source-bucket` notes that cross-bucket `copy` needs a key that reaches both buckets, so a single-bucket-restricted key cannot do it.
+- Release and contributor docs now include the pre-release coherence checklist, pin pnpm via the `packageManager` field, use `pnpm run docs` for TypeDoc, and document that the link checker skips generated `docs/` output.
+
+## [1.1.0] - 2026-06-23
+
 ### Security
 
 - Pin every third-party GitHub Action in `.github/workflows/` to a full commit SHA (with an exact `# vX.Y.Z` comment), so a moved or compromised upstream tag cannot alter our CI or the `contents: write` release job. Dependabot keeps the pins current. ([#18](https://github.com/backblaze-labs/b2-action/issues/18))
 - Run workflow security through the shared `backblaze-labs/github-actions` composite action in `.github/workflows/security.yml`, covering actionlint, third-party action pin checks, and zizmor audits without duplicating those scripts in this repo. ([#18](https://github.com/backblaze-labs/b2-action/issues/18))
+- Add signed GitHub Artifact Attestations for the release `dist/index.js` bundle from an isolated provenance job, upload the attested bundle plus a SHA-256 checksum as release assets, and document `gh attestation verify` provenance checks for consumers. ([#19](https://github.com/backblaze-labs/b2-action/issues/19))
+- Harden the release path so release tags must point at reviewed `main` commits, protected `vX.Y.Z` tag rulesets are documented as required setup, and stable releases move the floating `vN` tag before the GitHub Release is made public. ([#19](https://github.com/backblaze-labs/b2-action/issues/19))
 - Add a dependency vulnerability gate: a CI `audit` job runs `pnpm audit --prod --audit-level high` (available locally as `pnpm run audit`), failing the build on a high or critical advisory in a production dependency. Scoped to production deps so a dev-tooling advisory cannot block an unrelated PR. ([#21](https://github.com/backblaze-labs/b2-action/issues/21))
 - Add a CodeQL (SAST) workflow (`.github/workflows/codeql.yml`) that statically analyzes the TypeScript source on every PR to `main`, on push to `main`, and weekly, surfacing findings in the repo Security tab. Uses `build-mode: none` (no compile needed) and SHA-pinned `github/codeql-action`. ([#20](https://github.com/backblaze-labs/b2-action/issues/20))
+- Add a full-lockfile dependency audit workflow and heartbeat for dev/build tooling, with per-change PR/push visibility plus weekly/manual default-branch tracking issues. Bound `vite`, `js-yaml`, `markdown-it`, and `undici` overrides to patched current-major ranges. ([#35](https://github.com/backblaze-labs/b2-action/issues/35))
 
 ### Added
 
 - Add a weekly real-B2 large multipart smoke workflow that uploads a payload above B2's recommended part size, downloads it, checks SHA-1 integrity, and deletes the test prefix. ([#25](https://github.com/backblaze-labs/b2-action/issues/25))
+- Add property-based and adversarial tests for SSE-C parsing, input coercion, upload/download path mapping, and SHA-1 normalization. ([#51](https://github.com/backblaze-labs/b2-action/issues/51))
 
 ### Changed
 
+- `download`: prefix downloads now preflight path mapping before writing files and reject B2 keys that cannot be mapped safely into the destination directory, including empty, `.`, `..`, and control-character path segments; legal POSIX names are preserved verbatim on POSIX runners, while Windows-only reserved path forms are rejected instead of silently rewritten. ([#51](https://github.com/backblaze-labs/b2-action/issues/51))
+- Input validation now rejects non-canonical SSE-C base64 keys, requires positive integer inputs to use safe decimal integer syntax, and requires `verify` `expected-sha1` values to be 40-character hexadecimal digests. ([#51](https://github.com/backblaze-labs/b2-action/issues/51))
 - `upload`: directory/glob uploads now consistently treat `destination` as a prefix even when the source resolves to a single file; only an explicit single-file source treats a non-trailing-slash `destination` as the exact object key.
+- `summary-json` now has an explicit 256 KiB UTF-8 cap. Results that exceed it no longer fail an otherwise successful B2 operation or emit a partial array under `summary-json`; instead the Action sets `summary-json-truncated=true`, keeps `summary-json` as `[]`, writes a small truncation object to `summary-json-notice`, and emits a bounded `summary-json-preview` for diagnostics. Migration note: consumers must branch on the always-emitted `summary-json-truncated` output first, and use `file-count` plus verb-specific count outputs for authoritative totals when it is `true`. Credential-like fields are omitted by name from `summary-json` and `summary-json-preview` for every command. ([#41](https://github.com/backblaze-labs/b2-action/issues/41))
+- Breaking change for prefix-mode `presign` consumers: live presigned download URLs are no longer written into `summary-json` or `summary-json-preview`; the dedicated `presigned-url` output remains the only bearer-URL channel and exposes only the first URL in prefix mode. Bulk prefix-mode URL retrieval through `summary-json` is intentionally unsupported. ([#41](https://github.com/backblaze-labs/b2-action/issues/41))
+- `$GITHUB_STEP_SUMMARY` per-file tables now render at most the first 100 rows and include a `Showing first 100 of N rows.` notice when rows are omitted. This includes `presign`, whose previous command-specific cap was 50 rows. Status cells are escaped and rendered as inline code for markdown safety. Scalar count outputs continue to report the full count. ([#41](https://github.com/backblaze-labs/b2-action/issues/41))
 - Stable releases now move the floating major tag (`v1`, `v2`, ...) before publishing the GitHub Release, fail early when `FLOATING_TAG_TOKEN` is absent or unusable, and document the manual `workflow_dispatch` override for emergency releases. ([#28](https://github.com/backblaze-labs/b2-action/issues/28))
 
 ### Fixed
 
+- `download`: completed bodies are written through same-directory temporary files and renamed into place, so an existing leaf symlink is replaced instead of followed out of the destination root. ([#51](https://github.com/backblaze-labs/b2-action/issues/51))
+- `verify`: remote SHA-1 headers that B2 reports as non-comparable values such as `unverified:<sha1>` now return a structured `verified=false` result with a diagnostic reason instead of aborting inside SHA-1 normalization; the action still fails closed after publishing outputs. ([#51](https://github.com/backblaze-labs/b2-action/issues/51))
 - `pnpm docs:links` now downloads, verifies, and runs a pinned lychee binary on supported local platforms, and CI uses the same command, so contributors can reproduce the markdown-link gate from a clean checkout where lychee publishes a matching binary. ([#39](https://github.com/backblaze-labs/b2-action/issues/39))
+- Top-level action failures now classify known SDK errors into actionable authentication, permission, and transient retry messages, expose failure-path `retryable` / `retry-after` outputs only when an automatic retry is safe, preserve sanitized generic B2 error detail and debug traces, and avoid leaking server-controlled SDK text before logging. ([#27](https://github.com/backblaze-labs/b2-action/issues/27))
 
 ### Documentation
 
 - README: added a "Pinning and versioning" section recommending consumers pin `backblaze-labs/b2-action` to a commit SHA (or a signed `@vX.Y.Z` tag) rather than the mutable `@v1` floating tag, mirroring the supply-chain practice the Action applies to its own workflows.
+- README: use version-neutral exact-tag examples, link release provenance checks, and clarify that prefix-mode `presign` exposes only the first live URL via the masked `presigned-url` output.
 - README: document that exact-name `copy`, single-file `delete`, and `retention` operate only when the latest exact-name version is an upload; a latest hide marker is reported with the same `File not found` diagnostic as an absent name so default logs do not reveal hidden-object existence. ([#31](https://github.com/backblaze-labs/b2-action/issues/31))
 
 ## [1.0.1] - 2026-05-29
@@ -120,6 +177,8 @@ Initial release. Built on [`@backblaze-labs/b2-sdk`](https://github.com/backblaz
 
 `file-id`, `file-name`, `content-sha1`, `bytes-transferred`, `files-uploaded`, `files-downloaded`, `files-deleted`, `files-listed`, `presigned-url`, `verified`, `remote-sha1`, `local-sha1`, `summary-json`.
 
-[Unreleased]: https://github.com/backblaze-labs/b2-action/compare/v1.0.1...HEAD
+[Unreleased]: https://github.com/backblaze-labs/b2-action/compare/v1.2.0...HEAD
+[1.2.0]: https://github.com/backblaze-labs/b2-action/compare/v1.1.0...v1.2.0
+[1.1.0]: https://github.com/backblaze-labs/b2-action/compare/v1.0.1...v1.1.0
 [1.0.1]: https://github.com/backblaze-labs/b2-action/compare/v1.0.0...v1.0.1
 [1.0.0]: https://github.com/backblaze-labs/b2-action/releases/tag/v1.0.0

@@ -3,17 +3,23 @@
 This folder contains:
 
 - **`ci.yml`**: runs on every PR: typecheck, lint, vitest (Ubuntu / macOS / Windows), coverage gate, build, `dist/` freshness, bundle-size budget, offline self-smoke.
-- **`docs.yml`**: runs TypeDoc on every PR and deploys the generated API docs to GitHub Pages on pushes to `main`.
+- **`docs.yml`**: runs TypeDoc on every PR (output in `api-docs/`) and deploys the generated API docs to GitHub Pages on pushes to `main`.
+- **`docs-lint.yml`**: documentation gates on every PR: `action.yml` ↔ README sync check, markdownlint, offline link check (lychee), and cspell.
 - **`security.yml`**: runs the shared GitHub Actions security composite action against every workflow: actionlint, third-party action pin checks, and zizmor audits.
 - **`codeql.yml`**: CodeQL (SAST) static analysis of the TypeScript source. Runs on PRs to `main`, on push to `main`, and weekly; findings surface in the repo Security tab.
+- **`full-lockfile-audit.yml`**: PR/push + weekly + manual `pnpm audit --audit-level high` across the full lockfile (dev/build tooling included). PR failures are informational; default-branch failures manage labeled tracking issues.
+- **`full-lockfile-audit-heartbeat.yml`**: daily + manual check that a scheduled, manual, or main-push full-lockfile audit has fired recently; opens, updates, or closes a tracking issue for transient cron lapses after an audit has been observed.
+- **`mutation-testing.yml`**: weekly + manual batched per-file Stryker mutation testing for the files listed in `stryker.conf.json`. Default-branch failures manage a labeled tracking issue and upload the `reports/mutation` JSON artifact when available.
 - **`release.yml`**: fires on three-component `vX.Y.Z` tags (a bare `v1` does **not** trigger it): full gate + GitHub Release + floats the major-version tag (`v1`, `v2`, …).
 - **`daily-smoke.yml`**: 03:13 UTC cron: real-B2 end-to-end smoke against the test bucket.
 - **`large-multipart-smoke.yml`**: weekly real-B2 multipart upload + download SHA-1 integrity check for a payload above B2's recommended part size.
-- **`example-*.yml`**: twelve **example workflows that are also the integration test suite**. See the table below.
+- **`example-*.yml`**: thirteen **example workflows that are also the integration test suite**. See the table below.
 
 ## Example workflows (= integration test suite)
 
 Every `example-*.yml` is two things at once: a copy-paste-runnable snippet you can drop into your own repo (with secrets swapped in), and a live integration test that runs against this project's Backblaze test bucket. There is no separate `integration.yml`; these workflows *are* the integration suite.
+
+All but one run on `pull_request` as well as `push` and `workflow_dispatch`. `example-ml-cache-sync.yml` is `push` + `workflow_dispatch` only, enforced by `__tests__/workflow-policy.test.ts`, because it runs `uses: ./` with B2 secrets and a pull request can modify that action code.
 
 | Workflow | Demonstrates | Verb(s) |
 | --- | --- | --- |
@@ -29,6 +35,7 @@ Every `example-*.yml` is two things at once: a copy-paste-runnable snippet you c
 | [example-sse-encryption.yml](./example-sse-encryption.yml) | Round-trip with SSE-B2 and SSE-C | `upload`, `download`, `sse` |
 | [example-head.yml](./example-head.yml) | Probe remote object metadata (size, sha1, contentType, fileInfo) without a body transfer | `head` |
 | [example-purge.yml](./example-purge.yml) | Permanent wipe of every file version under a prefix, including hide markers and history | `purge` |
+| [example-ml-cache-sync.yml](./example-ml-cache-sync.yml) | Round-trip an ML cache with explicit `direction` on both legs, then diff the restored tree (push / dispatch only) | `sync`, `purge` |
 
 All are gated on `github.event.pull_request.head.repo.fork == false` so forks (which can't access repo secrets) skip silently. Maintainers can also dispatch each one manually from the Actions UI via `workflow_dispatch`.
 

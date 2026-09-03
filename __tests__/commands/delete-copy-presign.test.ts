@@ -1,12 +1,20 @@
 import { rm, writeFile } from 'node:fs/promises'
 import { join } from 'node:path'
-import { afterEach, beforeEach, describe, expect, it } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { copyCommand } from '../../src/commands/copy.ts'
 import { deleteCommand } from '../../src/commands/delete.ts'
 import { presignCommand } from '../../src/commands/presign.ts'
 import { uploadCommand } from '../../src/commands/upload.ts'
 import type { ParsedInputs } from '../../src/inputs.ts'
-import { captureFailure, makeFixture, makeInputs, seedFile, type TestFixture } from '../_helpers.ts'
+import {
+  captureFailure,
+  captureStdout,
+  makeFixture,
+  makeInputs,
+  seedFile,
+  seedGovernanceRetainedFile,
+  type TestFixture,
+} from '../_helpers.ts'
 
 function baseInputs(action: ParsedInputs['action']): ParsedInputs {
   return makeInputs(action, { bucket: 'gh-action-misc' })
@@ -77,6 +85,118 @@ describe('delete command', () => {
     expect(remaining.files.some((f) => f.fileName.startsWith('p/'))).toBe(false)
   })
 
+  it('requires bypass-governance to delete a governance-retained file by name', async () => {
+    await seedGovernanceRetainedFile(fx, 'locked-one.txt')
+
+    await expect(
+      deleteCommand(fx.bucket, {
+        ...baseInputs('delete'),
+        source: 'locked-one.txt',
+      }),
+    ).rejects.toThrow(/governance-mode retention/)
+
+    const result = await deleteCommand(fx.bucket, {
+      ...baseInputs('delete'),
+      source: 'locked-one.txt',
+      bypassGovernance: true,
+    })
+
+    expect(result.errors).toBe(0)
+    expect(result.files[0]?.skipped).toBe(false)
+
+    const after = await fx.bucket.listFileVersions({ prefix: 'locked-one.txt' })
+    expect(after.files).toHaveLength(0)
+  })
+
+  it('requires bypass-governance for governance-retained versions under a prefix', async () => {
+    await seedGovernanceRetainedFile(fx, 'locked-prefix/a.txt')
+    await seedGovernanceRetainedFile(fx, 'locked-prefix/b.txt')
+
+    const blocked = await deleteCommand(fx.bucket, {
+      ...baseInputs('delete'),
+      source: 'locked-prefix/',
+    })
+
+    expect(blocked.errors).toBe(2)
+    const afterBlocked = await fx.bucket.listFileVersions({ prefix: 'locked-prefix/' })
+    expect(afterBlocked.files).toHaveLength(2)
+
+    const result = await deleteCommand(fx.bucket, {
+      ...baseInputs('delete'),
+      source: 'locked-prefix/',
+      bypassGovernance: true,
+    })
+
+    expect(result.errors).toBe(0)
+    expect(result.files).toHaveLength(2)
+
+    const afterBypass = await fx.bucket.listFileVersions({ prefix: 'locked-prefix/' })
+    expect(afterBypass.files).toHaveLength(0)
+  })
+
+  it('dry-run does not consume bypass-governance for prefix delete previews', async () => {
+    await seedGovernanceRetainedFile(fx, 'locked-preview/a.txt')
+    const result = await deleteCommand(fx.bucket, {
+      ...baseInputs('delete'),
+      source: 'locked-preview/',
+      dryRun: true,
+      bypassGovernance: true,
+    })
+
+    expect(result.errors).toBe(0)
+    expect(result.files).toHaveLength(1)
+    expect(result.files[0]?.skipped).toBe(true)
+
+    const after = await fx.bucket.listFileVersions({ prefix: 'locked-preview/' })
+    expect(after.files).toHaveLength(1)
+  })
+
+  it('stops prefix deletes when the signal is already aborted', async () => {
+    await seedFile(fx, 'abort/a.txt', 'a')
+    const controller = new AbortController()
+    controller.abort(new Error('delete cancelled'))
+
+    await expect(
+      deleteCommand(
+        fx.bucket,
+        {
+          ...baseInputs('delete'),
+          source: 'abort/',
+        },
+        controller.signal,
+      ),
+    ).rejects.toThrow('delete cancelled')
+
+    const after = await fx.bucket.listFileVersions({ prefix: 'abort/' })
+    expect(after.files).toHaveLength(1)
+  })
+
+  it('does not log raw per-version delete error text', async () => {
+    const encodedSecret = encodeURIComponent('app/key+secret=42')
+    const bucket = {
+      name: 'gh-action-misc',
+      paginateFileVersions: async function* () {
+        yield { fileName: 'p/a.txt', fileId: 'id-a', action: 'upload' }
+      },
+      deleteFileVersion: async () => {
+        throw new Error(`delete denied with ${encodedSecret}`)
+      },
+    } as unknown as Parameters<typeof deleteCommand>[0]
+    let result: Awaited<ReturnType<typeof deleteCommand>> | undefined
+
+    const out = await captureStdout(async () => {
+      result = await deleteCommand(bucket, {
+        ...baseInputs('delete'),
+        source: 'p/',
+      })
+    })
+
+    expect(result?.errors).toBe(1)
+    expect(out).toContain('failed to delete p/a.txt: delete failed')
+    expect(out).not.toContain(encodedSecret)
+    expect(out).not.toContain('app/key+secret=42')
+  })
+
   it('throws when the file is not found', async () => {
     await expect(
       deleteCommand(fx.bucket, { ...baseInputs('delete'), source: 'nope.txt' }),
@@ -132,6 +252,34 @@ describe('copy command', () => {
     const remaining = await fx.bucket.listFileNames({ prefix: '' })
     expect(remaining.files.some((f) => f.fileName === 'src.txt')).toBe(true)
     expect(remaining.files.some((f) => f.fileName === 'archive/src.txt')).toBe(true)
+  })
+
+  it('passes abort signals to small-file copies', async () => {
+    const local = join(fx.workDir, 'signal-src.txt')
+    await writeFile(local, 'copy me')
+    await uploadCommand(fx.bucket, {
+      ...baseInputs('upload'),
+      source: local,
+      destination: 'signal-src.txt',
+    })
+
+    const signal = new AbortController().signal
+    const copyFileSpy = vi.spyOn(fx.bucket, 'copyFile')
+    try {
+      await copyCommand(
+        fx.client,
+        fx.bucket,
+        {
+          ...baseInputs('copy'),
+          source: 'signal-src.txt',
+          destination: 'archive/signal-src.txt',
+        },
+        signal,
+      )
+      expect(copyFileSpy).toHaveBeenCalledWith(expect.objectContaining({ signal }))
+    } finally {
+      copyFileSpy.mockRestore()
+    }
   })
 
   it('errors when source is missing', async () => {

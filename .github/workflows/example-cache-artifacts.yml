@@ -20,7 +20,7 @@ concurrency:
 jobs:
   cache:
     name: cache
-    if: github.event_name == 'workflow_dispatch' || github.event_name == 'push' || github.event.pull_request.head.repo.fork == false
+    if: github.event_name == 'workflow_dispatch' || github.event_name == 'push' || (github.event.pull_request.head.repo.fork == false && github.actor != 'dependabot[bot]')
     runs-on: ubuntu-latest
     # We hardcode `Linux` rather than `${{ runner.os }}` because the `runner`
     # context isn't allowed in job-level `env:` (only at step level). This job
@@ -28,7 +28,7 @@ jobs:
     env:
       CACHE_KEY: cache/Linux/example-${{ github.run_id }}.tar.gz
     steps:
-      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+      - uses: actions/checkout@9f698171ed81b15d1823a05fc7211befd50c8ae0 # v6.0.3
         with:
           persist-credentials: false
 
